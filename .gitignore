@@ -1,0 +1,10 @@
+.env.icli
+
+dist/
+cache*/
+icli/hist/
+
+*.log
+*.json
+*.txt
+poetry.lock

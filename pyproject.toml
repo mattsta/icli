@@ -1,0 +1,58 @@
+[tool.poetry]
+name = "icli"
+version = "0.7.6"
+description = "ibkr cli et al"
+authors = ["Matt Stancliff <matt@genges.com>"]
+license = "Apache-2.0"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.10"
+
+# IB API wrapper with better usability than the IBKR-provided libs
+ib-insync = "^0.9.66"
+
+# nice printing and data manipulation
+pandas = "^1.2.3"
+
+# easy time access
+pendulum = "^2.1.2"
+
+# running / logging
+prompt-toolkit = "^3.0.17"
+loguru = "^0.5.3"
+
+# for multi-step cli prompts
+questionary = "^1.9.0"
+tableprint = "^0.9.1"
+
+# for ANSI console color gradients
+seaborn = "^0.11.1"
+
+# for audio output
+pygame = "^2.0.1"
+
+# for configs
+python-dotenv = "^0.18.0"
+
+# for showing nice things
+prettyprinter = "^0.18.0"
+setproctitle = "^1.2.2"
+
+# saving things and converting IBKR HTML news into readable text
+diskcache = "^5.2.1"
+beautifulsoup4 = "^4.9.3"
+
+# our API helpers and wrappers
+tradeapis = { git = "https://github.com/mattsta/tradeapis.git", tag="1.0.3" }
+# tradeapis = { path = "../clients/", develop = true }
+
+[tool.poetry.dev-dependencies]
+data-science-types = "^0.2.23"
+mypy = "^0.812"
+
+[tool.poetry.scripts]
+icli = "icli.__main__:runit"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
