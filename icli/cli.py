@@ -221,6 +221,11 @@ class IBKRCmdlineApp:
     # The Connection
     ib: IB = field(default_factory=IB)
 
+    # generic cache for data usage (strikes, etc)
+    cache: Mapping[Any, Any] = field(
+        default_factory=lambda: diskcache.Cache("./cache-multipurpose")
+    )
+
     # State caches
     quoteState: dict[str, Ticker] = field(default_factory=dict)
     quoteContracts: dict[str, Contract] = field(default_factory=dict)
