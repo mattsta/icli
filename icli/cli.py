@@ -709,8 +709,11 @@ class IBKRCmdlineApp:
             ago = (self.now - (c.time or self.now)).as_interval()
             try:
                 percentUpFromLow = (
-                    abs(usePrice - c.low) / ((usePrice + c.low) / 2)
-                ) * 100
+                    (abs(usePrice - c.low) / ((usePrice + c.low) / 2)) * 100
+                    if usePrice >= c.low
+                    else 0
+                )
+
                 percentUpFromClose = (
                     ((usePrice - c.close) / ((usePrice + c.close) / 2)) * 100
                     if c.close
@@ -765,16 +768,24 @@ class IBKRCmdlineApp:
 
             # if bidsize or asksize are > 100,000, just show "100k" instead of breaking
             # the interface for being too wide
-            b_s = (
-                f"{c.bidSize:>6,}"
-                if (c.bidSize < 100_000 or np.isnan(c.bidSize))
-                else f"{c.bidSize // 1000:>5}k"
-            )
-            a_s = (
-                f"{c.askSize:>6,}"
-                if (c.askSize < 100_000 or np.isnan(c.askSize))
-                else f"{c.askSize // 1000:>5}k"
-            )
+
+            if np.isnan(c.bidSize):
+                b_s = f"{'X':>6}"
+            elif 0 < c.bidSize < 1:
+                b_s = f"{c.bidSize:>6.4f}"
+            elif c.bidSize < 100_000:
+                b_s = f"{int(c.bidSize):>6,}"
+            else:
+                b_s = f"{c.bidSize // 1000:>5}k"
+
+            if np.isnan(c.askSize):
+                a_s = f"{'X':>6}"
+            elif 0 < c.askSize < 1:
+                a_s = f"{c.askSize:>6.4f}"
+            elif c.askSize < 100_000 or np.isnan(c.askSize):
+                a_s = f"{int(c.askSize):>6,}"
+            else:
+                a_s = f"{c.askSize // 1000:>5}k"
 
             bigboi = (len(c.contract.localSymbol) > 15) or c.contract.comboLegs
 
@@ -799,8 +810,19 @@ class IBKRCmdlineApp:
                 # Also note: we use 'mark' here because after hours, IBKR reports
                 # the previous day closing price as the current price, which clearly
                 # isn't correct since it ignores the entire most recent day.
-                bighigh = ((mark / c.high if c.high else 1) - 1) * 100
-                biglow = ((mark / c.low if c.low else 1) - 1) * 100
+                bighigh = (
+                    ((mark / c.high if c.high else 1) - 1) * 100
+                    if mark <= c.high
+                    else 0
+                )
+
+                # only report low if current mark estimate is ABOVE the registered
+                # low for the day, else we report it as currently trading AT the low
+                # for the day instead of potentially BELOW the low for the day.
+                biglow = (
+                    ((mark / c.low if c.low else 1) - 1) * 100 if mark >= c.low else 0
+                )
+
                 bigclose = ((mark / c.close if c.close else 1) - 1) * 100
 
                 pctBigHigh, amtBigHigh = mkPctColor(
@@ -881,21 +903,21 @@ class IBKRCmdlineApp:
                         ]
                     )
                 else:
-                    rowName = f"{c.contract.localSymbol or c.contract.symbol:<6}:"
+                    rowName = f"{c.contract.localSymbol or c.contract.symbol:<7}:"
 
                     return " ".join(
                         [
                             rowName,
-                            f"[u {fmtPricePad(und, 8)} ({underlyingStrikeDifference or -0:>6,.2f}%)]",
+                            f"[u {fmtPricePad(und, padding=8, decimals=2)} ({underlyingStrikeDifference or -0:>7,.2f}%)]",
                             f"[iv {iv or 0:.2f}]",
-                            f"{fmtPriceOpt(mark)}",
+                            f"{fmtPriceOpt(mark):>6}",
                             # f"{fmtPriceOpt(usePrice)}",
-                            f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high)})",
-                            f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low)})",
-                            f"({pctBigClose} {amtBigClose} {fmtPriceOpt(c.close)})",
+                            f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
+                            f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low):>6})",
+                            f"({pctBigClose} {amtBigClose} {fmtPriceOpt(c.close):>6})",
                             #                        f"[h {fmtPriceOpt(c.high)}]",
                             #                        f"[l {fmtPriceOpt(c.low)}]",
-                            f" {fmtPriceOpt(c.bid)} x {b_s}   {fmtPriceOpt(c.ask)} x {a_s} ",
+                            f" {fmtPriceOpt(c.bid):>6} x {b_s}   {fmtPriceOpt(c.ask):>6} x {a_s} ",
                             #                        f"[c {fmtPriceOpt(c.close)}]",
                             f"  ({str(ago)})",
                             "HALTED!" if c.halted > 0 else "",
@@ -913,7 +935,7 @@ class IBKRCmdlineApp:
                 percentUpFromClose,
                 [
                     f"{percentUpFromClose:>6.2f}%",
-                    f"{amtClose:>7.2f}" if amtLow < 1000 else f"{amtClose:>7.0f}",
+                    f"{amtClose:>8.2f}" if amtLow < 1000 else f"{amtClose:>8.0f}",
                 ],
             )
 
