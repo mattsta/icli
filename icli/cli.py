@@ -719,7 +719,13 @@ class IBKRCmdlineApp:
         # Only print update if this is regular runtime and not
         # the "load all trades on startup" cycle
         if self.connected:
-            logger.warning("Order update: {}", trade)
+            logger.warning(
+                "[{} :: {} :: {}] Order update: {}",
+                trade.orderStatus.orderId,
+                trade.orderStatus.status,
+                trade.contract.localSymbol,
+                trade,
+            )
 
     def errorHandler(self, reqId, errorCode, errorString, contract):
         # Official error code list:
