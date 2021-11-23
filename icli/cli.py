@@ -71,6 +71,7 @@ from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
 import tradeapis.buylang as buylang
 
+
 # Configure logger where the ib_insync live service logs get written.
 # Note: if you have weird problems you don't think are being exposed
 # in the CLI, check this log file for what ib_insync is actually doing.
@@ -116,7 +117,6 @@ LIVE_ACCOUNT_STATUS = [
     "Cushion",
     "DailyPnL",
     "DayTradesRemaining",
-    # The API returns these, but ib_insync isn't allowing them yet.
     "DayTradesRemainingT+1",
     "DayTradesRemainingT+2",
     "DayTradesRemainingT+3",
@@ -1126,6 +1126,12 @@ class IBKRCmdlineApp:
                 # if val == 0:
                 #    continue
 
+                # Note: if your NLV is >= $25,000 USD, then the entire
+                #       DayTradesRemaining{,T+{1,2,3,4}} sections do not
+                #       show up in self.accountStatus anymore.
+                #       This also means if you are on the border of $25k ± 0.01,
+                #       the field will keep vanishing and showing up as your
+                #       account values bounces above and below the PDT threshold
                 if cat.startswith("DayTrades"):
                     # the only field we treat as just an integer
 
@@ -1149,7 +1155,7 @@ class IBKRCmdlineApp:
                     else:
                         # else, there is future day trade divergence,
                         # so print all the days.
-                        csv = ",".join([str(x) for x in DT])
+                        csv = ", ".join([str(x) for x in DT])
                         value = f"{section:<20} ({csv:>14})"
                 else:
                     # else, use our nice formatting
@@ -1589,19 +1595,6 @@ class IBKRCmdlineApp:
                     # reset bar cache so it doesn't grow forever...
                     for k, v in self.liveBars.items():
                         v.clear()
-                elif text1.lower().startswith("buy "):
-                    cmd, *rest = text1.split()
-                    symbol, qty, algo, profit, stop = rest
-                    qty = int(qty)
-                    profit = float(profit)
-                    stop = float(stop)
-                    contract = Future(
-                        currency="USD",
-                        symbol="MES",
-                        lastTradeDateOrContractMonth=FUT_EXP,
-                        exchange="GLOBEX",
-                    )
-                    order = self.midpointBracketBuyOrder(1, 5, 0.75)
                 elif text1 == "try":
                     logger.info("Ordering...")
                     logger.info("QS: {}", self.quoteState["ES"])
