@@ -1,7 +1,7 @@
 """ A refactor-base for splitting out common helpers between cli and lang """
 
 import ib_insync  # just for UNSET_DOUBLE
-from ib_insync import Stock, Future, Option, Warrant, FuturesOption
+from ib_insync import Stock, Future, Option, Warrant, FuturesOption, Bond, Crypto
 
 from icli.futsexchanges import FUTS_EXCHANGE
 import pandas as pd
@@ -296,6 +296,7 @@ class Q:
                 use_indicator=True,
                 use_shortcuts=True,
                 use_arrow_keys=True,
+                use_jk_keys=False,
                 # **kwargs,
             ).ask_async()
 
@@ -328,6 +329,7 @@ class CB:
             return questionary.checkbox(
                 message=self.msg,
                 choices=self.choices,
+                use_jk_keys=False,
                 # **kwargs,
             ).ask_async()
 

@@ -4,6 +4,9 @@ import enum
 
 from ib_insync import Bag, Contract
 
+import math
+import bisect
+import datetime
 from collections import Counter, defaultdict
 
 import mutil.dispatch
@@ -20,9 +23,9 @@ import icli.orders as orders
 import tradeapis.buylang as buylang
 
 import asyncio
+import aiohttp
 import pygame
 
-# import pprint
 import prettyprinter as pp
 
 pp.install_extras(["dataclasses"], warn_on_error=False)
@@ -70,7 +73,7 @@ ALGOMAP = dict(
 def lookupKey(contract):
     """Given a contract, return something we can use as a lookup key.
 
-    Needs some tricks here because spreads don't have a bulit-in
+    Needs some tricks here because spreads don't have a built-in
     one dimensional representation."""
 
     # exclude COMBO/BAG orders from local symbol replacement because
@@ -507,6 +510,7 @@ class IOpLimitOrder(IOp):
                 ORDER_TYPE_Q,
             ]
         else:
+            # OPENING
             promptPosition = [
                 Q("Symbol", value=" ".join(self.args)),
                 Q("Price"),
@@ -899,8 +903,11 @@ class IOpOrders(IOp):
             make["action"] = o.order.action
             make["orderType"] = o.order.orderType
             make["qty"] = o.order.totalQuantity
-            make["lmt"] = o.order.lmtPrice
-            make["aux"] = o.order.auxPrice
+            make["cashQty"] = (
+                f"{o.order.cashQty:,.2f}" if isset(o.order.cashQty) else None
+            )
+            make["lmt"] = f"{o.order.lmtPrice:,.2f}"
+            make["aux"] = f"{o.order.auxPrice:,.2f}"
             make["trail"] = (
                 f"{o.order.trailStopPrice:,.2f}"
                 if isset(o.order.trailStopPrice)
@@ -992,7 +999,7 @@ class IOpOrders(IOp):
             data=populate,
             columns=["id", "action", "sym", 'PC', 'date', 'strike',
                      "xchange", "orderType",
-                     "qty", "filled", "rem", "lmt", "aux", "trail", "tif",
+                     "qty", "cashQty", "filled", "rem", "lmt", "aux", "trail", "tif",
                      "4-8", "lreturn", "lcost", "occ", "legs", "log"],
         )
 
@@ -1095,10 +1102,15 @@ class IOpExecutions(IOp):
             needsPrices = "c_each shares price avgPrice commission realizedPNL".split()
             df[needsPrices] = df[needsPrices].applymap(fmtPrice)
 
+            # convert contract IDs to integers (and fill in any missing
+            # contract ids with placeholders so they don't get turned to
+            # strings with the global .fillna("") below).
+            df.conId = df.conId.fillna(-1).astype(int)
             df.fillna("", inplace=True)
 
             df.rename(columns={"lastTradeDateOrContractMonth": "date"}, inplace=True)
             # ignoring: "execId" (long string for execution recall) and "permId" (???)
+
             df = df[
                 (
                     """ secType conId symbol strike right date exchange localSymbol tradingClass time
