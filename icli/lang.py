@@ -37,12 +37,33 @@ ORDER_TYPE_Q = Q(
         Choice("Limit", "LMT"),
         Choice("Adaptive Fast", "LMT + ADAPTIVE + FAST"),
         Choice("Adaptive Slow", "LMT + ADAPTIVE + SLOW"),
-        Choice("Peg Primary", "REL"),
+        Choice("Peg Primary (RELATIVE)", "REL"),
         Choice("MidPrice", "MIDPRICE"),
         Choice("Market", "MKT"),
         Choice("Adaptive Fast Market", "MKT + ADAPTIVE + FAST"),
         Choice("Adaptive Slow Market", "MKT + ADAPTIVE + SLOW"),
+        Choice("Market on Open (MOO)", "MOO"),
+        Choice("Market on Close (MOC)", "MOC"),
     ],
+)
+
+# Also map for user typing shorthand on command line order entry.
+# Values aliases are allowed for easier memory/typing support.
+ALGOMAP = dict(
+    LMT="LMT",
+    LIM="LMT",
+    LIMIT="LMT",
+    AF="LMT + ADAPTIVE + FAST",
+    AS="LMT + ADAPTIVE + SLOW",
+    MID="MIDPRICE",
+    MP="MIDPRICE",
+    REL="REL",
+    AFM="MKT + ADAPTIVE + FAST",
+    ASM="MKT + ADAPTIVE + SLOW",
+    AMF="MKT + ADAPTIVE + FAST",
+    AMS="MKT + ADAPTIVE + SLOW",
+    MOO="MOO",
+    MOC="MOC",
 )
 
 
