@@ -523,10 +523,21 @@ class IBKRCmdlineApp:
         # else, break out by order size, sorted from smallest to largest exit prices
         return sorted(ts, key=lambda x: abs(x[1]))
 
-    def currentQuote(self, sym):
+    def currentQuote(self, sym) -> Optional[Tuple[float, float]]:
         q = self.quoteState[sym.upper()]
-        show = f"{q.contract.symbol}: bid {q.bid:,.2f} x {q.bidSize}     ask {q.ask:,.2f} x {q.askSize}     last {q.last:,.2f} x {q.lastSize}"
-        logger.info(show)
+        ago = (self.now - (q.time or self.now)).as_interval()
+        show = [
+            f"{q.contract.symbol}: bid {q.bid:,.2f} x {q.bidSize}",
+            f"ask {q.ask:,.2f} x {q.askSize}",
+            f"mid {(q.bid + q.ask) / 2:,.2f}",
+            f"last {q.last:,.2f} x {q.lastSize}",
+            f"ago {str(ago)}",
+        ]
+        logger.info("    ".join(show))
+
+        # if no quote yet (or no prices available), return nothing...
+        if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
+            return None
 
         return q.bid, q.ask
 
@@ -670,6 +681,8 @@ class IBKRCmdlineApp:
         self.pnlSingle[v.conId] = v
 
     def bottomToolbar(self):
+        self.now = pendulum.now()
+
         def fmtPrice2(n: float):
             # Some prices may not be populated if they haven't
             # happened yet (e.g. PNL values if no trades for the day yet, etc)
@@ -693,6 +706,7 @@ class IBKRCmdlineApp:
         # https://ib-insync.readthedocs.io/api.html#module-ib_insync.ticker
         def formatTicker(c):
             usePrice = c.marketPrice()
+            ago = (self.now - (c.time or self.now)).as_interval()
             try:
                 percentUpFromLow = (
                     abs(usePrice - c.low) / ((usePrice + c.low) / 2)
@@ -883,6 +897,7 @@ class IBKRCmdlineApp:
                             #                        f"[l {fmtPriceOpt(c.low)}]",
                             f" {fmtPriceOpt(c.bid)} x {b_s}   {fmtPriceOpt(c.ask)} x {a_s} ",
                             #                        f"[c {fmtPriceOpt(c.close)}]",
+                            f"  ({str(ago)})",
                             "HALTED!" if c.halted > 0 else "",
                         ]
                     )
@@ -902,7 +917,7 @@ class IBKRCmdlineApp:
                 ],
             )
 
-            return f"{c.contract.localSymbol or c.contract.symbol:<6}: {fmtPricePad(usePrice)}  ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} {fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}  {fmtPricePad(c.open)} {fmtPricePad(c.close)}"
+            return f"{c.contract.localSymbol or c.contract.symbol:<7}: {fmtPricePad(usePrice)}  ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} {fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}  {fmtPricePad(c.open)} {fmtPricePad(c.close)}    ({str(ago)})"
 
         try:
             pass
