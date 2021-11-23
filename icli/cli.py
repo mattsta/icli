@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 import diskcache
 
 from icli.futsexchanges import FUTS_EXCHANGE
+import icli.orders as orders
 import decimal
 import sys
 
@@ -46,6 +47,7 @@ import ib_insync
 from ib_insync import (
     IB,
     Contract,
+    Trade,
     Bag,
     ComboLeg,
     Ticker,
@@ -387,6 +389,173 @@ class IBKRCmdlineApp:
             comboLegs=legs,
             currency=currency,
         )
+
+    async def placeOrderForContract(
+        self,
+        sym: str,
+        isLong: bool,
+        contract: Contract,
+        qty: float,
+        price: float,
+        orderType: str,
+    ):
+        """Place a BUY (isLong) or SELL (!isLong) for qualified 'contract' at qty/price.
+
+        If 'qty' is negative we calculate a live quantity based
+        on the live quote price (live hours only, obvs).
+
+        If 'price' is zero, we snap to midpoint for the limit price."""
+
+        # Immediately ask to add quote to live quotes for this trade positioning...
+        await self.dispatch.runop("add", f'"{sym}"', self.opstate)
+
+        if not contract.conId:
+            # spead contracts don't have IDs, so only reject if NOT a spread here.
+            if contract.tradingClass != "COMB":
+                logger.error("Not submitting order because contract not qualified!")
+                return None
+
+        if isinstance(contract, (Option, Bag)) or contract.tradingClass == "COMB":
+            # don't trigger warning about "RTH option has no effect" with options...
+            # TODO: check if RTH includes extended late 4:15 ending options SPY / SPX / QQQ / IWM / etc?
+            outsideRth = False
+        else:
+            outsideRth = True
+
+        if isinstance(contract, Crypto) and isLong:
+            # Crypto can only use IOC or Minutes for tif BUY
+            # (but can use IOC, Minutes, Day, GTC for SELL)
+            tif = "Minutes"
+        else:
+            tif = "GTC"
+
+        if qty < 0:
+            # we treat negative quantities as dollar amounts (because
+            # we convert 'qty' to float, so we can't pass through $3000, so
+            # instead we do -3000 for $3,000).
+
+            # also note: negative quantites are not shorts, shorts are specified
+            # by SELL QTY, not SELL -QTY, not BUY -QTY.
+
+            quoteKey = lang.lookupKey(contract)
+
+            # if this is a new quote just requested, we may need to wait
+            # for the system to populate it...
+            loopFor = 10
+            while not (currentQuote := self.currentQuote(quoteKey)):
+                logger.warning(
+                    "[{} :: {}] Waiting for quote to populate...", quoteKey, loopFor
+                )
+                try:
+                    await asyncio.sleep(0.133)
+                except:
+                    logger.warning("Cancelled waiting for quote...")
+                    return
+
+                if (loopFor := loopFor - 1) == 0:
+                    # if we exhausted the loop, we didn't get a usable quote so we can't
+                    # do the requested price-based position sizing.
+                    logger.error("Never received valid quote prices: {}", currentQuote)
+                    return
+
+            bid, ask = currentQuote
+
+            # TODO: need customizable aggressiveness levels
+            #   - midpoint (default)
+            #   - ask + X% for aggressive time sensitive buys
+            #   - bid - X% for aggressive time sensitive sells
+            # TODO: need to create active management system to track growing/shrinking
+            #       midpoint for buys (+price, -qty) or sell (-price) targeting.
+
+            # calculate current midpoint of spread rounded to 2 decimals.
+            mid = round((bid + ask) / 2, 2)
+            price = mid
+
+            # negative quantities are whole dollar amounts to use for
+            # the buy/sell here.
+            amt = abs(qty)
+
+            qty = self.state.quantityForAmount(contract, amt, mid)
+
+            if not isinstance(contract, Crypto):
+                # only crypto orders support fractional quantities over the API.
+                # TODO: if IBKR ever enables fractional shares over the API,
+                #       we can make the above Crypto check for (Crypto, Stock).
+                qty = math.floor(qty)
+
+            # If integer, show integer, else show fractions.
+            logger.info(
+                "Ordering {:,} {} at ${:,.2f} for ${:,.2f}",
+                qty,
+                sym,
+                price,
+                qty * price,
+            )
+
+        order = orders.IOrder(
+            "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif
+        ).order(orderType)
+
+        logger.info("Ordering {} via {}", contract, order)
+        trade = self.ib.placeOrder(contract, order)
+
+        # TODO: add agent-like feature to modify order in steps for buys (+price, -qty)
+        #       or for sells (-price)
+        logger.info("Placed: {}", pp.pformat(trade))
+
+        return order, trade
+
+    def amountForTrade(
+        self, trade: Trade
+    ) -> Tuple[float, float, float, Union[float, int]]:
+        """Return dollar amount of trade given current limit price and quantity.
+
+        Also compensates for contract multipliers correctly.
+
+        Returns:
+            - calculated remaining amount
+            - calculated total amount
+            - current limit price
+            - current quantity remaining
+        """
+
+        currentPrice = trade.order.lmtPrice
+        currentQty = trade.orderStatus.remaining
+        totalQty = currentQty + trade.orderStatus.filled
+
+        # If contract has multiplier (like 100 underlying per option),
+        # calculate total spend with mul * p * q.
+        # The default "no multiplier" value is '', so this check should be fine.
+        mul = int(trade.contract.multiplier) if trade.contract.multiplier else 1
+
+        # use average price IF fills have happened, else use current limit price
+        return (
+            currentQty * currentPrice * mul,
+            totalQty * (avgFillPrice or currentPrice) * mul,
+            currentPrice,
+            currentQty,
+        )
+
+    def quantityForAmount(
+        self, contract: Contract, amount: float, limitPrice: float
+    ) -> Union[int, float]:
+        """Return valid quantity for contract using total dollar amount 'amount'.
+
+        Also compensates for limitPrice being a contract quantity.
+
+        Also compensates for contracts allowing fractional quantities (Crypto)
+        versus only integer quantities (everything else)."""
+
+        mul = int(contract.multiplier) if contract.multiplier else 1
+        qty = amount / (limitPrice * mul)
+
+        if not isinstance(contract, Crypto):
+            # only crypto orders support fractional quantities over the API.
+            # TODO: if IBKR ever enables fractional shares over the API,
+            #       we can make the above Crypto check for (Crypto, Stock).
+            qty = math.floor(qty)
+
+        return qty
 
     def midpointBracketBuyOrder(
         self,
@@ -1083,7 +1252,7 @@ class IBKRCmdlineApp:
         # wait until we start getting data from the gateway...
         loop = asyncio.get_event_loop()
 
-        dispatch = lang.Dispatch()
+        self.dispatch = lang.Dispatch()
         pygame.mixer.init()
 
         # TODO: could probably just be: pathlib.Path(__file__).parent
@@ -1279,9 +1448,9 @@ class IBKRCmdlineApp:
                 )
 
                 # Attempt to run the command submitted into the prompt
-                cmd, *rest = text1.split(" ", 1)
+                cmd, *rest = text1.strip().split(" ", 1)
                 with Timer(cmd):
-                    result = await dispatch.runop(
+                    result = await self.dispatch.runop(
                         cmd, rest[0] if rest else None, self.opstate
                     )
 
