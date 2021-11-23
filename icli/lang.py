@@ -100,7 +100,9 @@ class IOp(mutil.dispatch.Op):
 
     def __post_init__(self):
         # for ease of use, populate state IB into our own instance
+        assert self.state
         self.ib = self.state.ib
+        self.cache = self.state.cache
 
 
 @dataclass
