@@ -99,8 +99,32 @@ def contractForName(sym, exchange="SMART", currency="USD"):
             currency=currency,
         )
     else:
-        # TODO: warrants, bonds, bills, etc
-        contract = Stock(sym, exchange, currency)
+        # if symbol has a : we are namespacing by type:
+        #   - W: - warrant
+        #   - C: - crypto
+        #   - B: - bond
+        #   - S: - stock (or no contract namespace)
+        # Note: futures and future options are prefixed with /
+        #       equity options are the full OCC symbol with no prefix
+        namespaceParts = sym.split(":")
+        if len(namespaceParts) > 1:
+            contractNamespace, symbol = namespaceParts
+            if contractNamespace == "W":
+                # TODO: needs option-like strike, right, multiplier, contract date spec too
+                contract = Warrant(
+                    symbol=symbol, exchange=exchange, currency=currency, right="C"
+                )
+                # Requires all the details like:
+                # contract = Warrant(conId=504262528, symbol='BGRY', lastTradeDateOrContractMonth='20261210', strike=11.5, right='C', multiplier='1', primaryExchange='NASDAQ', currency='USD', localSymbol='BGRYW', tradingClass='BGRY')
+            elif contractNamespace == "C":
+                contract = Crypto(symbol=symbol, exchange="PAXOS", currency=currency)
+            elif contractNamespace == "B":
+                contract = Bond(symbol, exchange, currency)
+            elif contractNamespace == "S":
+                contract = Stock(symbol, exchange, currency)
+        else:
+            # TODO: warrants, bonds, bills, etc
+            contract = Stock(sym, exchange, currency)
 
     return contract
 
