@@ -1185,6 +1185,11 @@ class IBKRCmdlineApp:
                     priority = FUT_ORD[c.symbol] if c.symbol in FUT_ORD else 0
                     return (0, priority, c.symbol)
 
+                # draw crypto quotes under futures quotes
+                if c.secType == "CRYPTO":
+                    priority = 0
+                    return (0, priority, c.symbol)
+
                 if c.secType == "OPT":
                     # options are medium last because they are wide
                     priority = 0

@@ -36,10 +36,12 @@ class IOrder:
 
     action: Literal["BUY", "SELL"]
 
-    qty: int
+    qty: float
 
     # basic limit price
     lmt: float = 0.00
+
+    qtycash: int = 0.00  # specify amount as spend value instead of shares or contracts
 
     # aux holds anything not a limit price and not a trailing percentage:
     #   - stop price for stop / stop limita / stop with protection
@@ -145,9 +147,25 @@ class IOrder:
             "REL + MKT": self.comboPrimaryPegMkt,
             "REL + LMT": self.comboPrimaryPegLmt,
             "LMT + MKT": self.comboLmtMkt,
+            # Market Auction Orders
+            "MOO": self.moo,
+            "MOC": self.moc,
         }
 
         return omap[orderType]()
+
+    def adjustForCashQuantity(self, o):
+        """Check if we need to use cash instead of direct quantity.
+
+        IBKR API allows order size as cash value optionally.
+        So we check if the inbound quantity is a string starting with
+        a currency spec, then use cash quantity instead of share/contract
+        quantity."""
+
+        if isinstance(self.qty, str) and self.qty.startswith("$"):
+            cashqty = float(self.qty[1:])
+            o.totalQuantity = 0
+            o.cashQty = cashqty
 
     def commonArgs(self, override: dict[str, Any] = None) -> dict[str, Any]:
         common = dict(
@@ -167,7 +185,7 @@ class IOrder:
         # Floating MIDPRICE with no caps:
         # https://interactivebrokers.github.io/tws-api/ibalgos.html#midprice
         # Also note: midprice is ONLY for RTH usage
-        return Order(
+        o = Order(
             action=self.action,
             totalQuantity=self.qty,
             lmtPrice=self.lmt,  # API docs say "optional" but API errors out unless price given. shrug.
@@ -175,17 +193,23 @@ class IOrder:
             **self.commonArgs(dict(tif="DAY")),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def market(self) -> Order:
-        return Order(
+        o = Order(
             action=self.action,
             totalQuantity=self.qty,
             orderType="MKT",
             **self.commonArgs(),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def adaptiveFastLmt(self) -> LimitOrder:
         # Note: adaptive can't be GTC!
-        return LimitOrder(
+        o = LimitOrder(
             action=self.action,
             totalQuantity=self.qty,
             lmtPrice=self.lmt,
@@ -193,10 +217,13 @@ class IOrder:
             algoParams=[TagValue("adaptivePriority", "Urgent")],
             **self.commonArgs(dict(tif="DAY")),
         )
+
+        self.adjustForCashQuantity(o)
+        return o
 
     def adaptiveSlowLmt(self) -> LimitOrder:
         # Note: adaptive can't be GTC!
-        return LimitOrder(
+        o = LimitOrder(
             action=self.action,
             totalQuantity=self.qty,
             lmtPrice=self.lmt,
@@ -205,9 +232,12 @@ class IOrder:
             **self.commonArgs(dict(tif="DAY")),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def adaptiveFastMkt(self) -> MarketOrder:
         # Note: adaptive can't be GTC!
-        return MarketOrder(
+        o = MarketOrder(
             action=self.action,
             totalQuantity=self.qty,
             algoStrategy="Adaptive",
@@ -215,9 +245,12 @@ class IOrder:
             **self.commonArgs(dict(tif="DAY")),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def adaptiveSlowMkt(self) -> MarketOrder:
         # Note: adaptive can't be GTC!
-        return MarketOrder(
+        o = MarketOrder(
             action=self.action,
             totalQuantity=self.qty,
             algoStrategy="Adaptive",
@@ -225,14 +258,20 @@ class IOrder:
             **self.commonArgs(dict(tif="DAY")),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def stopLimit(self) -> StopLimitOrder:
-        return StopLimitOrder(
+        o = StopLimitOrder(
             self.action,
             self.qty,
             self.lmt,  # Limit price under the stop...
             self.aux,  # Stop trigger price...
             **self.commonArgs(),
         )
+
+        self.adjustForCashQuantity(o)
+        return o
 
     def trailingStopLimit(self) -> Order:
         if self.aux and self.trailpct:
@@ -245,7 +284,8 @@ class IOrder:
             whichTrail = dict(auxPrice=self.aux)
         else:
             whichTrail = dict(trailingPercent=self.trailpct)
-        return Order(
+
+        o = Order(
             action=self.action,
             totalQuantity=self.qty,
             lmtPriceOffset=self.lmtPriceOffset,  # HOW FAR DOWN TO START THE LIMIT ± AGAINST CURRENT PRICE (- sell, + buy)
@@ -255,16 +295,22 @@ class IOrder:
             **self.commonArgs(),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def limit(self) -> LimitOrder:
-        return LimitOrder(
+        o = LimitOrder(
             self.action,
             self.qty,
             self.lmt,
             **self.commonArgs(),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def pegPrimary(self) -> Order:
-        return Order(
+        o = Order(
             action=self.action,
             totalQuantity=self.qty,
             lmtPrice=self.lmt,  # API docs say "optional" but API errors out unless price given. shrug.
@@ -273,11 +319,14 @@ class IOrder:
             **self.commonArgs(),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def comboPrimaryPegMkt(self) -> Order:
         """Submitted as REL, but when one leg fills, other leg is eaten at market."""
         # Explained at:
         # https://www.interactivebrokers.com/en/software/tws/usersguidebook/ordertypes/relative___market.htm
-        return Order(
+        o = Order(
             action=self.action,
             totalQuantity=self.qty,
             triggerPrice=self.triggerprice,
@@ -285,10 +334,13 @@ class IOrder:
             **self.commonArgs(),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def comboPrimaryPegLmt(self) -> Order:
         """Submitted as REL, but when REL triggers, other is limit? So can't be guaranteed? This isn't described anywhere."""
         # Explained at:
-        return Order(
+        o = Order(
             action=self.action,
             totalQuantity=self.qty,
             triggerPrice=self.aux,
@@ -296,16 +348,53 @@ class IOrder:
             **self.commonArgs(),
         )
 
+        self.adjustForCashQuantity(o)
+        return o
+
     def comboLmtMkt(self) -> Order:
         """Submitted as LMT, but other leg goes market when limit hits."""
         # https://www.interactivebrokers.com/en/software/tws/usersguidebook/ordertypes/limit___market.htm
-        return Order(
+        o = Order(
             action=self.action,
             totalQuantity=self.qty,
             triggerPrice=self.lmt,
             orderType="LMT + MKT",
             **self.commonArgs(),
         )
+
+        self.adjustForCashQuantity(o)
+        return o
+
+    def moo(self) -> Order:
+        """Market-on-Open Order.
+
+        Only specify quantity since price is determined by opening auction."""
+        o = Order(
+            action=self.action,
+            totalQuantity=self.qty,
+            orderType="MKT",
+            **self.commonArgs(),
+        )
+
+        o.tif = "OPG"  # opening
+        o.outsideRth = False
+        return o
+
+    def moc(self) -> Order:
+        """Market-on-Close Order.
+
+        Only specify quantity since price is determined by closing auction."""
+        o = Order(
+            action=self.action,
+            totalQuantity=self.qty,
+            orderType="MOC",
+            **self.commonArgs(),
+        )
+
+        # no TIF allowed for closing auction orders, it just hits the next one
+        o.tif = ""
+        o.outsideRth = False
+        return o
 
 
 @enum.unique
