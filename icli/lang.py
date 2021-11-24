@@ -234,7 +234,7 @@ class IOpQQuote(IOp):
 
 
 @dataclass
-class IOpEvict(IOp):
+class IOpPositionEvict(IOp):
     """Evict a position using MIDPRICE sell order."""
 
     def argmap(self):
@@ -395,7 +395,7 @@ class IOpRID(IOp):
 
 
 @dataclass
-class IOpModifyOrder(IOp):
+class IOpOrderModify(IOp):
     """Modify an existing order using interactive prompts."""
 
     def argmap(self):
@@ -592,7 +592,7 @@ class IOpCachedQuote(IOp):
 
 
 @dataclass
-class IOpCancelOrders(IOp):
+class IOpOrderCancel(IOp):
     """Cancel waiting orders via order ids or interactive prompt."""
 
     def argmap(self):
@@ -1254,7 +1254,7 @@ class IOpQuotesRemove(IOp):
 
 
 @dataclass
-class IOpSpreadOrder(IOp):
+class IOpOrderSpread(IOp):
     """Place a spread order described by using BuyLang/OrderLang"""
 
     def argmap(self):
@@ -1342,11 +1342,13 @@ OP_MAP = {
         "chains": IOpOptionChain,
     },
     "Order Management": {
-        "limit": IOpLimitOrder,
-        "spread": IOpSpreadOrder,
-        "modify": IOpModifyOrder,
-        "evict": IOpEvict,
-        "cancel": IOpCancelOrders,
+        "limit": IOpOrderLimit,
+        "buy": IOpOrder,
+        "fast": IOpOrderFast,
+        "spread": IOpOrderSpread,
+        "modify": IOpOrderModify,
+        "evict": IOpPositionEvict,
+        "cancel": IOpOrderCancel,
     },
     "Portfolio": {
         "balance": IOpBalance,
