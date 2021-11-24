@@ -18,7 +18,7 @@ pandas = "^1.2.3"
 pendulum = "^2.1.2"
 
 # running / logging
-prompt-toolkit = "^3.0.17"
+prompt-toolkit = "3.0.19"
 loguru = "^0.5.3"
 
 # for multi-step cli prompts
@@ -30,9 +30,6 @@ seaborn = "^0.11.1"
 
 # for audio output
 pygame = "^2.0.1"
-
-# for configs
-python-dotenv = "^0.18.0"
 
 # for showing nice things
 prettyprinter = "^0.18.0"
