@@ -20,10 +20,9 @@ from dotenv import dotenv_values
 import os
 
 # TODO: detect this automatically:
-FU_DEFAULT = dict(ICLI_FUT_EXP=202109)
+FU_DEFAULT = dict(ICLI_FUT_EXP=202112)
 FU_CONFIG = {**FU_DEFAULT, **dotenv_values(".env.icli"), **os.environ}
 
-# FUT_EXP = "202106"
 FUT_EXP = FU_CONFIG["ICLI_FUT_EXP"]
 
 

@@ -1432,7 +1432,7 @@ class IBKRCmdlineApp:
                 FileHistory(
                     os.path.expanduser(f"~/.tplatcli_ibkr_history.{self.levelName()}")
                 )
-            )
+            ),
         )
 
         app = session.app

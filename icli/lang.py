@@ -771,6 +771,11 @@ class IOpPositions(IOp):
         for o in ords:  # , key=lambda p: p.contract.localSymbol):
             backQuickRef.append((o.contract.secType, o.contract.symbol, o.contract))
 
+            # Nice debug output showing full contracts.
+            # TODO: enable global debug flags for showing these
+            # maybe just enable logger.debug mode via a command?
+            # logger.info("{}", o.contract)
+
             make = {}
 
             # 't' used for switching on OPT/WAR/STK/FUT types later too.
@@ -1268,6 +1273,7 @@ class IOpQuotesRemove(IOp):
 
     async def run(self):
         for sym in self.symbols:
+            sym = sym.upper()
             if len(sym) > 30:
                 # this is a combo request, so we need to evaluate, resolve, then key it
                 orderReq = self.state.ol.parse(sym)
@@ -1398,11 +1404,9 @@ OP_MAP = {
         "rid": IOpRID,
     },
     "Utilities": {
-        "fast": None,
         "rcheck": None,
         "future": None,
         "bars": None,
-        "buy": None,
         "try": None,
         "tryf": None,
         "snd": IOpSound,
