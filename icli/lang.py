@@ -1089,8 +1089,15 @@ class IOpOrderFast(IOp):
         # live follow all new strike order simmultaenously.
         # (currently around line 585)
 
+
+@dataclass
+class IOpOrderLimit(IOp):
+    """Create a new buy or sell order using limit, market, or algo orders."""
+
     def argmap(self):
         # allow symbol on command line, optionally
+        # symbols are retrieved using just self.args instead of being direct
+        # required params here.
         return []
 
     async def run(self):
@@ -1102,6 +1109,7 @@ class IOpOrderFast(IOp):
                     "Sell to Close",
                     "Sell to Open",
                     "Buy to Close",
+                    "Butterfly Lock Gains to Close",
                 ],
             ),
         ]
@@ -1109,8 +1117,10 @@ class IOpOrderFast(IOp):
         gotside = await self.state.qask(promptSide)
 
         try:
-            isClose = "to Close" in gotside["Side"]
-            isSell = "Sell" in gotside["Side"]
+            side = gotside["Side"]
+            isClose = "to Close" in side
+            isSell = "Sell" in side
+            isButterflyClose = "Butterfly" in side
         except:
             # user canceled prompt, so skip
             return None
@@ -1146,6 +1156,7 @@ class IOpOrderFast(IOp):
             ]
         else:
             # OPENING
+            # provide any arguments as pre-populated symbol by default
             promptPosition = [
                 Q("Symbol", value=" ".join(self.args)),
                 Q("Price"),
@@ -1161,24 +1172,87 @@ class IOpOrderFast(IOp):
 
         # if user canceled the form, just prompt again
         try:
-            sym = got["Symbol"]
+            # sym here is EITHER:
+            #   - input string provided by user
+            #   - the cached PortfolioItem if this is a Close order on current position
+            symInput = got["Symbol"]
+
+            contract = None
+            portItem = None  # portfolioItem
+            # if sym is a CONTRACT, make it explicit and also
+            # retain the symbol name independently
+            if isinstance(symInput, str):
+                sym = symInput
+            else:
+                portItem = symInput
+                contract: Contract = portItem.contract
+                sym: str = contract.symbol
+
             qty = float(got["Quantity"])
             price = float(got["Price"])
             isLong = gotside["Side"].startswith("Buy")
             orderType = got["Order Type"]
         except:
             # logger.exception("Failed to get field?")
-            logger.info("Order creation canceled by user")
+            logger.exception("Order creation canceled by user")
             return None
 
         # if order is To Close, then find symbol inside our active portfolio
         if isClose:
-            portitems = self.ib.portfolio()
-            contract = sym.contract
-            qty = sym.position if (qty is None or qty == -1) else qty
+            # abs() because for orders, positions are always positive quantities
+            # even though they are reported as negative shares/contracts in the
+            # order status table.
+            isShort = portItem.position < 0
+            qty = abs(portItem.position) if (qty is None or qty == -1) else qty
 
             if contract is None:
                 logger.error("Symbol [{}] not found in portfolio for closing!", sym)
+
+            if isButterflyClose:
+                strikesDict = await self.state.dispatch.runop(
+                    "chains", sym, self.state.opstate
+                )
+
+                # strikes are in a dict by expiration date,
+                # so symbol AAPL211112C00150000 will have expiration
+                # 211112 with key 20211112 in the strikesDict return
+                # value from the "chains" operation.
+                strikes = strikes["20" + sym[-15 : -15 + 6]]
+
+                currentStrike = float(sym[-8:]) / 1000
+                pos = bisect.bisect_left(strikes, currentStrike)
+                # TODO: filter this better if we are at top of chain
+                (l2, l1, current, h1, h2) = strikes[pos - 2 : pos + 3]
+
+                # verify we found the correct midpoint or else the next strike
+                # calculations will be all bad
+                assert (
+                    current == currentStrike
+                ), f"Didn't find strike in chain? {current} != {currentStrike}"
+
+                underlying = sym[:-15]
+                contractDateSide = sym[-15 : -15 + 7]
+
+                # closing a short with butterfly is a middle BUY
+                # closing a long with butterfly is a middle SELL
+                if isShort:
+                    # we are short a high strike, so close on lower strikes.
+                    # e.g. SHORT -1 $150p, so BUY 2 $145p, SELL 1 140p
+                    ratio2 = f"{underlying}{contractDateSide}{int(l1 * 1000):08}"
+                    ratio1 = f"{underlying}{contractDateSide}{int(l2 * 1000):08}"
+                    bOrder = f"buy 2 {ratio2} sell 1 {ratio1}"
+                else:
+                    # we are long a low strike, so close on higher strikes.
+                    # e.g. LONG +1 $150c, so SELL 2 $155c, BUY 1 $160c
+                    ratio2 = f"{underlying}{contractDateSide}{int(h1 * 1000):08}"
+                    ratio1 = f"{underlying}{contractDateSide}{int(h2 * 1000):08}"
+                    bOrder = f"sell 2 {ratio2} buy 1 {ratio1}"
+
+                # use 'bOrder' for 'sym' string reporting and logging going forward
+                sym = bOrder
+                logger.info("[{}] Requesting butterfly order: {}", sym, bOrder)
+                orderReq = self.state.ol.parse(bOrder)
+                contract = await self.state.bagForSpread(orderReq)
         else:
             contract = contractForName(sym)
 
@@ -1186,26 +1260,15 @@ class IOpOrderFast(IOp):
             logger.error("Not submitting order because contract can't be formatted!")
             return None
 
-        await self.state.qualify(contract)
+        if not isButterflyClose:
+            # butterfly spread is already qualified when created above
+            await self.state.qualify(contract)
 
-        if not contract.conId:
-            logger.error("Not submitting order because contract not qualified!")
-            return None
+        return await self.state.placeOrderForContract(
+            sym, isLong, contract, qty, price, orderType
+        )
 
-        if isinstance(contract, Option):
-            # don't break RTH with options...
-            # TODO: check against extended late 4:15 ending options SPY / SPX / QQQ / etc?
-            outsideRth = False
-        else:
-            outsideRth = True
-
-        order = orders.IOrder(
-            "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth
-        ).order(orderType)
-
-        logger.info("Ordering {} via {}", contract, order)
-        trade = self.ib.placeOrder(contract, order)
-        logger.info("Placed: {}", pp.pformat(trade))
+        # TODO: allow opt-in to midpoint price adjustment following.
 
 
 @dataclass
