@@ -515,7 +515,580 @@ class IOpOrderModify(IOp):
 
 
 @dataclass
-class IOpLimitOrder(IOp):
+class IOpOrder(IOp):
+    """Quick order entry with full order described on command line."""
+
+    def argmap(self):
+        # TODO: write a parser for this language instead of requiring fixed orders for each parameter
+        # allow symbol on command line, optionally
+        # BUY IWM QTY 500 PRICE 245 ORD LIMIT/LIM/LMT AF AS REL MP AMF AMS MOO MOC
+        return [
+            DArg("bs", verify=lambda x: x.lower() in {"b", "s", "buy", "sell"}),
+            DArg("symbol"),
+            DArg("q", verify=lambda x: x.lower() in {"q", "qty"}),
+            DArg("qty", convert=float, verify=lambda x: x != 0),
+            DArg("p", verify=lambda x: x.lower() in {"p", "price"}),
+            DArg("price", convert=float, verify=lambda x: x >= 0),
+            DArg("a", verify=lambda x: x.lower() in {"a", "algo"}),
+            DArg(
+                "algo",
+                convert=lambda x: x.upper(),
+                verify=lambda x: x in ALGOMAP.keys(),
+                errmsg=f"Available algos: {pp.pformat(ALGOMAP)}",
+            ),
+        ]
+
+    async def run(self):
+        if " " in self.symbol:
+            # is spread, so do bag
+            isSpread = True
+            orderReq = self.state.ol.parse(bOrder)
+            contract = await self.state.bagForSpread(orderReq)
+        else:
+            # else, is symbol
+            isSpread = False
+            contract = contractForName(self.symbol)
+
+        if contract is None:
+            logger.error("Not submitting order because contract can't be formatted!")
+            return None
+
+        if not isSpread:
+            # spreads are qualified when they are initially populated
+            await self.state.qualify(contract)
+
+        # B BUY is Long
+        # S SELL is Short
+        isLong = self.bs.lower().startswith("b")
+
+        # send the order to IBKR
+        # Note: negative quantity is parsed as a WHOLE DOLLAR AMOUNT to use,
+        # then price is irrelevant since it runs a midpoint of spread order.
+        am = ALGOMAP[self.algo]
+        placed = await self.state.placeOrderForContract(
+            self.symbol,
+            isLong,
+            contract,
+            self.qty,
+            self.price,
+            am,
+        )
+
+        if not placed:
+            logger.error("Order can't continue!")
+            return
+
+        # if this is a market order, don't run the algo loop
+        if {"MOO", "MOC", "MKT"} & set(am.split()):
+            logger.warning("Not running price algo because this is a market order...")
+            return
+
+        order, trade = placed
+
+        quoteKey = lookupKey(contract)
+
+        checkedTimes = 0
+        # while (unfilled quantity) AND (order NOT canceled or rejected or broken)
+        while (rem := trade.orderStatus.remaining) > 0 or (
+            "Pending" in trade.orderStatus.status
+        ):
+            if ("Cancel" in trade.orderStatus.status) or (
+                trade.orderStatus.status in {"Filled", "Inactive"}
+            ):
+                logger.error(
+                    "[{} :: {}] Order was canceled or rejected! Status: {}",
+                    trade.orderStatus.status,
+                    trade.contract.localSymbol,
+                    pp.pformat(trade.orderStatus),
+                )
+                return
+
+            if rem == 0:
+                logger.warning(
+                    "Quantity Remaining is zero, but status is Pending. Waiting for update..."
+                )
+                # sleep 75 ms and check again
+                await asyncio.sleep(0.075)
+                continue
+
+            logger.info("Quantity remaining: {}", rem)
+            checkedTimes += 1
+
+            # if this is the first check after the order was placed, don't
+            # run the algo (i.e. give the original limit price a chance to work)
+            if checkedTimes == 1:
+                logger.info("Skipping adjust so original limit has a chance to fill...")
+                continue
+
+            # get current qty/value of trade both remaining and already executed
+            (
+                remainingAmount,
+                totalAmount,
+                currentPrice,
+                currentQty,
+            ) = self.state.amountForTrade(trade)
+
+            # get current quote for order
+            bidask = self.state.currentQuote(quoteKey)
+            if bidask:
+                logger.info("Adjusting price for more aggressive fills...")
+                bid, ask = bidask
+                if isLong:
+                    # if is buy, chase the ask
+                    newPrice = round((currentPrice + ask) / 2, 2)
+
+                    # reduce qty to remain in expected total spend constraint
+                    newQty = amount / newPrice
+
+                    # only crypto supports fractional values over the API,
+                    # so all non-crypto contracts get floor'd
+                    if not isinstance(trade.contract, Crypto):
+                        newQty = math.floor(newQty)
+                else:
+                    # else if is sell, chase the bid
+                    newPrice = round((currentPrice + bid) / 2, 2)
+                    newQty = currentQty  # don't change quantities on shorts / sells
+                    # TODO: this needs to be aware of CLOSING instead of OPEN SHORT.
+                    # i.e. on OPENING orders we can grow/shrink qty, but on CLOSING
+                    # we DO NOT want to shrink or grow our qty.
+
+                logger.info(
+                    "Price changing from {} to {} ({})",
+                    currentPrice,
+                    newPrice,
+                    (newPrice - currentPrice),
+                )
+                logger.info(
+                    "Qty changing from {} to {} ({})",
+                    currentQty,
+                    newQty,
+                    (newQty - currentQty),
+                )
+                logger.info("Submitting order update...")
+                order.lmtPrice = newPrice
+                order.totalQuantity = newQty
+                self.ib.placeOrder(contract, order)
+
+            waitDuration = 3
+            logger.info(
+                "[{} :: {}] Waiting for {} seconds to check for new executions...",
+                trade.orderStatus.orderId,
+                checkedTimes,
+                waitDuration,
+            )
+
+            try:
+                await asyncio.sleep(waitDuration)
+            except:
+                # catches CTRL-C during sleep
+                logger.warning(
+                    "[{}] User canceled automated limit updates! Order still live.",
+                    trade.orderStatus.orderId,
+                )
+                break
+
+
+@dataclass
+class IOpOrderFast(IOp):
+    """Place a momentum order for scalping using multiple strikes and active price tracking.
+
+    For a 'symbol' at total dollar spend of 'amount' and 'direction'.
+
+    For ATR calcuation, requires a custom endpoint running with a REST API capable of
+    returning multiple ATR periods for any symbol going back multiple timeframes.
+
+    Maximum strikes attempted are based on the recent ATR for the underlying,
+    so we don't try to grab a +$50 OTM strike with recent historical movement
+    was only $2.50. (TODO: if running against, 2-4 week out chains allow higher
+    than ATR maximum because the vol will smile).
+
+    The buying algo is:
+        - use current underlying bid/ask midpoint (requires live quote)
+        - set price cap to maximum of 3 day or 20 day ATR (requires external API)
+        - buy 1 ATM strike (requires fetching near-term chain for underlying)
+        - for each ATM strike, buy next OTM strike up to price cap
+        - if funds remaining, repeat ATM->OTM ladder
+        - if funds remaining, but can't afford ATM anymore, keep trying
+          the OTM ladder to spend remaining funds until exhausted.
+    """
+
+    def argmap(self):
+        return [
+            DArg(
+                "symbol",
+                convert=lambda x: x.upper(),
+                verify=lambda x: " " not in x,
+                desc="Underlying for contracts",
+            ),
+            DArg(
+                "direction",
+                convert=lambda x: x.upper()[0],
+                verify=lambda x: x in {"P", "C"},
+                desc="side to buy (puts or calls)",
+            ),
+            DArg("amount", convert=float, desc="Maximum dollar amount to spend"),
+            DArg(
+                "gaps",
+                convert=int,
+                desc="pick strikes N apart (e.g. use 2 for room to capture gains with butterflies)",
+            ),
+            DArg(
+                "*preview",
+                desc="If any other arguments present, order not placed, only order logic reported.",
+            ),
+        ]
+
+    async def run(self):
+        # Fetch data for our calculations:
+        #   - ATR with moving 3 day window
+        #   - ATR with moving 20 day window
+        #   - current strikes / dates
+        #   - live quote for underlying
+        atrReqFast = dict(cmd="atr", sym=self.symbol, avg=3, back=1)
+        atrReqSlow = dict(cmd="atr", sym=self.symbol, avg=20, back=1)
+        cs = aiohttp.ClientSession()
+
+        # This URL is a custom historical reporting endpoint providing various
+        # technical stats on symbols given arbitrary parameters, but also requires
+        # you have a DB of potentially years of daily bars for each stock.
+        urls = [
+            cs.get("http://127.0.0.1:6555/", params=p) for p in [atrReqFast, atrReqSlow]
+        ]
+
+        # request chains and live quote data using the language command syntax
+        dataUpdates = [
+            self.state.dispatch.runop("chains", self.symbol, self.state.opstate),
+            self.state.dispatch.runop("add", f'"{self.symbol}"', self.state.opstate),
+        ]
+
+        # async run all URL fetches and data updates at once
+        mfast_, mslow_, strikes, _ = await asyncio.gather(*(urls + dataUpdates))
+
+        # async resolve response bodies through the JSON parser
+        mfast, mslow = await asyncio.gather(*[m.json() for m in [mfast_, mslow_]])
+
+        # cleanup web session
+        await cs.close()
+
+        # logger.info("Got MFast, MSlow: {}", [mfast, mslow])
+
+        # Get a valid expiration from our strikes...
+        # Note: we check if it matches below, then back up if doesn't
+        # TODO: allow selecting future expirations too
+        # Note: this is *not* the target options expiration date, but we use the
+        #       current date to bisect all chains to discover the nearest date to now.
+        expP = pendulum.now()  # .next(pendulum.FRIDAY)
+        expTry = expP.date()
+
+        # Note: Expiration formats in the dict are *full* YYYYMMDD, not OCC YYMMDD.
+        expirationFmt = f"{expTry.year}{expTry.month:02}{expTry.day:02}"
+
+        # get nearest expiration from today (note: COULD BE TODAY!)
+        # if today is NOT an expiration, this picks the CLOSEST expiration date.
+        # TODO: allow selecting future expirations.
+        sstrikes = sorted(strikes.keys())
+        useExpIdx = bisect.bisect_left(sstrikes, expirationFmt)
+        useExp = sstrikes[useExpIdx]
+        assert useExp in strikes
+
+        useChain = strikes[useExp]
+
+        logger.info(
+            "[{} :: {}] Using expiration {} (days away: {}) chain: {}",
+            self.symbol,
+            self.direction,
+            useExp,
+            int(useExp) - int(expirationFmt),
+            useChain,
+        )
+
+        maximumATR: float = 0
+        prevClose: float = 0
+        prevHigh: float = 0
+        for df in (mfast, mslow):
+            data = df["data"]
+            date: str = list(data.keys())[-1]
+            fordate = data[date]
+            atr: float = fordate["atr"]
+
+            if atr > maximumATR:
+                maximumATR = atr
+                prevClose = fordate["close"]
+                prevHigh = fordate["high"]
+
+        # quote is already live in quote state...
+        quote = self.state.quoteState[self.symbol]
+
+        # if we subscribed to new quotes, wait up to 3.5 seconds for
+        # the IBKR streaming API to start populating our quotes...
+        for i in range(0, 25):
+            currentLow: float = quote.low
+
+            # note: this can break during non-market hours when
+            #       IBKR returns random bad values for current
+            #       prices (also after market hours their bid/ask
+            #       no longer populates so we can't just make it
+            #       a midpoint).
+            # Though, quote.last seems more reliable than quote.marketPrice()
+            # for any testing after hours/weekends/etc.
+            currentPrice: float = quote.last  # quote.marketPrice()
+
+            if any(np.isnan([currentLow, currentPrice])):
+                logger.warning(
+                    "[{} :: {}] [{}] Quotes not all populated. Waiting for activity...",
+                    self.symbol,
+                    self.direction,
+                    i,
+                )
+
+                await asyncio.sleep(0.140)
+            else:
+                break
+
+        # sort a nan-free list of atr goals
+        # (note: sorting here because we want to print it in the log, so
+        #        below instead of max() we can also just do [-1] since we
+        #        already sorted here)
+        # TODO: expose this sorted list to the user so they can pick their
+        #       "upper aggressive level" tolerance (low, medium, high)
+        usingCalls = self.direction == "C"
+
+        if usingCalls:
+            # call goals sort forward with the highest range as the rightmost value
+            atrGoals = [
+                x
+                for x in sorted(
+                    [
+                        prevClose + maximumATR,
+                        prevHigh + maximumATR,
+                        currentLow + maximumATR,
+                    ]
+                )
+                if x == x  # drop nan values if we are missing a quote
+            ]
+        else:
+            # put goals sort backwards with lowest range as the rightmost value
+            atrGoals = [
+                x
+                for x in reversed(
+                    sorted(
+                        [
+                            prevClose - maximumATR,
+                            prevHigh - maximumATR,
+                            currentLow - maximumATR,
+                        ]
+                    )
+                )
+                if x == x  # drop nan values if we are missing a quote
+            ]
+
+        # boundary value (the up/down we don't want to cross)
+        # is always last element of the sorted goals list
+        boundaryPrice = atrGoals[-1]
+
+        # it's possible current-day performance is better (or worse) than
+        # expected ATR-calculated expected performance, so if underlying
+        # is already beyond the maximum ATR calculation
+        # (either above it for calls or under it for puts), then we
+        # need to adjust the full boundary expectation off the current
+        # price because maybe this is going to be a double ATR day.
+        # (otherwise, if we don't adjust, the conditions below end
+        #  up empty because it tries to interrogate an empty range
+        #  because currentPrice would be higher than expected prices
+        #  to buy (for calls), so we'd never generate a buyQty)
+        if usingCalls:
+            if boundaryPrice <= currentPrice:
+                boundaryPrice += maximumATR
+        else:
+            if boundaryPrice >= currentPrice:
+                boundaryPrice -= maximumATR
+
+        # collect strikes near the current price in gaps as requested
+        # until we reach the maximum price
+        # (and walk _backwards_ if doing puts!)
+        firstStrikeIdx = bisect.bisect_left(useChain, currentPrice)
+
+        # because of sorting, the bisect selects an ITM strike for
+        # initial puts, but we can back it down one to start at
+        # the first OTM strike (or it will be ATM if the prices
+        # match exactly).
+        if not usingCalls and firstStrikeIdx > 0:
+            if useChain[firstStrikeIdx] > currentPrice:
+                firstStrikeIdx -= 1
+
+        buyStrikes = []
+
+        # if puts, walk towards lower strikes instead of higher strikes.
+        directionMul = 1 if usingCalls else -1
+
+        # the range step paraemter is the "+=" increment between
+        # iterations, so step=2 returns 0, 2, 4, ...;
+        # step=3 returns 0, 3, 6, 9, ...
+        # but our "gaps" params is numbers BETWEEN steps, so we
+        # need steps=(gaps+1) becaues the step is 'inclusive' of the
+        # next result value, but our 'gaps' is fully exclusive gaps.
+        for i in range(0, 100 * directionMul, (self.gaps + 1) * directionMul):
+            idx = firstStrikeIdx + i
+
+            # if we walk over or under the strikes, we are done.
+            if idx < 0 or idx >= len(useChain):
+                break
+
+            strike = useChain[idx]
+            if usingCalls:
+                # calls have an UPPER CAP
+                if strike > boundaryPrice:
+                    break
+            else:
+                # puts have a LOWER CAP
+                if strike < boundaryPrice:
+                    break
+
+            buyStrikes.append(strike)
+
+        logger.info(
+            "[{} :: {}] Selected strikes to purchase: {}",
+            self.symbol,
+            self.direction,
+            buyStrikes,
+        )
+
+        # get quotes for strikes...
+        occs = [
+            f"{self.symbol}{useExp[2:]}{self.direction[0]}{int(strike * 1000):08}"
+            for strike in buyStrikes
+        ]
+        await self.state.dispatch.runop("add", " ".join(occs), self.state.opstate)
+
+        buyQty = defaultdict(int)
+
+        remaining = self.amount
+        spend = 0
+        skip = 0
+        while remaining > 0 and skip < len(occs):
+            logger.info(
+                "[{} :: {}] Remaining: ${:,.2f} plan {}",
+                self.symbol,
+                self.direction,
+                remaining,
+                " ".join(f"{x}={y}" for x, y in buyQty.items()) or "[none yet]",
+            )
+            for idx, (strike, occ), in enumerate(
+                zip(
+                    buyStrikes,
+                    occs,
+                )
+            ):
+                ask = self.state.quoteState[occ].ask * 100
+
+                # if quote not populated, wait for it...
+                for i in range(0, 25):
+                    # if ask is populated, skip rest of waiting
+                    # Note: these asks only work for longs! if we have
+                    # shot quotes with negative asks, all of this breaks.
+                    # We check for (ask > 0) because when IBKR has no live
+                    # information (or on init) it returns "ask -1" for a while,
+                    # which blows up our calculations obviously.
+                    if (not np.isnan(ask)) and ask > 0:
+                        break
+
+                    # else, ask is not populated, so try to wait for it...
+                    logger.warning("Ask not populated. Waiting...")
+                    await asyncio.sleep(0.075)
+                    ask = self.state.quoteState[occ].ask * 100
+                else:
+                    # ask failed to populate, so use MP
+                    logger.warning("Failed to populate quote, so using market price...")
+                    ask = self.state.quoteState[occ].marketPrice() * 100
+
+                # attempt to weight lower strikes for optimal
+                # delta capture while still getting gamma exposure
+                # a little further out.
+                # Current setting is:
+                #   - first strike (closest to ATM) tries 3->2->1->0 buys
+                #   - second strike (next furthest OTM) tries 2->1->0 buys
+                #   - others try 1 buy per iteration
+                for i in reversed(range(1, 4 if idx == 0 else 3 if idx == 1 else 2)):
+                    if (ask * i) + spend < self.amount:
+                        buyQty[occ] += i
+
+                        spend += ask * i
+                        remaining -= ask * i
+                        break
+                else:
+                    # since we are only reducing 'remaining' on spend, we need
+                    # another guaranteed terminiation condtion, so now we pick
+                    # "terminate if skip is larger than the strikes we are buying"
+                    skip += 1
+
+        logger.info(
+            "[{} :: {}] Buying plan (est ${:,.2f}): {}",
+            self.symbol,
+            self.direction,
+            spend,
+            " ".join(f"{x}={y}" for x, y in buyQty.items()),
+        )
+
+        logger.info(
+            "[{} :: {}] ATR ({:,.2f}) Estimates: {}",
+            self.symbol,
+            self.direction,
+            maximumATR,
+            atrGoals,
+        )
+        logger.info(
+            "[{} :: {}] Chosen ATR: {} :: {}",
+            self.symbol,
+            self.direction,
+            maximumATR,
+            boundaryPrice,
+        )
+
+        logger.info(
+            "[{} :: {}] Ordering ${:,.2f} of {} apart between {:,.2f} and {:,.2f}",
+            self.symbol,
+            self.direction,
+            self.amount,
+            self.gaps,
+            currentPrice,
+            boundaryPrice,
+        )
+
+        # now use buyDict to place orders at QTY and live track them until
+        # hitting the ask.
+
+        # don't continue to order placement if this is a preview-only request
+        if self.preview:
+            return None
+
+        # qualify contracts for ordering
+        contracts = {occ: contractForName(occ) for occ in buyQty.keys()}
+        await self.state.qualify(*contracts.values())
+
+        # assemble coroutines with parameters per order
+        placement = []
+        for occ, qty in buyQty.items():
+            qs = self.state.quoteState[occ]
+            limit = round((qs.bid + qs.ask) / 2, 2)
+
+            # if for some reason bid/ask aren't populated, wait for them...
+            while np.isnan(limit):
+                await asyncio.sleep(0.075)
+                limit = round((qs.bid + qs.ask) / 2, 2)
+
+            placement.append(
+                self.state.placeOrderForContract(
+                    occ, True, contracts[occ], qty, limit, "LMT + ADAPTIVE + FAST"
+                )
+            )
+
+        # launch all orders concurrently
+        placed = await asyncio.gather(*placement)
+
+        # TODO: create follow-the-spread refactor so we can
+        # live follow all new strike order simmultaenously.
+        # (currently around line 585)
+
     def argmap(self):
         # allow symbol on command line, optionally
         return []
