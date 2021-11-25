@@ -742,9 +742,13 @@ class IOpPositions(IOp):
 
         df.loc["Total"] = df[totalCols].sum(axis=0)
         t = df.loc["Total"]
-        df.loc["Total", "%"] = (
-            (t.marketValue - t.totalCost) / ((t.marketValue + t.totalCost) / 2)
-        ) * 100
+
+        # don't do total maths unless totals actually exist
+        # (e.g. if you have no open positions, this math obviously can't work)
+        if t.all():
+            df.loc["Total", "%"] = (
+                (t.marketValue - t.totalCost) / ((t.marketValue + t.totalCost) / 2)
+            ) * 100
 
         # Calculated weighted percentage ownership profit/loss...
         df["w%"] = df["%"] * (abs(df.totalCost) / df.loc["Total", "totalCost"])
