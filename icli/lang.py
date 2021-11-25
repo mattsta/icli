@@ -1378,28 +1378,110 @@ class IOpOptionChain(IOp):
         return [DArg("symbol")]
 
     async def run(self):
+        # Index cache by symbol AND current date because strikes can change
+        # every day even for the same expiration if there's high volatility.
+        now = pendulum.now()
+        cacheKey = ("strike", self.symbol, now.date())
+        # logger.info("Looking up {}", cacheKey)
+        if found := self.cache.get(cacheKey):
+            logger.info("Strikes cached: {}", pp.pformat(found))
+            return found
+
         contractExact = contractForName(self.symbol)
+
+        # if we want to request ALL chains, only provide underlying
+        # symbol then mock it as "OPT" so the IBKR resolver sees we
+        # are requesting option underlying and not just single-stock
+        # contract details.
+        contractExact.secType = "OPT"
 
         # If full option symbol, get all strikes for the date of the symbol
         if isinstance(contractExact, (Option, FuturesOption)):
             contractExact.strike = 0.00
+            # if is option already, use exact date of option...
+            useDates = [pendulum.parse("20" + self.symbol[-15 : -15 + 6]).date()]
+        else:
+            # PERFORMANCE HACK:
+            # Only request chains for two months out in an attempt to stop
+            # the IBKR API from rate limiting our requests.
+            # It doesn't really work though. For reliable strike and expiration
+            # data not taking potentially multiple minutes to return values,
+            # use external API like Tradier's market metdata APIs.
+            # Also note: requesting SPY/IWM/QQQ/DIA can cause the gateway
+            # to consume gigabytes of memory and lock up or crash because...
+            # IBKR is shit at handling data apparently.
 
-        print(contractExact)
-        chainsAll = await self.ib.reqSecDefOptParamsAsync(
-            contractExact.symbol,
-            contractExact.exchange,
-            "FUT" if self.symbol.startswith("/") else "STK",
-            contractExact.conId,
+            # for now, don't request forward months because we are at
+            # the start of november and are still only doing short term
+            # usage (at most 1-2 weeks out). Revisit end of month and
+            # refactor to prefer tradier API fetching first since we
+            # can get those in 100ms instead of 6+ seconds for IBKR APIs.
+            FORWARD_MONTHS = 0
+            useDates = [
+                d.date()
+                for d in pendulum.period(now, now.add(months=0)).range("months")
+            ]
+
+        # this request takes between 1 second and 60 seconds depending on ???
+        # does IBKR rate limit this endpoint? sometimes the same request
+        # takes 1-5 seconds, other times it takes 45-65 seconds.
+        # Maybe it's rate limited to one "big" call per minute?
+        # (UPDATE: yeah, the docs say:
+        #  "due to the potentially high amount of data resulting from such
+        #   queries this request is subject to pacing. Although a request such
+        #   as the above one will be answered immediately, a similar subsequent
+        #   one will be kept on hold for one minute.")
+        # So this endpoint is a jerk. You may need to rely on an external data
+        # provider if you want to gather full chains of multiple underlyings
+        # without waiting 1 minute per symbol.
+        # Depending on what you ask for with the contract, it can return between
+        # one row (one date+strike), dozens of rows (all strikes for a date),
+        # or thousands of rows (all strikes at all future dates).
+        strikes = defaultdict(list)
+        for d in useDates:
+            contractExact.lastTradeDateOrContractMonth = f"{d.year}{d.month:02}"
+            logger.info(
+                "[{}{}] Fetching strikes...",
+                self.symbol,
+                contractExact.lastTradeDateOrContractMonth,
+            )
+            chainsExact = await self.ib.reqContractDetailsAsync(contractExact)
+
+            # group strike results by date
+            logger.info(
+                "[{}{}] Populating strikes...",
+                self.symbol,
+                contractExact.lastTradeDateOrContractMonth,
+            )
+
+            for d in chainsExact:
+                strikes[d.contract.lastTradeDateOrContractMonth].append(
+                    d.contract.strike
+                )
+
+        # cleanup the results because they were received in an
+        # arbitrary order, but we want them sorted for bisecting
+        # and just nice viewing.
+        for k, v in strikes.items():
+            # also reduce to a set first to drop all the duplicate
+            # call/put strikes.
+            strikes[k] = sorted(set(v))
+
+        # logger.info("Saving into {}", cacheKey)
+        self.cache.set(cacheKey, strikes, expire=86400)
+        logger.info("Strikes: {}", pp.pformat(strikes))
+
+        if False:
+            df = pd.DataFrame(chainsExact)
+            printFrame(df)
+
+        return strikes
+
+
         )
 
-        chainsExact = await self.ib.reqContractDetailsAsync(contractExact)
 
-        # TODO: cache this result!
-        strikes = sorted([d.contract.strike for d in chainsExact])
 
-        logger.info("Strikes: {}", strikes)
-        df = pd.DataFrame(chainsAll)
-        printFrame(df)
 
 
 # TODO: potentially split these out into indepdent plugin files?
