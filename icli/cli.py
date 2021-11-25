@@ -759,13 +759,17 @@ class IBKRCmdlineApp:
 
         # TODO: different sounds if PNL is a loss?
         #       different sounds for big wins vs. big losses?
+        #       different sounds for commission credit vs. large commission fee?
         if fill.execution.side == "BOT":
             pygame.mixer.music.play()
         elif fill.execution.side == "SLD":
             pygame.mixer.music.play()
 
         logger.warning(
-            "Order {} commission: {} {} {} at {} (total {} of {}) (commission {} ({} each)){}",
+            "[{} :: {} :: {}] Order {} commission: {} {} {} at {} (total {} of {}) (commission {} ({} each)){}",
+            trade.orderStatus.orderId,
+            trade.orderStatus.status,
+            trade.contract.localSymbol,
             fill.execution.orderId,
             fill.execution.side,
             fill.execution.shares,
@@ -787,7 +791,13 @@ class IBKRCmdlineApp:
         logger.warning("News Tick: {}", news)
 
     def orderExecuteHandler(self, trade, fill):
-        logger.warning("Trade executed for {}", fill.contract.localSymbol)
+        logger.warning(
+            "[{} :: {} :: {}] Trade executed for {}",
+            trade.orderStatus.orderId,
+            trade.orderStatus.status,
+            trade.contract.localSymbol,
+            fill.contract.localSymbol,
+        )
         if fill.execution.cumQty > 0:
             if trade.contract.conId not in self.pnlSingle:
                 self.pnlSingle[trade.contract.conId] = self.ib.reqPnLSingle(

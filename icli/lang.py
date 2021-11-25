@@ -261,9 +261,15 @@ class IOpPositionEvict(IOp):
         # TODO: fix to BUY back SHORT positions
         # (is 'qty' returned as negative from contractForPosition for short positions??)
         order = orders.IOrder("SELL", qty, limit).midprice()
-        logger.info("Ordering {} via {}", contract, order)
+        logger.info("[{}] Ordering {} via {}", contract.localSymbol, contract, order)
         trade = self.ib.placeOrder(contract, order)
-        logger.info("Placed: {}", pp.pformat(trade))
+        logger.info(
+            "[{} :: {} :: {}] Placed: {}",
+            trade.orderStatus.orderId,
+            trade.orderStatus.status,
+            contract.localSymbol,
+            pp.pformat(trade),
+        )
 
 
 @dataclass
