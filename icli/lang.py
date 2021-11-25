@@ -1478,10 +1478,62 @@ class IOpOptionChain(IOp):
         return strikes
 
 
+@dataclass
+class IOpQuoteSave(IOp):
+    def argmap(self):
+        return [DArg("group"), DArg("*symbols")]
+
+    async def run(self):
+        cacheKey = ("quotes", self.group)
+        self.cache.set(cacheKey, set(self.symbols))
+        logger.info("[{}] {}", self.group, self.symbols)
+        repopulate = [f'"{x}"' for x in self.symbols]
+        await self.state.dispatch.runop("add", " ".join(repopulate), self.state.opstate)
+
+
+@dataclass
+class IOpQuoteAppend(IOp):
+    def argmap(self):
+        return [DArg("group"), DArg("*symbols")]
+
+    async def run(self):
+        cacheKey = ("quotes", self.group)
+        symbols = self.cache.get(cacheKey)
+
+        self.cache.set(cacheKey, symbols | set(self.symbols))
+        repopulate = [f'"{x}"' for x in self.symbols]
+        await self.state.dispatch.runop("add", " ".join(repopulate), self.state.opstate)
+
+
+@dataclass
+class IOpQuoteRemove(IOp):
+    def argmap(self):
+        return [DArg("group"), DArg("*symbols")]
+
+    async def run(self):
+        cacheKey = ("quotes", self.group)
+        symbols = self.cache.get(cacheKey)
+
+        for s in self.symbols:
+            symbols.discard(s)
+
+        self.cache.set(cacheKey, symbols)
+        repopulate = [f'"{x}"' for x in self.symbols]
+        await self.state.dispatch.runop(
+            "remove", " ".join(repopulate), self.state.opstate
         )
 
 
+@dataclass
+class IOpQuoteRestore(IOp):
+    def argmap(self):
+        return [DArg("group")]
 
+    async def run(self):
+        cacheKey = ("quotes", self.group)
+        symbols = self.cache.get(cacheKey)
+        repopulate = [f'"{x}"' for x in symbols]
+        await self.state.dispatch.runop("add", " ".join(repopulate), self.state.opstate)
 
 
 # TODO: potentially split these out into indepdent plugin files?
@@ -1521,6 +1573,12 @@ OP_MAP = {
         "tryf": None,
         "snd": IOpSound,
         "cash": IOpCash,
+    },
+    "Quote Management": {
+        "qsave": IOpQuoteSave,
+        "qappend": IOpQuoteAppend,
+        "qremove": IOpQuoteRemove,
+        "qrestore": IOpQuoteRestore,
     },
 }
 
