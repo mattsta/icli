@@ -317,17 +317,26 @@ class IOpDepth(IOp):
             DArg("sym"),
             DArg(
                 "count",
-                int,
-                lambda x: 0 < x < 300,
-                "depth checking iterations should be more than zero and less than a lot",
+                convert=int,
+                verify=lambda x: 0 < x < 300,
+                desc="depth checking iterations should be more than zero and less than a lot",
             ),
         ]
 
     async def run(self):
-        (contract,) = await self.state.qualify(contractForName(self.sym))
+        try:
+            (contract,) = await self.state.qualify(contractForName(self.sym))
+        except:
+            logger.error("No contract found for: {}", self.sym)
+            return
+
+        # logger.info("Available depth: {}", await self.ib.reqMktDepthExchangesAsync())
 
         self.depthState = {}
-        self.depthState[contract] = self.ib.reqMktDepth(contract, isSmartDepth=True)
+        useSmart = True
+        self.depthState[contract] = self.ib.reqMktDepth(
+            contract, numRows=40, isSmartDepth=useSmart
+        )
 
         # now we read lists of ticker.domBids and ticker.domAsks for the depths
         # (each having .price, .size, .marketMaker)
@@ -337,7 +346,7 @@ class IOpDepth(IOp):
             # loop for up to a second until bids or asks are populated
             for j in range(0, 100):
                 if not (t.domBids or t.domAsks):
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.001)
 
             if not (t.domBids or t.domAsks):
                 logger.warning(
@@ -383,6 +392,11 @@ class IOpDepth(IOp):
                         .sort_values(by=["price"], ascending=False)
                         .reset_index(drop=True)
                     )
+
+                    # format floats as currency strings with proper cent padding
+                    fixedBids["price"] = fixedBids["price"].apply(lambda x: f"{x:,.2f}")
+                    fixedBids["marketMaker"] = sorted(fixedBids["marketMaker"])
+
                 else:
                     fixedBids = pd.DataFrame()
 
@@ -395,6 +409,9 @@ class IOpDepth(IOp):
                         .sort_values(by=["price"], ascending=True)
                         .reset_index(drop=True)
                     )
+
+                    fixedAsks["price"] = fixedAsks["price"].apply(lambda x: f"{x:,.2f}")
+                    fixedAsks["marketMaker"] = sorted(fixedAsks["marketMaker"])
                 else:
                     fixedAsks = pd.DataFrame()
 
@@ -406,9 +423,10 @@ class IOpDepth(IOp):
                 #       marked as <NA> by pandas (and we can't fill them
                 #       as blank because the cols have been coerced to
                 #       specific data types via 'convert_dtypes()')
+                both = pd.concat(fmtJoined, axis=1)
                 printFrame(
-                    pd.concat(fmtJoined, axis=1),
-                    f"{contract.symbol} Grouped by Price",
+                    both,
+                    f"{contract.symbol} :: {contract.localSymbol} Grouped by Price",
                 )
 
             # Note: the 't.domTicks' field is just the "update feed"
@@ -419,7 +437,7 @@ class IOpDepth(IOp):
             if i < self.count - 1:
                 await asyncio.sleep(3)
 
-        self.ib.cancelMktDepth(contract, isSmartDepth=True)
+        self.ib.cancelMktDepth(contract, isSmartDepth=useSmart)
         del self.depthState[contract]
 
 
