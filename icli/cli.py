@@ -422,15 +422,20 @@ class IBKRCmdlineApp:
                 return None
 
         if isinstance(contract, (Option, Bag)) or contract.tradingClass == "COMB":
-            # don't trigger warning about "RTH option has no effect" with options...
+            # Purpose: don't trigger warning about "RTH option has no effect" with options...
             # TODO: check if RTH includes extended late 4:15 ending options SPY / SPX / QQQ / IWM / etc?
-            outsideRth = False
+            if contract.localSymbol[0:3] in {"SPX", "VIX"}:
+                # SPX and VIX options now trade basically 24/7 but anything not 0930-1600 (-1615?) is
+                # considered "outside RTH"
+                outsideRth = True
+            else:
+                outsideRth = False
         else:
             outsideRth = True
 
         if isinstance(contract, Crypto) and isLong:
             # Crypto can only use IOC or Minutes for tif BUY
-            # (but can use IOC, Minutes, Day, GTC for SELL)
+            # (but for SELL, can use IOC, Minutes, Day, GTC)
             tif = "Minutes"
         else:
             tif = "GTC"
