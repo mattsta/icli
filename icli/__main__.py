@@ -25,8 +25,8 @@ except:
     sys.exit(0)
 
 HOST = CONFIG["ICLI_IBKR_HOST"]
-PORT = int(CONFIG["ICLI_IBKR_PORT"])
-REFRESH = float(CONFIG["ICLI_REFRESH"])
+PORT = int(CONFIG["ICLI_IBKR_PORT"])  # type: ignore
+REFRESH = float(CONFIG["ICLI_REFRESH"])  # type: ignore
 
 
 async def initcli():

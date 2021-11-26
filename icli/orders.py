@@ -40,8 +40,10 @@ class IOrder:
 
     # basic limit price
     lmt: float = 0.00
+    lmtPriceOffset: float = 0.00
 
-    qtycash: int = 0.00  # specify amount as spend value instead of shares or contracts
+    # specify amount as spend value instead of shares or contracts
+    qtycash: float = 0.00
 
     # aux holds anything not a limit price and not a trailing percentage:
     #   - stop price for stop / stop limita / stop with protection
@@ -52,7 +54,7 @@ class IOrder:
     aux: float = 0.00
 
     # Note: IBKR gives a warning (but not a hard error) if assigning GTC to options.
-    tif: Literal["GTC", "IOC", "FOK", "OPG", "GTD", "DAY"] = "GTC"
+    tif: Literal["GTC", "IOC", "FOK", "OPG", "GTD", "DAY", "Minutes"] = "GTC"
 
     # format for these is just YYYYMMDD HH:MM:SS and assume exchange timezone i guess
     goodtildate: str = ""
@@ -291,8 +293,8 @@ class IOrder:
             lmtPriceOffset=self.lmtPriceOffset,  # HOW FAR DOWN TO START THE LIMIT ± AGAINST CURRENT PRICE (- sell, + buy)
             trailStopPrice=self.trailstop,  # IF NO UP MOVEMENT, WHEN TO TRIGGER ORDER <-- THIS IS WHAT "TRAILS"
             orderType="TRAIL LIMIT",
-            **whichTrail,
-            **self.commonArgs(),
+            **whichTrail,  # type: ignore
+            **self.commonArgs(),  # type: ignore
         )
 
         self.adjustForCashQuantity(o)

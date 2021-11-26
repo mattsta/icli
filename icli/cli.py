@@ -32,6 +32,7 @@ import pandas as pd
 
 # for automatic money formatting in some places
 import locale
+import math
 
 locale.setlocale(locale.LC_ALL, "")
 
@@ -244,7 +245,7 @@ class IBKRCmdlineApp:
     # Saves us from sorting/filtering self.summary() with every full bar update.
     accountStatus: dict[str, float] = field(
         default_factory=lambda: dict(
-            zip(LIVE_ACCOUNT_STATUS, [None] * len(LIVE_ACCOUNT_STATUS))
+            zip(LIVE_ACCOUNT_STATUS, [0.00] * len(LIVE_ACCOUNT_STATUS))
         )
     )
 
@@ -253,7 +254,7 @@ class IBKRCmdlineApp:
         default_factory=lambda: diskcache.Cache("./cache-contracts")
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # just use the entire IBKRCmdlineApp as our app state!
         self.opstate = self
 
@@ -274,7 +275,7 @@ class IBKRCmdlineApp:
             # Populate the id to contract cache!
             if contract.conId not in self.conIdCache:
                 # default 30 day expiration...
-                self.conIdCache.set(contract.conId, contract, expire=86400 * 30)
+                self.conIdCache.set(contract.conId, contract, expire=86400 * 30)  # type: ignore
 
         return got
 
@@ -475,7 +476,7 @@ class IBKRCmdlineApp:
             # the buy/sell here.
             amt = abs(qty)
 
-            qty = self.state.quantityForAmount(contract, amt, mid)
+            qty = self.quantityForAmount(contract, amt, mid)
 
             if not isinstance(contract, Crypto):
                 # only crypto orders support fractional quantities over the API.
@@ -493,7 +494,7 @@ class IBKRCmdlineApp:
             )
 
         order = orders.IOrder(
-            "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif
+            "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif  # type: ignore
         ).order(orderType)
 
         logger.info("Ordering {} via {}", contract, order)
@@ -507,7 +508,7 @@ class IBKRCmdlineApp:
 
     def amountForTrade(
         self, trade: Trade
-    ) -> Tuple[float, float, float, Union[float, int]]:
+    ) -> tuple[float, float, float, Union[float, int]]:
         """Return dollar amount of trade given current limit price and quantity.
 
         Also compensates for contract multipliers correctly.
@@ -522,6 +523,7 @@ class IBKRCmdlineApp:
         currentPrice = trade.order.lmtPrice
         currentQty = trade.orderStatus.remaining
         totalQty = currentQty + trade.orderStatus.filled
+        avgFillPrice = trade.orderStatus.avgFillPrice
 
         # If contract has multiplier (like 100 underlying per option),
         # calculate total spend with mul * p * q.
@@ -692,9 +694,11 @@ class IBKRCmdlineApp:
         # else, break out by order size, sorted from smallest to largest exit prices
         return sorted(ts, key=lambda x: abs(x[1]))
 
-    def currentQuote(self, sym) -> Optional[Tuple[float, float]]:
+    def currentQuote(self, sym) -> Optional[tuple[float, float]]:
         q = self.quoteState[sym.upper()]
         ago = (self.now - (q.time or self.now)).as_interval()
+
+        assert q.contract
         show = [
             f"{q.contract.symbol}: bid {q.bid:,.2f} x {q.bidSize}",
             f"ask {q.ask:,.2f} x {q.askSize}",
