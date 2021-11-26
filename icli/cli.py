@@ -744,7 +744,7 @@ class IBKRCmdlineApp:
                 errorString,
             )
         else:
-            logger.error(
+            logger.opt(depth=1).error(
                 "API Error [orderId {}] [code {}]: {}{}",
                 reqId,
                 errorCode,
