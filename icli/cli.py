@@ -408,7 +408,12 @@ class IBKRCmdlineApp:
         If 'price' is zero, we snap to midpoint for the limit price."""
 
         # Immediately ask to add quote to live quotes for this trade positioning...
-        await self.dispatch.runop("add", f'"{sym}"', self.opstate)
+
+        # need to replace underlying if is "fake settled underlying"
+        quotesym = (
+            sym.replace("SPXW", "SPX").replace("RUTW", "RUT").replace("NDXP", "NDX")
+        )
+        await self.dispatch.runop("add", f'"{quotesym}"', self.opstate)
 
         if not contract.conId:
             # spead contracts don't have IDs, so only reject if NOT a spread here.
