@@ -488,12 +488,6 @@ class IBKRCmdlineApp:
 
             qty = self.quantityForAmount(contract, amt, mid)
 
-            if not isinstance(contract, Crypto):
-                # only crypto orders support fractional quantities over the API.
-                # TODO: if IBKR ever enables fractional shares over the API,
-                #       we can make the above Crypto check for (Crypto, Stock).
-                qty = math.floor(qty)
-
             # If integer, show integer, else show fractions.
             logger.info(
                 "Ordering {:,} {} at ${:,.2f} for ${:,.2f}",
