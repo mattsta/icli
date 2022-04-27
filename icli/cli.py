@@ -402,10 +402,8 @@ class IBKRCmdlineApp:
     ):
         """Place a BUY (isLong) or SELL (!isLong) for qualified 'contract' at qty/price.
 
-        If 'qty' is negative we calculate a live quantity based
-        on the live quote price (live hours only, obvs).
-
-        If 'price' is zero, we snap to midpoint for the limit price."""
+        If 'qty' is negative we calculate a live quantity+price based
+        on the (positive) number as a dollar value."""
 
         # Immediately ask to add quote to live quotes for this trade positioning...
 
@@ -440,6 +438,8 @@ class IBKRCmdlineApp:
         else:
             tif = "GTC"
 
+        # Negative 'qty' is a dollar amount to buy instead of share/contract
+        # quantity, so we fetch a live quote to determine the initial quantity.
         if qty < 0:
             # we treat negative quantities as dollar amounts (because
             # we convert 'qty' to float, so we can't pass through $3000, so
