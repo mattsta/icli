@@ -1304,6 +1304,36 @@ class IBKRCmdlineApp:
         contracts = [Stock(sym, "SMART", "USD") for sym in stocks]
         contracts += futures
 
+        # Attach IB events *outside* of the reconnect loop because we don't want to
+        # add duplicate event handlers on every reconnect!
+        # Note: these are equivalent to the pattern:
+        #           lambda row: self.updateSummary(row)
+        self.ib.accountSummaryEvent += self.updateSummary
+        self.ib.pnlEvent += self.updatePNL
+        self.ib.orderStatusEvent += self.updateOrder
+        self.ib.errorEvent += self.errorHandler
+        self.ib.cancelOrderEvent += self.cancelHandler
+        self.ib.commissionReportEvent += self.commissionHandler
+        self.ib.newsBulletinEvent += self.newsBHandler
+        self.ib.tickNewsEvent += self.newsTHandler
+
+        # We don't use these event types because ib_insync keeps
+        # the objects "live updated" in the background, so everytime
+        # we read them on a refresh, the values are still valid.
+        # self.ib.pnlSingleEvent += self.updatePNLSingle
+        # self.ib.pendingTickersEvent += self.tickersUpdate
+
+        # openOrderEvent is noisy and randomly just re-submits
+        # already static order details as new events.
+        # self.ib.openOrderEvent += self.orderOpenHandler
+        self.ib.execDetailsEvent += self.orderExecuteHandler
+
+        # Note: "PortfolioEvent" is fine here since we are using a single account.
+        # If you have multiple accounts, you want positionEvent (the IBKR API
+        # doesn't allow "Portfolio" to span accounts, but Positions can be reported
+        # from multiple accounts with one API connection apparently)
+        self.ib.updatePortfolioEvent += lambda row: self.updatePosition(row)
+
         def requestMarketData():
             logger.info("Requesting market data...")
             for contract in contracts:
@@ -1339,33 +1369,10 @@ class IBKRCmdlineApp:
             while True:
                 try:
                     self.connected = False
-
                     # NOTE: Client ID *MUST* be 0 to allow modification of
                     #       existing orders (which get "re-bound" with a new
                     #       order id when client 0 connects—but it *only* works
                     #       for client 0)
-
-                    # Note: these are equivalent to the pattern:
-                    #           lambda row: self.updateSummary(row)
-                    self.ib.accountSummaryEvent += self.updateSummary
-                    self.ib.pnlEvent += self.updatePNL
-                    self.ib.orderStatusEvent += self.updateOrder
-                    self.ib.errorEvent += self.errorHandler
-                    self.ib.cancelOrderEvent += self.cancelHandler
-                    self.ib.commissionReportEvent += self.commissionHandler
-                    self.ib.newsBulletinEvent += self.newsBHandler
-                    self.ib.tickNewsEvent += self.newsTHandler
-
-                    # We don't use these event types because ib_insync keeps
-                    # the objects "live updated" in the background, so everytime
-                    # we read them on a refresh, the values are still valid.
-                    # self.ib.pnlSingleEvent += self.updatePNLSingle
-                    # self.ib.pendingTickersEvent += self.tickersUpdate
-
-                    # openOrderEvent is noisy and randomly just re-submits
-                    # already static order details as new events.
-                    # self.ib.openOrderEvent += self.orderOpenHandler
-                    self.ib.execDetailsEvent += self.orderExecuteHandler
 
                     await self.ib.connectAsync(
                         self.host,
@@ -1391,12 +1398,6 @@ class IBKRCmdlineApp:
                     self.position.clear()
                     self.order.clear()
                     self.pnlSingle.clear()
-
-                    # Note: "PortfolioEvent" is fine here since we are using a single account.
-                    # If you have multiple accounts, you want positionEvent (the IBKR API
-                    # doesn't allow "Portfolio" to span accounts, but Positions can be reported
-                    # from multiple accounts with one API connection apparently)
-                    self.ib.updatePortfolioEvent += lambda row: self.updatePosition(row)
 
                     # request live updates (well, once per second) of account and position values
                     self.ib.reqPnL(self.accountId)
