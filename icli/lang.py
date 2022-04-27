@@ -744,31 +744,30 @@ class IOpOrderFast(IOp):
         #   - ATR with moving 20 day window
         #   - current strikes / dates
         #   - live quote for underlying
+
+        # TODO: may need symbol replacement for SPXW -> SPX etc?
+
         atrReqFast = dict(cmd="atr", sym=self.symbol, avg=3, back=1)
         atrReqSlow = dict(cmd="atr", sym=self.symbol, avg=20, back=1)
-        cs = aiohttp.ClientSession()
+        async with aiohttp.ClientSession() as cs:
+            # This URL is a custom historical reporting endpoint providing various
+            # technical stats on symbols given arbitrary parameters, but also requires
+            # you have a DB of potentially years of daily bars for each stock.
+            urls = [
+                cs.get("http://127.0.0.1:6555/", params=p) for p in [atrReqFast, atrReqSlow]
+            ]
 
-        # This URL is a custom historical reporting endpoint providing various
-        # technical stats on symbols given arbitrary parameters, but also requires
-        # you have a DB of potentially years of daily bars for each stock.
-        urls = [
-            cs.get("http://127.0.0.1:6555/", params=p) for p in [atrReqFast, atrReqSlow]
-        ]
+            # request chains and live quote data using the language command syntax
+            dataUpdates = [
+                self.state.dispatch.runop("chains", self.symbol, self.state.opstate),
+                self.state.dispatch.runop("add", f'"{self.symbol}"', self.state.opstate),
+            ]
 
-        # request chains and live quote data using the language command syntax
-        dataUpdates = [
-            self.state.dispatch.runop("chains", self.symbol, self.state.opstate),
-            self.state.dispatch.runop("add", f'"{self.symbol}"', self.state.opstate),
-        ]
+            # async run all URL fetches and data updates at once
+            mfast_, mslow_, strikes, _ = await asyncio.gather(*(urls + dataUpdates))
 
-        # async run all URL fetches and data updates at once
-        mfast_, mslow_, strikes, _ = await asyncio.gather(*(urls + dataUpdates))
-
-        # async resolve response bodies through the JSON parser
-        mfast, mslow = await asyncio.gather(*[m.json() for m in [mfast_, mslow_]])
-
-        # cleanup web session
-        await cs.close()
+            # async resolve response bodies through the JSON parser
+            mfast, mslow = await asyncio.gather(*[m.json() for m in [mfast_, mslow_]])
 
         # logger.info("Got MFast, MSlow: {}", [mfast, mslow])
 
