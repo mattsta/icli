@@ -445,3 +445,7 @@ class CLIOrderType(Enum):
     PEG_MID_VOL = "PDV"
     PEG_MKT_VOL = "PMV"
     PEG_SRF_VOL = "PSV"
+
+    # and new order types for IBKRATS only
+    PEGMID = "PEGMID"
+    PEGBEST = "PEGBEST"
