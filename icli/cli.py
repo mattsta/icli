@@ -953,6 +953,12 @@ class IBKRCmdlineApp:
             usePrice = c.marketPrice()
             ago = (self.now - (c.time or self.now)).as_interval()
             try:
+                percentUnderHigh = (
+                    -((c.high - usePrice) / ((usePrice + c.high) / 2)) * 100
+                    if usePrice <= c.high
+                    else 0
+                )
+
                 percentUpFromLow = (
                     (abs(usePrice - c.low) / ((usePrice + c.low) / 2)) * 100
                     if usePrice >= c.low
@@ -1046,7 +1052,7 @@ class IBKRCmdlineApp:
                     )
                 else:
                     # IBKR reports "no bid" as -1. le sigh.
-                    mark = (c.bid + c.ask) / 2 if c.bid > 0 else c.ask / 2
+                    mark = ((c.bid + c.ask) / 2) if c.bid > 0 else (c.ask / 2)
 
                 # For options, instead of using percent difference between
                 # prices, we use percent return over the low/close instead.
@@ -1149,7 +1155,7 @@ class IBKRCmdlineApp:
                         ]
                     )
                 else:
-                    rowName = f"{c.contract.localSymbol or c.contract.symbol:<7}:"
+                    rowName = f"{c.contract.localSymbol or c.contract.symbol:<9}:"
 
                     return " ".join(
                         [
@@ -1170,6 +1176,13 @@ class IBKRCmdlineApp:
                         ]
                     )
 
+            pctUndHigh, amtUndHigh = mkPctColor(
+                percentUnderHigh,
+                [
+                    f"{percentUnderHigh:>6.2f}%",
+                    f"{amtHigh:>8.2f}" if amtHigh < 1000 else f"{amtHigh:>8.0f}",
+                ],
+            )
             pctUpLow, amtUpLow = mkPctColor(
                 percentUpFromLow,
                 [
@@ -1185,7 +1198,10 @@ class IBKRCmdlineApp:
                 ],
             )
 
-            return f"{c.contract.localSymbol or c.contract.symbol:<7}: {fmtPricePad(usePrice)}  ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} {fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}  {fmtPricePad(c.open)} {fmtPricePad(c.close)}    ({str(ago)})"
+            return (
+                f"{c.contract.localSymbol or c.contract.symbol:<9}: {fmtPricePad(usePrice)}  ({pctUndHigh} {amtUndHigh}) ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} {fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}  {fmtPricePad(c.open)} {fmtPricePad(c.close)}    ({str(ago)})"
+                + ("     HALTED!" if c.halted > 0 else "")
+            )
 
         try:
             pass
