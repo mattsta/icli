@@ -249,27 +249,48 @@ class IOpPositionEvict(IOp):
         ]
 
     async def run(self):
-        contract, qty, price = self.contractForPosition(
+        contracts = self.state.contractsForPosition(
             self.sym, None if self.qty == -1 else self.qty
         )
-        await self.state.qualify(contract)
 
-        # set price floor to 3% below current live price for
-        # the midprice order floor.
-        limit = price / 1.03
+        if not contracts:
+            logger.error("No contracts found for: {}", self.sym)
+            return None
 
-        # TODO: fix to BUY back SHORT positions
-        # (is 'qty' returned as negative from contractForPosition for short positions??)
-        order = orders.IOrder("SELL", qty, limit).midprice()
-        logger.info("[{}] Ordering {} via {}", contract.localSymbol, contract, order)
-        trade = self.ib.placeOrder(contract, order)
-        logger.info(
-            "[{} :: {} :: {}] Placed: {}",
-            trade.orderStatus.orderId,
-            trade.orderStatus.status,
-            contract.localSymbol,
-            pp.pformat(trade),
-        )
+        for contract, qty, price in contracts:
+            await self.state.qualify(contract)
+
+            # set price floor to 3% below current live price for
+            # the midprice order floor.
+            limit = round(price / 1.03, 2)
+
+            # TODO: fix to BUY back SHORT positions
+            # (is 'qty' returned as negative from contractForPosition for short positions??)
+
+            algo = "MIDPRICE"
+
+            if len(contract.localSymbol) > 15:
+                algo = "LMT + ADAPTIVE + FAST"
+
+            # if limit price rounded down to zero, just do a market order
+            if not limit:
+                algo = "MKT + ADAPTIVE + FAST"
+
+            logger.info(
+                "[{}] [{}] Submitting...",
+                self.sym,
+                (contract.localSymbol, qty, price, limit),
+            )
+
+            # using MIDPRICE for equity-like things and ADAPTIVE for option-like things.
+            trade = await self.state.placeOrderForContract(
+                contract.localSymbol,  # TODO: may be unnecessary since 'contract' has symbols too...
+                False,  # SELLING ONLY HERE TODO: (fix for closing shorts later)
+                contract,
+                qty,
+                limit,
+                algo,
+            )
 
 
 @dataclass

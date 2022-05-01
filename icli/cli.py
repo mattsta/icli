@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import datetime
 import os
 
+import fnmatch  # for glob string matching!
 from typing import Union, Optional, Sequence, Any, Mapping
 
 import numpy as np
@@ -312,32 +313,39 @@ class IBKRCmdlineApp:
 
         return got
 
-    def contractForPosition(
+    def contractsForPosition(
         self, sym, qty: Optional[float] = None
     ) -> Union[None, tuple[Contract, float, float]]:
-        """Returns matching portfolio position as (contract, size, marketPrice).
+        """Returns matching portfolio positions as (contract, size, marketPrice).
 
         Looks up position by symbol name and returns either provided quantity or total quantity.
         If no input quantity, return total position size.
         If input quantity larger than position size, returned size is capped to max position size."""
         portitems = self.ib.portfolio()
-        logger.info("Port is: {}", portitems)
-        contract = None
+        # logger.debug("Current Portfolio is: {}", portitems)
+
+        results = []
         for pi in portitems:
             # Note: using 'localSymbol' because for options, it includes
             # the full OCC-like format, while contract.symbol will just
             # be the underlying equity symbol.
-            if pi.contract.localSymbol == sym:
+            # Note note: using fnmatch.filter() because we allow 'sym' to
+            #            have glob characters for multiple lookups at once!
+            # Note 3: options .localSymbols have the space padding, so remove for input compare.
+            if fnmatch.filter([pi.contract.localSymbol.replace(" ", "")], sym):
+                contract = None
                 contract = pi.contract
 
                 if qty is None:
+                    # if no quantity requested, use entire position
                     qty = pi.position
                 elif abs(qty) > abs(pi.position):
+                    # else, if qty is larger than position, truncate to position.
                     qty = pi.position
 
-                return contract, qty, pi.marketPrice
+                results.append((contract, qty, pi.marketPrice))
 
-        return None
+        return results
 
     async def contractForOrderRequest(
         self, oreq: buylang.OrderRequest, exchange="SMART"
@@ -424,6 +432,10 @@ class IBKRCmdlineApp:
             currency=currency,
         )
 
+    def symbolNormalizeIndexWeeklyOptions(self, name: str) -> str:
+        """Weekly index options have symbol names with 'W' but orders are placed without."""
+        return name.replace("SPXW", "SPX").replace("RUTW", "RUT").replace("NDXP", "NDX")
+
     async def placeOrderForContract(
         self,
         sym: str,
@@ -439,11 +451,12 @@ class IBKRCmdlineApp:
         on the (positive) number as a dollar value."""
 
         # Immediately ask to add quote to live quotes for this trade positioning...
+        sym = sym.replace(
+            " ", ""
+        )  # turn option contract lookup into non-spaced version
 
         # need to replace underlying if is "fake settled underlying"
-        quotesym = (
-            sym.replace("SPXW", "SPX").replace("RUTW", "RUT").replace("NDXP", "NDX")
-        )
+        quotesym = self.symbolNormalizeIndexWeeklyOptions(sym)
         await self.dispatch.runop("add", f'"{quotesym}"', self.opstate)
 
         if not contract.conId:
