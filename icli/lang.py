@@ -2194,14 +2194,35 @@ class IOpQuoteRemove(IOp):
         return [DArg("group"), DArg("*symbols")]
 
     async def run(self):
+        nocache = False
         cacheKey = ("quotes", self.group)
         symbols = self.cache.get(cacheKey)
+        if not symbols:
+            nocache = True
+            symbols = self.state.quoteContracts.keys()
+            logger.error(
+                "[{}] No quote group found so using live quote list...", self.group
+            )
 
+        goodbye = set()
         for s in self.symbols:
-            symbols.discard(s)
+            for symbol in symbols:
+                if fnmatch.filter([symbol], s):
+                    logger.info("Dropping quote: {}", symbol)
+                    goodbye.add(symbol)
 
-        self.cache.set(cacheKey, symbols)
-        repopulate = [f'"{x}"' for x in self.symbols]
+        symbols -= goodbye
+
+        # don't *CREATE* the cache key if we didn't use the cache anyway
+        if not nocache:
+            self.cache.set(cacheKey, symbols)
+
+        repopulate = goodbye | {
+            self.state.symbolNormalizeIndexWeeklyOptions(f'"{x}"') for x in goodbye
+        }
+
+        logger.info("Removing quotes: {}", repopulate)
+
         await self.state.dispatch.runop(
             "remove", " ".join(repopulate), self.state.opstate
         )
@@ -2215,8 +2236,46 @@ class IOpQuoteRestore(IOp):
     async def run(self):
         cacheKey = ("quotes", self.group)
         symbols = self.cache.get(cacheKey)
+        if not symbols:
+            logger.error("No quote group found for name: {}", self.group)
+            return
+
         repopulate = [f'"{x}"' for x in symbols]
         await self.state.dispatch.runop("add", " ".join(repopulate), self.state.opstate)
+
+
+@dataclass
+class IOpQuoteClean(IOp):
+    def argmap(self):
+        return [DArg("group")]
+
+    async def run(self):
+        cacheKey = ("quotes", self.group)
+        symbols = self.cache.get(cacheKey)
+        if not symbols:
+            logger.error("No quote group found for name: {}", self.group)
+            return
+
+        # Find any expired option symbols and remove them
+        remove = []
+        now = pendulum.now().in_tz("US/Eastern")
+
+        # if after market close, use today; else use previous day since market is still open
+        if (now.hour, now.minute) < (16, 15):
+            now = now.subtract(days=1)
+
+        datecompare = now.strftime("%y%m%d")
+        for x in symbols:
+            if len(x) > 10:
+                date = x[-15 : -15 + 6]
+                if date <= datecompare:
+                    logger.info("Removing expired quote: {}", x)
+                    remove.append(f'"{x}"')
+
+        # TODO: fix bug where it's not translating SPX -> SPXW properly for the live removal
+        await self.state.dispatch.runop(
+            "qremove", "global " + " ".join(remove), self.state.opstate
+        )
 
 
 # TODO: potentially split these out into indepdent plugin files?
@@ -2259,9 +2318,10 @@ OP_MAP = {
     },
     "Quote Management": {
         "qsave": IOpQuoteSave,
-        "qappend": IOpQuoteAppend,
+        "qadd": IOpQuoteAppend,
         "qremove": IOpQuoteRemove,
         "qrestore": IOpQuoteRestore,
+        "qclean": IOpQuoteClean,
     },
 }
 
