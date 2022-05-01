@@ -751,7 +751,7 @@ class IOpOrderFast(IOp):
             DArg(
                 "gaps",
                 convert=int,
-                desc="pick strikes N apart (e.g. use 2 for room to capture gains with butterflies)",
+                desc="pick strikes N apart (e.g. use 2 for room to lock gains with butterflies)",
             ),
             DArg(
                 "*preview",
@@ -851,6 +851,8 @@ class IOpOrderFast(IOp):
             #       a midpoint).
             # Though, quote.last seems more reliable than quote.marketPrice()
             # for any testing after hours/weekends/etc.
+            # TODO: could also use 'underlying' value from full OCC quote, but need
+            #       a baseline to get the first options quotes anyway...
             currentPrice: float = quote.last  # quote.marketPrice()
 
             if any(np.isnan([currentLow, currentPrice])):
@@ -955,6 +957,11 @@ class IOpOrderFast(IOp):
                 break
 
             strike = useChain[idx]
+
+            logger.info("Checking strike vs. boundary: {} v {}", strike, boundaryPrice)
+
+            # only place orders up to our maximum theoretical price
+            # (either a static percent offset from current OR the actual High-to-Low ATR)
             if usingCalls:
                 # calls have an UPPER CAP
                 if strike > boundaryPrice:
@@ -1029,6 +1036,16 @@ class IOpOrderFast(IOp):
                 #   - second strike (next furthest OTM) tries 2->1->0 buys
                 #   - others try 1 buy per iteration
                 for i in reversed(range(1, 4 if idx == 0 else 3 if idx == 1 else 2)):
+                    if False:
+                        logger.debug(
+                            "[{}] Checking ({} * {}) + {} < {}",
+                            occ,
+                            ask,
+                            i,
+                            spend,
+                            self.amount,
+                        )
+
                     if (ask * i) + spend < self.amount:
                         buyQty[occ] += i
 
@@ -1040,6 +1057,9 @@ class IOpOrderFast(IOp):
                     # another guaranteed terminiation condtion, so now we pick
                     # "terminate if skip is larger than the strikes we are buying"
                     skip += 1
+                    # logger.debug(
+                    #    "[{}] Skipping because doesn't fit remaining spend...", occ
+                    # )
 
         logger.info(
             "[{} :: {}] Buying plan (est ${:,.2f}): {}",
@@ -1049,29 +1069,32 @@ class IOpOrderFast(IOp):
             " ".join(f"{x}={y}" for x, y in buyQty.items()),
         )
 
-        logger.info(
-            "[{} :: {}] ATR ({:,.2f}) Estimates: {}",
-            self.symbol,
-            self.direction,
-            maximumATR,
-            atrGoals,
-        )
-        logger.info(
-            "[{} :: {}] Chosen ATR: {} :: {}",
-            self.symbol,
-            self.direction,
-            maximumATR,
-            boundaryPrice,
-        )
+        if False:
+            logger.info(
+                "[{} :: {}] ATR ({:,.2f}) Estimates: {}",
+                self.symbol,
+                self.direction,
+                maximumATR,
+                atrGoals,
+            )
+            logger.info(
+                "[{} :: {}] Chosen ATR: {} :: {}",
+                self.symbol,
+                self.direction,
+                maximumATR,
+                boundaryPrice,
+            )
 
         logger.info(
-            "[{} :: {}] Ordering ${:,.2f} of {} apart between {:,.2f} and {:,.2f}",
+            "{}[{} :: {}] Ordering ${:,.2f} of {} apart between {:,.2f} and {:,.2f} ({:,.2f})",
+            "[PREVIEW] " if self.preview else "",
             self.symbol,
             self.direction,
             self.amount,
             self.gaps,
             currentPrice,
             boundaryPrice,
+            abs(currentPrice - boundaryPrice),
         )
 
         # now use buyDict to place orders at QTY and live track them until
@@ -1237,6 +1260,7 @@ class IOpOrderLimit(IOp):
                 # so symbol AAPL211112C00150000 will have expiration
                 # 211112 with key 20211112 in the strikesDict return
                 # value from the "chains" operation.
+                # Note: not year 2100 compliant.
                 strikes = strikes["20" + sym[-15 : -15 + 6]]
 
                 currentStrike = float(sym[-8:]) / 1000
@@ -1880,14 +1904,6 @@ class IOpQuotesAdd(IOp):
             if not contract:
                 continue
 
-            # HACK because we can only use delayed on VXM
-            if contract.symbol == "VXM":
-                # delayed
-                self.ib.reqMarketDataType(3)
-            else:
-                # real time, but with last price if outside of hours.
-                self.ib.reqMarketDataType(2)
-
             tickFields = tickFieldsForContract(contract)
 
             # remove spaces from OCC-like symbols for key reference
@@ -1895,6 +1911,8 @@ class IOpQuotesAdd(IOp):
 
             self.state.quoteState[symkey] = self.ib.reqMktData(contract, tickFields)
             self.state.quoteContracts[symkey] = contract
+
+        # TODO: save current quote state to global restore state
 
 
 @dataclass
@@ -1942,6 +1960,7 @@ class IOpQuotesAddFromOrderId(IOp):
                     await self.state.qualify(Contract(conId=useTrade.contract.conId))
 
             symkey = lookupKey(useTrade.contract)
+
             self.state.quoteState[symkey] = self.ib.reqMktData(
                 useTrade.contract, tickFields
             )
@@ -2040,7 +2059,7 @@ class IOpOptionChain(IOp):
         cacheKey = ("strike", self.symbol, now.date())
         # logger.info("Looking up {}", cacheKey)
         if found := self.cache.get(cacheKey):
-            logger.info("Strikes cached: {}", pp.pformat(found))
+            # logger.info("[{}] Strikes cached: {}", self.symbol, pp.pformat(found))
             return found
 
         contractExact = contractForName(self.symbol)
@@ -2143,6 +2162,7 @@ class IOpQuoteSave(IOp):
         cacheKey = ("quotes", self.group)
         self.cache.set(cacheKey, set(self.symbols))
         logger.info("[{}] {}", self.group, self.symbols)
+
         repopulate = [f'"{x}"' for x in self.symbols]
         await self.state.dispatch.runop("add", " ".join(repopulate), self.state.opstate)
 
@@ -2155,6 +2175,11 @@ class IOpQuoteAppend(IOp):
     async def run(self):
         cacheKey = ("quotes", self.group)
         symbols = self.cache.get(cacheKey)
+        if not symbols:
+            logger.error(
+                "[{}] No quote group found. Creating new quote group!", self.group
+            )
+            symbols = set()
 
         self.cache.set(cacheKey, symbols | set(self.symbols))
         repopulate = [f'"{x}"' for x in self.symbols]

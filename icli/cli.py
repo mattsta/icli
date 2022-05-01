@@ -547,12 +547,18 @@ class IBKRCmdlineApp:
             "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif  # type: ignore
         ).order(orderType)
 
-        logger.info("Ordering {} via {}", contract, order)
+        logger.info("[{}] Ordering {} via {}", contract.localSymbol, contract, order)
         trade = self.ib.placeOrder(contract, order)
 
         # TODO: add agent-like feature to modify order in steps for buys (+price, -qty)
         #       or for sells (-price)
-        logger.info("Placed: {}", pp.pformat(trade))
+        logger.info(
+            "[{} :: {} :: {}] Placed: {}",
+            trade.orderStatus.orderId,
+            trade.orderStatus.status,
+            contract.localSymbol,
+            pp.pformat(trade),
+        )
 
         return order, trade
 
@@ -1026,6 +1032,7 @@ class IBKRCmdlineApp:
             else:
                 a_s = f"{c.askSize // 1000:>5}k"
 
+            # use different print logic if this is an option contract or spread
             bigboi = (len(c.contract.localSymbol) > 15) or c.contract.comboLegs
 
             if bigboi:
@@ -1047,7 +1054,7 @@ class IBKRCmdlineApp:
                 #      a 900% multiple, not a 163% difference between the
                 #      two numbers as we would report for normal stock price changes.
                 # Also note: we use 'mark' here because after hours, IBKR reports
-                # the previous day closing price as the current price, which clearly
+                # the previous day open price as the current price, which clearly
                 # isn't correct since it ignores the entire most recent day.
                 bighigh = (
                     ((mark / c.high if c.high else 1) - 1) * 100
@@ -1404,9 +1411,6 @@ class IBKRCmdlineApp:
 
                 self.quoteContracts[contract.symbol] = contract
 
-                # Note: the Ticker returned by reqMktData() is updated in-place, so we can just
-                # read the object on a timer for the latest value(s)
-
         async def reconnect():
             # don't reconnect if an exit is requested
             if self.exiting:
@@ -1414,12 +1418,16 @@ class IBKRCmdlineApp:
 
             logger.info("Connecting to IBKR API...")
             while True:
+                self.connected = False
+
                 try:
-                    self.connected = False
                     # NOTE: Client ID *MUST* be 0 to allow modification of
                     #       existing orders (which get "re-bound" with a new
                     #       order id when client 0 connects—but it *only* works
                     #       for client 0)
+                    # If you are using the IBKR API, it's best to *never* create
+                    # orders outside of the API (TWS, web interface, mobile) because
+                    # the API treats non-API-created orders differently.
 
                     await self.ib.connectAsync(
                         self.host,
@@ -1439,8 +1447,7 @@ class IBKRCmdlineApp:
 
                     requestMarketData()
 
-                    # reset cached states on reconnect so we don't have stale
-                    # data by mistake
+                    # reset cached states on reconnect so we don't show stale data
                     self.summary.clear()
                     self.position.clear()
                     self.order.clear()
@@ -1482,6 +1489,7 @@ class IBKRCmdlineApp:
                     await asyncio.gather(
                         self.ib.reqAccountSummaryAsync(),  # self.ib.reqPnLAsync()
                     )
+
                     break
                 except:
                     logger.error("Failed to connect to IB Gateway, trying again...")
