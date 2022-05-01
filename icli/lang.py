@@ -794,9 +794,13 @@ class IOpOrderFast(IOp):
         # TODO: allow selecting future expirations too
         # Note: this is *not* the target options expiration date, but we use the
         #       current date to bisect all chains to discover the nearest date to now.
-        expP = pendulum.now()  # .next(pendulum.FRIDAY)
-        expTry = expP.date()
+        now = pendulum.now().in_tz("US/Eastern")
 
+        # if after market close, use next day
+        if (now.hour, now.minute) >= (16, 15):
+            now = now.add(days=1)
+
+        expTry = now.date()
         # Note: Expiration formats in the dict are *full* YYYYMMDD, not OCC YYMMDD.
         expirationFmt = f"{expTry.year}{expTry.month:02}{expTry.day:02}"
 
@@ -2082,15 +2086,17 @@ class IOpOptionChain(IOp):
             # to consume gigabytes of memory and lock up or crash because...
             # IBKR is shit at handling data apparently.
 
-            # for now, don't request forward months because we are at
-            # the start of november and are still only doing short term
-            # usage (at most 1-2 weeks out). Revisit end of month and
-            # refactor to prefer tradier API fetching first since we
-            # can get those in 100ms instead of 6+ seconds for IBKR APIs.
+            # for now, don't request forward months because we are
+            # still only doing short term usage (at most 1-2 weeks out).
+            # Revisit end of month discovery and refactor to prefer tradier
+            # API fetching first since we can get those in 100ms instead of
+            # 6+ seconds for IBKR APIs sometimes.
             FORWARD_MONTHS = 0
             useDates = [
                 d.date()
-                for d in pendulum.period(now, now.add(months=0)).range("months")
+                for d in pendulum.period(now, now.add(months=FORWARD_MONTHS)).range(
+                    "months"
+                )
             ]
 
         # this request takes between 1 second and 60 seconds depending on ???
