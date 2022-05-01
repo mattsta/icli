@@ -1404,8 +1404,21 @@ class IBKRCmdlineApp:
         # from multiple accounts with one API connection apparently)
         self.ib.updatePortfolioEvent += lambda row: self.updatePosition(row)
 
-        def requestMarketData():
+        async def requestMarketData():
             logger.info("Requesting market data...")
+
+            # resubscribe to active quotes
+            # remove all quotes and re-subscribe to the current quote state
+            logger.info("[quotes] Restoring quote state...")
+            self.quoteState.clear()
+
+            await self.dispatch.runop("qrestore", "global", self.opstate)
+            logger.info("[quotes] All quotes subscribed!")
+
+            # We used to think this needed to be called before each new market data request, but
+            # apparently it works fine now only set once up front?
+            self.ib.reqMarketDataType(2)
+
             for contract in contracts:
                 # Additional details can be requested:
                 # https://ib-insync.readthedocs.io/api.html#ib_insync.ib.IB.reqMktData
@@ -1417,8 +1430,6 @@ class IBKRCmdlineApp:
 
                 # Tell IBKR API to return "last known good quote" if outside
                 # of regular market hours instead of giving us bad data.
-                # Must be called before each market data request!
-                self.ib.reqMarketDataType(2)
 
                 tickFields = tickFieldsForContract(contract)
                 self.quoteState[contract.symbol] = self.ib.reqMktData(
@@ -1461,7 +1472,7 @@ class IBKRCmdlineApp:
 
                     self.ib.reqNewsBulletins(True)
 
-                    requestMarketData()
+                    await requestMarketData()
 
                     # reset cached states on reconnect so we don't show stale data
                     self.summary.clear()

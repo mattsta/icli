@@ -154,9 +154,6 @@ class IOpQQuote(IOp):
                 ", ".join([c.symbol for c in contracts]),
             )
             for contract in contracts:
-                # request most up to date data available
-                self.ib.reqMarketDataType(2)
-
                 # Request quotes with metadata fields populated
                 # (note: metadata is only populated using "live" endpoints,
                 #  so we can't use the self-canceling "11 second snapshot" parameter)
@@ -1943,7 +1940,6 @@ class IOpQuotesAddFromOrderId(IOp):
                 addTrades.append(useTrade)
 
         for useTrade in addTrades:
-            self.ib.reqMarketDataType(2)
             tickFields = tickFieldsForContract(useTrade.contract)
 
             # If this is a new session and we haven't previously cached the
