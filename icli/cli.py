@@ -57,6 +57,7 @@ from ib_insync import (
     Order,
     NewsBulletin,
     NewsTick,
+    Index,
 )
 import pprint
 import asyncio
@@ -94,7 +95,25 @@ MONEY_COLORS = seaborn.color_palette("RdYlGn", n_colors=COLOR_COUNT, desat=1).as
 MONEY_COLORS = MONEY_COLORS[:25] + MONEY_COLORS[-25:]
 
 # display order we want: RTY, ES, NQ, YM
-FUT_ORD = dict(MES=-9, ES=-9, RTY=-10, M2K=-10, NQ=-8, MNQ=-8, MYM=-7, YM=-7)
+FUT_ORD = dict(
+    MES=-9,
+    ES=-9,
+    SPY=-9,
+    SPX=-9,
+    NANOS=-9,
+    RTY=-10,
+    M2K=-10,
+    IWM=-10,
+    NDX=-8,
+    COMP=-8,
+    NQ=-8,
+    QQQ=-8,
+    MNQ=-8,
+    MYM=-7,
+    YM=-7,
+    DJI=-7,
+    DIA=-7,
+)
 
 # A-Z, Z-A, translate between them (lowercase only)
 ATOZ = "".join([chr(x) for x in range(ord("a"), ord("z") + 1)])
@@ -192,6 +211,20 @@ sfutures = {
     "ECBOT": ["YM"],  # , "TN", "ZF"],
     #    "NYMEX": ["GC", "QM"],
 }
+
+# Discovered via mainly: https://www.linnsoft.com/support/symbol-guide-ib
+# The DJI / DOW / INDU quotes don't work.
+# The NDX / COMP quotes require differen't data not included in default packages.
+#    Index("COMP", "NASDAQ"),
+idxs = [
+    Index("SPX", "CBOE"),
+    Index("NANOS", "CBOE"),  # SPY-priced index options with no multiplier
+    Index("VIN", "CBOE"),  # VIX Front-Month Component (near term)
+    Index("VIF", "CBOE"),  # VIX Back-Month Component (far term)
+    Index("VIX", "CBOE"),  # VIX Currently
+    Index("VOL-NYSE", "NYSE"),
+    Index("TICK-NYSE", "NYSE"),
+]
 
 # Note: ContFuture is only for historical data; it can't quote or trade.
 # So, all trades must use a manual contract month (quarterly)
@@ -1205,7 +1238,13 @@ class IBKRCmdlineApp:
                 c = quote.contract
 
                 # We want to sort futures first, and sort MES, MNQ, etc first.
-                if c.secType == "FUT":
+                # (also Indexes and Index ETFs first too)
+                if c.secType in {"FUT", "IND"} or c.symbol in {
+                    "SPY",
+                    "QQQ",
+                    "IWM",
+                    "DIA",
+                }:
                     priority = FUT_ORD[c.symbol] if c.symbol in FUT_ORD else 0
                     return (0, priority, c.symbol)
 
@@ -1297,6 +1336,7 @@ class IBKRCmdlineApp:
 
         contracts = [Stock(sym, "SMART", "USD") for sym in stocks]
         contracts += futures
+        contracts += idxs
 
         # Attach IB events *outside* of the reconnect loop because we don't want to
         # add duplicate event handlers on every reconnect!
@@ -1404,20 +1444,22 @@ class IBKRCmdlineApp:
                             self.accountId, "", p.contract.conId
                         )
 
-                    lookupBars = [
-                        Future(
-                            symbol="MES",
-                            exchange="GLOBEX",
-                            lastTradeDateOrContractMonth=FUT_EXP,
-                        ),
-                        Future(
-                            symbol="MNQ",
-                            exchange="GLOBEX",
-                            lastTradeDateOrContractMonth=FUT_EXP,
-                        ),
-                    ]
-
                     if False:
+                        # Optionally we can subscribe to live bars for futures if we
+                        # want to run a real time futures price algo too.
+                        lookupBars = [
+                            Future(
+                                symbol="MES",
+                                exchange="GLOBEX",
+                                lastTradeDateOrContractMonth=FUT_EXP,
+                            ),
+                            Future(
+                                symbol="MNQ",
+                                exchange="GLOBEX",
+                                lastTradeDateOrContractMonth=FUT_EXP,
+                            ),
+                        ]
+
                         self.liveBars = {
                             c.symbol: self.ib.reqRealTimeBars(c, 5, "TRADES", False)
                             for c in lookupBars
