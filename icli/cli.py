@@ -95,25 +95,25 @@ MONEY_COLORS = seaborn.color_palette("RdYlGn", n_colors=COLOR_COUNT, desat=1).as
 # only keep lowest 25 and highest 25 elements since middle values are less distinct
 MONEY_COLORS = MONEY_COLORS[:25] + MONEY_COLORS[-25:]
 
-# display order we want: RTY, ES, NQ, YM
+# display order we want: RTY, ES / SPX, NQ / COMP, YM, Index ETFs
 FUT_ORD = dict(
     MES=-9,
     ES=-9,
-    SPY=-9,
+    SPY=-6,
     SPX=-9,
     NANOS=-9,
     RTY=-10,
     M2K=-10,
-    IWM=-10,
+    IWM=-6,
     NDX=-8,
     COMP=-8,
     NQ=-8,
-    QQQ=-8,
+    QQQ=-6,
     MNQ=-8,
     MYM=-7,
     YM=-7,
     DJI=-7,
-    DIA=-7,
+    DIA=-6,
 )
 
 # A-Z, Z-A, translate between them (lowercase only)
@@ -196,7 +196,7 @@ from prompt_toolkit.shortcuts import set_title
 import asyncio
 import os
 
-stocks = ["IWM", "QQQ", "VXX", "AAPL", "SBUX", "TSM"]
+stocks = ["IWM", "QQQ", "SPY", "UVXY", "AAPL", "SBUX", "TSM"]
 
 # Futures to exchange mappings:
 # https://www.interactivebrokers.com/en/index.php?f=26662
@@ -219,12 +219,16 @@ sfutures = {
 #    Index("COMP", "NASDAQ"),
 idxs = [
     Index("SPX", "CBOE"),
-    Index("NANOS", "CBOE"),  # SPY-priced index options with no multiplier
+    # No NANOS because most brokers don't offer it and it has basically no volume
+    # Index("NANOS", "CBOE"),  # SPY-priced index options with no multiplier
     Index("VIN", "CBOE"),  # VIX Front-Month Component (near term)
     Index("VIF", "CBOE"),  # VIX Back-Month Component (far term)
     Index("VIX", "CBOE"),  # VIX Currently
-    Index("VOL-NYSE", "NYSE"),
+    # No VOL-NYSE because it displays billions of shares and breaks our views
+    # Index("VOL-NYSE", "NYSE"),
     Index("TICK-NYSE", "NYSE"),
+    # > 1 == selling pressure, < 1 == buying pressure; somewhat
+    Index("TRIN-NYSE", "NYSE"),
 ]
 
 # Note: ContFuture is only for historical data; it can't quote or trade.
