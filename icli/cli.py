@@ -319,7 +319,7 @@ class IBKRCmdlineApp:
 
     def contractsForPosition(
         self, sym, qty: Optional[float] = None
-    ) -> Union[None, tuple[Contract, float, float]]:
+    ) -> list[tuple[Contract, float, float]]:
         """Returns matching portfolio positions as (contract, size, marketPrice).
 
         Looks up position by symbol name and returns either provided quantity or total quantity.
@@ -455,9 +455,8 @@ class IBKRCmdlineApp:
         on the (positive) number as a dollar value."""
 
         # Immediately ask to add quote to live quotes for this trade positioning...
-        sym = sym.replace(
-            " ", ""
-        )  # turn option contract lookup into non-spaced version
+        # turn option contract lookup into non-spaced version
+        sym = sym.replace(" ", "")
 
         # need to replace underlying if is "fake settled underlying"
         quotesym = self.symbolNormalizeIndexWeeklyOptions(sym)
@@ -466,7 +465,11 @@ class IBKRCmdlineApp:
         if not contract.conId:
             # spead contracts don't have IDs, so only reject if NOT a spread here.
             if contract.tradingClass != "COMB":
-                logger.error("Not submitting order because contract not qualified!")
+                logger.error(
+                    "[{} :: {}] Not submitting order because contract not qualified!",
+                    sym,
+                    quotesym,
+                )
                 return None
 
         if isinstance(contract, (Option, Bag)) or contract.tradingClass == "COMB":
