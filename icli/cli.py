@@ -1677,50 +1677,7 @@ class IBKRCmdlineApp:
 
                 continue
 
-                # Below are legacy commands either not copied over to lang.py
-                # yet, or were copied and we forgot to delete here.
-                # This was the original (temporary) command implementation
-                # before we used the mutil/dispatch.py abstraction.
-                if text1.startswith("fast"):
-                    try:
-                        cmd, symbol, action, qty, price = text1.split()
-                    except:
-                        logger.warning("Format: symbol BUY|SELL qty price")
-                        continue
-
-                    action = action.upper()
-
-                    if qty.startswith("$"):
-                        dollarSpend = int(qty[1:])
-                        assetPrice = float(price)
-
-                        # if is option, adjust for contract size...
-                        if len(symbol) > 15:
-                            assetPrice *= 100
-
-                        qty = dollarSpend // assetPrice
-
-                    if action not in {"BUY", "SELL"}:
-                        logger.error(
-                            "Action must be BUY or SELL: symbol, action, qty, price"
-                        )
-                        continue
-
-                    contract = contractForName(symbol)
-                    logger.info(
-                        "Placing order for {} {} at {} DAY via {}",
-                        qty,
-                        symbol,
-                        price,
-                        contract,
-                    )
-
-                    order = self.limitOrder(action, int(qty), float(price))
-                    trade = self.ib.placeOrder(contract, order)
-                    logger.info("Placed: {}", pp.pformat(trade))
-                elif text1 == "lmt":
-                    ...
-                elif text1.startswith("rcheck "):
+                if text1.startswith("rcheck "):
                     cmd, base, pct = text1.split()
                     base = float(base)
                     pct = float(pct) / 100
@@ -1773,7 +1730,7 @@ class IBKRCmdlineApp:
                         logger.info("Canceled by lack of fields...")
                         continue
 
-                    bid, ask = self.currentQuote(sym)
+                    bid, ask, multiplier = self.currentQuote(sym)
                     (qualified,) = await self.qualify(
                         Future(
                             currency="USD",
