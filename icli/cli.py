@@ -1509,6 +1509,8 @@ class IBKRCmdlineApp:
 
             # We used to think this needed to be called before each new market data request, but
             # apparently it works fine now only set once up front?
+            # Tell IBKR API to return "last known good quote" if outside
+            # of regular market hours instead of giving us bad data.
             self.ib.reqMarketDataType(2)
 
             for contract in contracts:
@@ -1519,9 +1521,6 @@ class IBKRCmdlineApp:
                 # highs and lows aren't created unless requested via tick set 165, etc)
                 # Also can subscribe to live news feed per symbol with tick 292 (news result
                 # returned via tickNewsEvent callback, we think)
-
-                # Tell IBKR API to return "last known good quote" if outside
-                # of regular market hours instead of giving us bad data.
 
                 tickFields = tickFieldsForContract(contract)
                 self.quoteState[contract.symbol] = self.ib.reqMktData(
@@ -1610,14 +1609,18 @@ class IBKRCmdlineApp:
                     )
 
                     break
-                except:
+                except ConnectionRefusedError:
+                    # Don't print exception for just a connection error
                     logger.error("Failed to connect to IB Gateway, trying again...")
-                    # logger.exception("why?")
-                    try:
-                        await asyncio.sleep(3)
-                    except:
-                        logger.warning("Exit requested during sleep. Goodbye.")
-                        sys.exit(0)
+                except:
+                    # Do print exception for any errors not related to connection handling.
+                    logger.exception("why?")
+
+                try:
+                    await asyncio.sleep(3)
+                except:
+                    logger.warning("Exit requested during sleep. Goodbye.")
+                    sys.exit(0)
 
         try:
             await reconnect()
