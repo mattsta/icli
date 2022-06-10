@@ -1386,8 +1386,28 @@ class IBKRCmdlineApp:
 
             now = str(pendulum.now("US/Eastern"))
 
+            # RegT overnight margin can be at maximum 50% of total account value.
+            # (note: does not apply to portfolion margin / SPAN accounts)
+            # "TotalCashValue" will be negative if using margin, so the negative amount is the
+            # current margin used. Overnight margin must be no more than half current account value,
+            # but the account value includes the margin loan, so overnight margin use must be only
+            # up to half the total balance value (so overnight margin must be less than the total
+            # cash+equity balance itself).
+            overnightDeficit = (
+                0
+                if self.accountStatus["TotalCashValue"] >= 0
+                else (
+                    self.accountStatus["TotalCashValue"]
+                    + self.accountStatus["NetLiquidation"]
+                )
+            )
+
+            onc = ""
+            if overnightDeficit < 0:
+                onc = f" (OVERNIGHT REG-T MARGIN CALL: ${-overnightDeficit:,.2f})"
+
             return HTML(
-                f"""{now}\n"""
+                f"""{now}{onc}\n"""
                 + "\n".join(
                     [
                         formatTicker(quote)
