@@ -748,6 +748,13 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
+    "XSP": FutureSymbol(
+        symbol="XSP",
+        exchange="GLOBEX",
+        name="Mini E-mini S&P 500",
+        multiplier="",
+        delayed=False,
+    ),
     "MES": FutureSymbol(
         symbol="MES",
         exchange="GLOBEX",
