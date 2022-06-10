@@ -458,6 +458,8 @@ class IBKRCmdlineApp:
         # turn option contract lookup into non-spaced version
         sym = sym.replace(" ", "")
 
+        logger.info("[{}] Request to order qty {} price {}", sym, qty, price)
+
         # need to replace underlying if is "fake settled underlying"
         quotesym = self.symbolNormalizeIndexWeeklyOptions(sym)
         await self.dispatch.runop("add", f'"{quotesym}"', self.opstate)
@@ -482,7 +484,12 @@ class IBKRCmdlineApp:
             else:
                 outsideRth = False
         else:
-            outsideRth = True
+            # Algos can only operate RTH:
+            if " " in orderType or "MIDPRICE" in orderType:
+                outsideRth = False
+            else:
+                # REL and LMT/MKT/MOO/MOC orders can be outside RTH
+                outsideRth = True
 
         if isinstance(contract, Crypto) and isLong:
             # Crypto can only use IOC or Minutes for tif BUY
@@ -522,7 +529,7 @@ class IBKRCmdlineApp:
                     logger.error("Never received valid quote prices: {}", currentQuote)
                     return
 
-            bid, ask = currentQuote
+            bid, ask, multiplier = currentQuote
 
             # TODO: need customizable aggressiveness levels
             #   - midpoint (default)
@@ -530,25 +537,45 @@ class IBKRCmdlineApp:
             #   - bid - X% for aggressive time sensitive sells
             # TODO: need to create active management system to track growing/shrinking
             #       midpoint for buys (+price, -qty) or sell (-price) targeting.
+            #       See: lang: "buy" for price tracking after order logic.
 
             # calculate current midpoint of spread rounded to 2 decimals.
             mid = round((bid + ask) / 2, 2)
             price = mid
 
-            # negative quantities are whole dollar amounts to use for
-            # the buy/sell here.
+            # since this is in the "negative quantity" block, we convert the
+            # negative number to a positive number for representing total
+            # amount to spend.
             amt = abs(qty)
+
+            # calculate order quantity for spend budget at current estimated price
+            logger.info(
+                "[{}] Trying to order ${:,.2f} worth at ${:,.2f}...", sym, amt, mid
+            )
 
             qty = self.quantityForAmount(contract, amt, mid)
 
+            if not qty:
+                logger.error(
+                    "[{}] Zero quantity calculated for: {} {} {}!",
+                    sym,
+                    contract,
+                    amt,
+                    mid,
+                )
+                return None
+
+            assert qty > 0
             # If integer, show integer, else show fractions.
             logger.info(
                 "Ordering {:,} {} at ${:,.2f} for ${:,.2f}",
                 qty,
                 sym,
                 price,
-                qty * price,
+                qty * price * multiplier,
             )
+
+        assert qty > 0
 
         order = orders.IOrder(
             "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif  # type: ignore
@@ -557,8 +584,10 @@ class IBKRCmdlineApp:
         logger.info("[{}] Ordering {} via {}", contract.localSymbol, contract, order)
         trade = self.ib.placeOrder(contract, order)
 
-        # TODO: add agent-like feature to modify order in steps for buys (+price, -qty)
-        #       or for sells (-price)
+        # TODO: add optional agent-like feature HERE to modify order in steps for buys (+price, -qty)
+        #       or for sells (-price).
+        # TODO: move order logic from "buy" lang.py cmd to its own agent feature.
+        #       Needs: agent state logged to persistnet data structure, check events on callback for next event in graph (custom OTOCO, etc).
         logger.info(
             "[{} :: {} :: {}] Placed: {}",
             trade.orderStatus.orderId,
