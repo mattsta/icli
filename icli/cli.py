@@ -990,25 +990,34 @@ class IBKRCmdlineApp:
         # Fields described at:
         # https://ib-insync.readthedocs.io/api.html#module-ib_insync.ticker
         def formatTicker(c):
-            usePrice = c.marketPrice()
+            # ibkr API keeps '.close' as the previous full market day close until the next
+            # full market day, so for example over the weekend where there isn't a new "full
+            # market day," the '.close' is always Thursday's close, while '.last' will be the last
+            # traded value seen, equal to Friday's last after-hours trade.
+            # But when a new market day starts (but before trading begins), the 'c.last' becomes
+            # nan and '.close' becomes the actual expected "previous market day" close we want
+            # to use.
+            # In summary: '.last' is always the most recent traded price unless it's a new market
+            # day before market open, then '.last' is nan and '.close' is the previous most accurate
+            # (official) close price, but doesn't count AH trades (we think).
+            # Also, this price is assuming the last reported trade is accurate to the current
+            # NBBO spread because we aren't checking "if last is outside of NBBO, use NBBO midpoint
+            # instead" because these are for rather active equity symbols (we do use the current
+            # quote midpoint as price for option pricing though due to faster quote-vs-trade movement)
+            usePrice = c.last if c.last == c.last else c.close
+
             ago = (self.now - (c.time or self.now)).as_interval()
             try:
                 percentUnderHigh = (
-                    -((c.high - usePrice) / ((usePrice + c.high) / 2)) * 100
-                    if usePrice <= c.high
-                    else 0
+                    ((usePrice - c.high) / c.high) * 100 if usePrice <= c.high else 0
                 )
 
                 percentUpFromLow = (
-                    (abs(usePrice - c.low) / ((usePrice + c.low) / 2)) * 100
-                    if usePrice >= c.low
-                    else 0
+                    ((usePrice - c.low) / c.low) * 100 if usePrice >= c.low else 0
                 )
 
                 percentUpFromClose = (
-                    ((usePrice - c.close) / ((usePrice + c.close) / 2)) * 100
-                    if c.close
-                    else 0
+                    ((usePrice - c.close) / c.close) * 100 if c.close else 0
                 )
             except:
                 # price + (low or close) is zero... can't do that.
@@ -1079,20 +1088,26 @@ class IBKRCmdlineApp:
                 a_s = f"{c.askSize // 1000:>5}k"
 
             # use different print logic if this is an option contract or spread
-            bigboi = (len(c.contract.localSymbol) > 15) or c.contract.comboLegs
+            bigboi = (len(c.contract.localSymbol) > 10) or c.contract.comboLegs
 
             if bigboi:
+                # Could use this too, but it only updates every couple seconds instead
+                # of truly live with each new bid/ask update.
                 # if c.modelGreeks:
                 #     mark = c.modelGreeks.optPrice
 
                 if c.bid and c.bidSize and c.ask and c.askSize:
                     # weighted sum of bid/ask as midpoint
-                    mark = ((c.bid * c.bidSize) + (c.ask * c.askSize)) / (
-                        c.bidSize + c.askSize
+                    # We do extra rounding here so we don't end up with
+                    # something like "$0.015" when we really want "$0.01"
+                    mark = round(
+                        ((c.bid * c.bidSize) + (c.ask * c.askSize))
+                        / (c.bidSize + c.askSize),
+                        2,
                     )
                 else:
                     # IBKR reports "no bid" as -1. le sigh.
-                    mark = ((c.bid + c.ask) / 2) if c.bid > 0 else (c.ask / 2)
+                    mark = round(((c.bid + c.ask) / 2) if c.bid > 0 else (c.ask / 2), 2)
 
                 # For options, instead of using percent difference between
                 # prices, we use percent return over the low/close instead.
@@ -1162,10 +1177,15 @@ class IBKRCmdlineApp:
                     strike = c.contract.strike
                     underlyingStrikeDifference = -(strike - und) / und * 100
                     iv = c.lastGreeks.impliedVol
+                    # for our buying and selling, we want greeks based on the live floating
+                    # bid/ask spread and not the last price (could be out of date) and not
+                    # the direct bid or ask (too biased while buying and selling)
+                    delta = c.modelGreeks.delta if c.modelGreeks else None
                 else:
                     und = None
                     underlyingStrikeDifference = None
                     iv = None
+                    delta = None
 
                 # Note: we omit OPEN price because IBKR doesn't report it (for some reason?)
                 # greeks available as .bidGreeks, .askGreeks, .lastGreeks, .modelGreeks each as an OptionComputation named tuple
@@ -1202,6 +1222,7 @@ class IBKRCmdlineApp:
                             rowName,
                             f"[u {fmtPricePad(und, padding=8, decimals=2)} ({underlyingStrikeDifference or -0:>7,.2f}%)]",
                             f"[iv {iv or 0:.2f}]",
+                            f"[d {delta or 0:>5.2f}]",
                             f"{fmtPriceOpt(mark):>6}",
                             # f"{fmtPriceOpt(usePrice)}",
                             f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
@@ -1216,6 +1237,10 @@ class IBKRCmdlineApp:
                         ]
                     )
 
+            # TODO: pre-market and after-market hours don't update the high/low values, so these are
+            #       not populated during those sessions.
+            #       this also means during after-hours session, the high and low are fixed to what they
+            #       were during RTH and are no longer valid. Should this have a time check too?
             pctUndHigh, amtUndHigh = mkPctColor(
                 percentUnderHigh,
                 [
@@ -1230,11 +1255,16 @@ class IBKRCmdlineApp:
                     f"{amtLow:>6.2f}" if amtLow < 1000 else f"{amtLow:>6.0f}",
                 ],
             )
+
+            # high and low are only populated after regular market hours, so allow nan to show the
+            # full float value during pre-market hours.
             pctUpClose, amtUpClose = mkPctColor(
                 percentUpFromClose,
                 [
                     f"{percentUpFromClose:>6.2f}%",
-                    f"{amtClose:>8.2f}" if amtLow < 1000 else f"{amtClose:>8.0f}",
+                    f"{amtClose:>8.2f}"
+                    if (amtLow != amtLow) or amtLow < 1000
+                    else f"{amtClose:>8.0f}",
                 ],
             )
 
@@ -1242,12 +1272,6 @@ class IBKRCmdlineApp:
                 f"{c.contract.localSymbol or c.contract.symbol:<9}: {fmtPricePad(usePrice)}  ({pctUndHigh} {amtUndHigh}) ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} {fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}  {fmtPricePad(c.open)} {fmtPricePad(c.close)}    ({str(ago)})"
                 + ("     HALTED!" if c.halted > 0 else "")
             )
-
-        try:
-            pass
-            # logger.info("One future: {}", self.quoteState["ES"].dict())
-        except:
-            pass
 
         try:
             rowlen, _ = shutil.get_terminal_size()
@@ -1315,12 +1339,20 @@ class IBKRCmdlineApp:
 
                 # We want to sort futures first, and sort MES, MNQ, etc first.
                 # (also Indexes and Index ETFs first too)
-                if c.secType in {"FUT", "IND"} or c.symbol in {
-                    "SPY",
-                    "QQQ",
-                    "IWM",
-                    "DIA",
-                }:
+                # This double symbol check is so we don't accidentially sort index ETF options
+                # inside the ETF section.
+                if c.secType in {"FUT", "IND"} or (
+                    (c.symbol == c.localSymbol)
+                    and (
+                        c.symbol
+                        in {
+                            "SPY",
+                            "QQQ",
+                            "IWM",
+                            "DIA",
+                        }
+                    )
+                ):
                     priority = FUT_ORD[c.symbol] if c.symbol in FUT_ORD else 0
                     return (0, priority, c.symbol)
 
