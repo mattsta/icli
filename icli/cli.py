@@ -641,7 +641,11 @@ class IBKRCmdlineApp:
         versus only integer quantities (everything else)."""
 
         mul = int(contract.multiplier) if contract.multiplier else 1
+        assert mul > 0
+
+        # total spend amount divided by price of thing to buy == how many things to buy
         qty = amount / (limitPrice * mul)
+        assert qty > 0
 
         if not isinstance(contract, Crypto):
             # only crypto orders support fractional quantities over the API.
@@ -804,7 +808,7 @@ class IBKRCmdlineApp:
         if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
             return None
 
-        return q.bid, q.ask
+        return q.bid, q.ask, (int(q.contract.multiplier) or 1)
 
     def updatePosition(self, pos):
         self.position[pos.contract.symbol] = pos
