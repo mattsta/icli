@@ -329,6 +329,60 @@ class IOpCash(IOp):
 
 
 @dataclass
+class IOpAlias(IOp):
+    def argmap(self):
+        return [DArg("cmd"), DArg("*args")]
+
+    async def run(self):
+        # TODO: allow aliases to read arguments and do calculations internally
+        # TODO: should this just be an external parser language too?
+        aliases = {
+            "buy-spx": {"async": ["fast spx c :1 0 :2*"]},
+            "sell-spx": {"async": ["evict SPXW* -1"]},
+            "clear-quotes": {"async": ["qremove blahblah SPXW*"]},
+            # TODO: if RTH, use 4x, if PM or AH use 2x
+            "buy-screen": {
+                "var": {"spend": self.state.accountStatus["AvailableFunds"] * 4 / 1.10},
+                "spend-per-order": {"calc": ":spend / ::asynclength"},
+                "async": [
+                    f"buy buy {sym} q 0 p :spend-per-order a AF"
+                    for sym in {
+                        "AAPL",
+                        "SHOP",
+                        "FB",
+                        "NVDA",
+                        "AMD",
+                        "MSFT",
+                        "TWLO",
+                        "ETSY",
+                        "ROKU",
+                    }
+                ],
+            },
+        }
+
+        if self.cmd not in aliases:
+            logger.error("[alias {}] Not found?", self.cmd)
+            logger.error("Available aliases: {}", sorted(aliases.keys()))
+            return None
+
+        cmd = aliases[self.cmd]
+        logger.info("[alias {}] Running: {}", self.cmd, cmd)
+
+        # TODO: we could make a simpler run wrapper for "run command string" instead of
+        #       always breaking out the command-vs-argument strings manually.
+        return await asyncio.gather(
+            *[
+                self.runoplive(
+                    cmd.split()[0],
+                    " ".join(cmd.split()[1:]),
+                )
+                for cmd in cmd["async"]
+            ]
+        )
+
+
+@dataclass
 class IOpDepth(IOp):
     def argmap(self):
         return [
@@ -2315,6 +2369,7 @@ OP_MAP = {
         "tryf": None,
         "snd": IOpSound,
         "cash": IOpCash,
+        "alias": IOpAlias,
     },
     "Quote Management": {
         "qsave": IOpQuoteSave,
