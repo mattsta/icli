@@ -2182,10 +2182,13 @@ class IOpQuotesAdd(IOp):
             *[self.state.contractForOrderRequest(o) for o in ors]
         )
 
-        for contract in cs:
+        qs = []
+        for ordReq, contract in zip(ors, cs):
             if not contract:
+                logger.error("Failed to find live contract for: {}", ordReq)
                 continue
 
+            # logger.info("Adding quotes for: {} :: {}", ordReq, contract)
             tickFields = tickFieldsForContract(contract)
 
             # remove spaces from OCC-like symbols for key reference
@@ -2194,6 +2197,12 @@ class IOpQuotesAdd(IOp):
             self.state.quoteState[symkey] = self.ib.reqMktData(contract, tickFields)
             self.state.quoteContracts[symkey] = contract
 
+            qs.append(symkey)
+
+        # return array of quote lookup keys
+        # (because things like spreads have weird keys we construct here the caller
+        #  can then use to index into the quoteState[] dict directly later)
+        return qs
         # TODO: save current quote state to global restore state
 
 
