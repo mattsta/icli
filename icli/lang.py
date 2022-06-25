@@ -347,7 +347,7 @@ class IOpPositionEvict(IOp):
 
 @dataclass
 class IOpCash(IOp):
-    def argman(self):
+    def argmap(self):
         return []
 
     async def run(self):
