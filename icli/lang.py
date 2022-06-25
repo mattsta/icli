@@ -151,7 +151,9 @@ class IOpQQuote(IOp):
             tickers = []
             logger.info(
                 "Requesting tickers for {}",
-                ", ".join([c.symbol for c in contracts]),
+                ", ".join(
+                    [c.localSymbol.replace(" ", "") or c.symbol for c in contracts]
+                ),
             )
             for contract in contracts:
                 # Request quotes with metadata fields populated
