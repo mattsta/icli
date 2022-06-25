@@ -107,6 +107,13 @@ class IOp(mutil.dispatch.Op):
         self.ib = self.state.ib
         self.cache = self.state.cache
 
+    def runoplive(self, cmd, args):
+        # wrapper for things like:
+        #        strikes = await self.state.dispatch.runop(
+        #            "chains", self.symbol, self.state.opstate
+        #        )
+        return self.state.dispatch.runop(cmd, args, self.state.opstate)
+
 
 @dataclass
 class IOpQQuote(IOp):
@@ -1534,8 +1541,9 @@ class IOpOrderLimit(IOp):
                 logger.error("Symbol [{}] not found in portfolio for closing!", sym)
 
             if isButterflyClose:
-                strikesDict = await self.state.dispatch.runop(
-                    "chains", sym, self.state.opstate
+                strikesDict = await self.runoplive(
+                    "chains",
+                    sym,
                 )
 
                 # strikes are in a dict by expiration date,
@@ -2295,21 +2303,34 @@ class IOpOrderSpread(IOp):
     """Place a spread order described by using BuyLang/OrderLang"""
 
     def argmap(self):
-        return [DArg("*legdesc")]
+        return [DArg("legdesc"), DArg("*preview")]
 
     async def run(self):
         promptPosition = [
-            Q("Symbol", value=" ".join(self.legdesc)),
+            Q("Symbol", value=self.legdesc),
             Q("Price"),
             Q("Quantity"),
             ORDER_TYPE_Q,
         ]
+
+        if self.legdesc:
+            await self.runoplive(
+                "add",
+                f'"{self.legdesc}"',
+            )
 
         got = await self.state.qask(promptPosition)
 
         try:
             req = got["Symbol"]
             orderReq = self.state.ol.parse(req)
+
+            # re-add quote if changed or new (no impact if already added)
+            await self.runoplive(
+                "add",
+                f'"{req}"',
+            )
+
             qty = int(got["Quantity"])
             price = float(got["Price"])
             orderType = got["Order Type"]
@@ -2456,7 +2477,10 @@ class IOpQuoteSave(IOp):
         logger.info("[{}] {}", self.group, self.symbols)
 
         repopulate = [f'"{x}"' for x in self.symbols]
-        await self.state.dispatch.runop("add", " ".join(repopulate), self.state.opstate)
+        await self.runoplive(
+            "add",
+            " ".join(repopulate),
+        )
 
 
 @dataclass
@@ -2475,7 +2499,10 @@ class IOpQuoteAppend(IOp):
 
         self.cache.set(cacheKey, symbols | set(self.symbols))
         repopulate = [f'"{x}"' for x in self.symbols]
-        await self.state.dispatch.runop("add", " ".join(repopulate), self.state.opstate)
+        await self.runoplive(
+            "add",
+            " ".join(repopulate),
+        )
 
 
 @dataclass
@@ -2513,8 +2540,9 @@ class IOpQuoteRemove(IOp):
 
         logger.info("Removing quotes: {}", repopulate)
 
-        await self.state.dispatch.runop(
-            "remove", " ".join(repopulate), self.state.opstate
+        await self.runoplive(
+            "remove",
+            " ".join(repopulate),
         )
 
 
@@ -2531,7 +2559,10 @@ class IOpQuoteRestore(IOp):
             return
 
         repopulate = [f'"{x}"' for x in symbols]
-        await self.state.dispatch.runop("add", " ".join(repopulate), self.state.opstate)
+        await self.runoplive(
+            "add",
+            " ".join(repopulate),
+        )
 
 
 @dataclass
@@ -2563,8 +2594,9 @@ class IOpQuoteClean(IOp):
                     remove.append(f'"{x}"')
 
         # TODO: fix bug where it's not translating SPX -> SPXW properly for the live removal
-        await self.state.dispatch.runop(
-            "qremove", "global " + " ".join(remove), self.state.opstate
+        await self.runoplive(
+            "qremove",
+            "global " + " ".join(remove),
         )
 
 
