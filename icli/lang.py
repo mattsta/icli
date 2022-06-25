@@ -591,16 +591,14 @@ class IOpOrder(IOp):
     """Quick order entry with full order described on command line."""
 
     def argmap(self):
-        # TODO: write a parser for this language instead of requiring fixed orders for each parameter
+        # TODO: write a parser for this language instead of requiring fixed orders for each parameter?
         # allow symbol on command line, optionally
-        # BUY IWM QTY 500 PRICE 245 ORD LIMIT/LIM/LMT AF AS REL MP AMF AMS MOO MOC
+        # BUY IWM TOTAL 50000 ALGO LIMIT/LIM/LMT AF AS REL MP AMF AMS MOO MOC
         return [
-            DArg("bs", verify=lambda x: x.lower() in {"b", "s", "buy", "sell"}),
             DArg("symbol"),
-            DArg("q", verify=lambda x: x.lower() in {"q", "qty"}),
-            DArg("qty", convert=float, verify=lambda x: x != 0),
-            DArg("p", verify=lambda x: x.lower() in {"p", "price"}),
-            DArg("price", convert=float, verify=lambda x: x >= 0),
+            DArg("bs", verify=lambda x: x.lower() in {"b", "s", "buy", "sell"}),
+            DArg("t", verify=lambda x: x.lower() in {"t", "total"}),
+            DArg("total", convert=float, verify=lambda x: x > 0),
             DArg("a", verify=lambda x: x.lower() in {"a", "algo"}),
             DArg(
                 "algo",
@@ -614,7 +612,7 @@ class IOpOrder(IOp):
         if " " in self.symbol:
             # is spread, so do bag
             isSpread = True
-            orderReq = self.state.ol.parse(bOrder)
+            orderReq = self.state.ol.parse(self.symbol)
             contract = await self.state.bagForSpread(orderReq)
         else:
             # else, is symbol
@@ -635,19 +633,22 @@ class IOpOrder(IOp):
 
         # send the order to IBKR
         # Note: negative quantity is parsed as a WHOLE DOLLAR AMOUNT to use,
-        # then price is irrelevant since it runs a midpoint of spread order.
+        # then limit price is irrelevant since it runs a midpoint order.
         am = ALGOMAP[self.algo]
         placed = await self.state.placeOrderForContract(
             self.symbol,
             isLong,
             contract,
-            self.qty,
-            self.price,
+            # "negative quantity" means use as TOTAL PRICE
+            -self.total,
+            # also since we are buying by AMOUNT, we don't specify a
+            # limit price since it will be calculated automatically.
+            0,
             am,
         )
 
         if not placed:
-            logger.error("Order can't continue!")
+            logger.error("[{}] Order can't continue!", self.symbol)
             return
 
         # if this is a market order, don't run the algo loop
@@ -704,13 +705,13 @@ class IOpOrder(IOp):
             bidask = self.state.currentQuote(quoteKey)
             if bidask:
                 logger.info("Adjusting price for more aggressive fills...")
-                bid, ask = bidask
+                bid, ask, multiplier = bidask
                 if isLong:
                     # if is buy, chase the ask
                     newPrice = round((currentPrice + ask) / 2, 2)
 
                     # reduce qty to remain in expected total spend constraint
-                    newQty = amount / newPrice
+                    newQty = totalAmount / newPrice
 
                     # only crypto supports fractional values over the API,
                     # so all non-crypto contracts get floor'd
@@ -796,13 +797,18 @@ class IOpOrderFast(IOp):
                 "direction",
                 convert=lambda x: x.upper()[0],
                 verify=lambda x: x in {"P", "C"},
-                desc="side to buy (puts or calls)",
+                desc="side to buy / trade kind to execute (puts or calls)",
             ),
             DArg("amount", convert=float, desc="Maximum dollar amount to spend"),
             DArg(
                 "gaps",
                 convert=int,
                 desc="pick strikes N apart (e.g. use 2 for room to lock gains with butterflies)",
+            ),
+            DArg(
+                "expirationAway",
+                convert=int,
+                desc="use N next expiration date (0 is NEAREST, 1 is NEXT, 2 is NEXT NEXT, ...)",
             ),
             DArg(
                 "*preview",
@@ -818,28 +824,60 @@ class IOpOrderFast(IOp):
         #   - live quote for underlying
 
         # TODO: may need symbol replacement for SPXW -> SPX etc?
-
-        atrReqFast = dict(cmd="atr", sym=self.symbol, avg=3, back=1)
-        atrReqSlow = dict(cmd="atr", sym=self.symbol, avg=20, back=1)
-        async with aiohttp.ClientSession() as cs:
-            # This URL is a custom historical reporting endpoint providing various
-            # technical stats on symbols given arbitrary parameters, but also requires
-            # you have a DB of potentially years of daily bars for each stock.
-            urls = [
-                cs.get("http://127.0.0.1:6555/", params=p) for p in [atrReqFast, atrReqSlow]
-            ]
-
-            # request chains and live quote data using the language command syntax
-            dataUpdates = [
-                self.state.dispatch.runop("chains", self.symbol, self.state.opstate),
-                self.state.dispatch.runop("add", f'"{self.symbol}"', self.state.opstate),
-            ]
+        # TODO: make atr fetch optional and make chains fetch against
+        #       an external API if configured.
+        # TODO: this whole atr fetching / calculation / partitioning strikes
+        #       should be an external reusable function (because it's complicating
+        #       the logic flow of "calculate strike widths, place order"
+        if True:
+            # skip ATR for now
 
             # async run all URL fetches and data updates at once
-            mfast_, mslow_, strikes, _ = await asyncio.gather(*(urls + dataUpdates))
+            strikes = await self.runoplive(
+                "chains",
+                self.symbol,
+            )
 
-            # async resolve response bodies through the JSON parser
-            mfast, mslow = await asyncio.gather(*[m.json() for m in [mfast_, mslow_]])
+            if not strikes:
+                logger.error("[{}] No strikes found?", self.symbol)
+                return None
+
+            # also make sure quote for the underlying is populated...
+            await self.runoplive(
+                "add",
+                f'"{self.symbol}"',
+            )
+        else:
+            atrReqFast = dict(cmd="atr", sym=self.symbol, avg=3, back=1)
+            atrReqSlow = dict(cmd="atr", sym=self.symbol, avg=20, back=1)
+            async with aiohttp.ClientSession() as cs:
+                # This URL is a custom historical reporting endpoint providing various
+                # technical stats on symbols given arbitrary parameters, but also requires
+                # you have a DB of potentially years of daily bars for each stock.
+                urls = [
+                    cs.get("http://127.0.0.1:6555/", params=p)
+                    for p in [atrReqFast, atrReqSlow]
+                ]
+
+                # request chains and live quote data using the language command syntax
+                dataUpdates = [
+                    self.runoplive(
+                        "chains",
+                        self.symbol,
+                    ),
+                    self.runoplive(
+                        "add",
+                        f'"{self.symbol}"',
+                    ),
+                ]
+
+                # async run all URL fetches and data updates at once
+                mfast_, mslow_, strikes, _ = await asyncio.gather(*(urls + dataUpdates))
+
+                # async resolve response bodies through the JSON parser
+                mfast, mslow = await asyncio.gather(
+                    *[m.json() for m in [mfast_, mslow_]]
+                )
 
         # logger.info("Got MFast, MSlow: {}", [mfast, mslow])
 
@@ -862,8 +900,18 @@ class IOpOrderFast(IOp):
         # if today is NOT an expiration, this picks the CLOSEST expiration date.
         # TODO: allow selecting future expirations.
         sstrikes = sorted(strikes.keys())
+
+        # why doesn't this work for VIX?
+        # logger.info("Strikes are: {}", sstrikes)
+
         useExpIdx = bisect.bisect_left(sstrikes, expirationFmt)
-        useExp = sstrikes[useExpIdx]
+
+        # this is a bit weird, but we want to find the NEXT NEAREST expiration date (even if today),
+        # which is the 'useExpIdx', then we want the requested expire away, which is 'self.expirationAway'
+        # distance from the currently found expiration date, so we get a slice of the expirationAway length,
+        # then we take the last element which is our actually requested expiration away date.
+        useExp = sstrikes[useExpIdx : useExpIdx + 1 + self.expirationAway][-1]
+
         assert useExp in strikes
 
         useChain = strikes[useExp]
@@ -877,27 +925,45 @@ class IOpOrderFast(IOp):
             useChain,
         )
 
-        maximumATR: float = 0
-        prevClose: float = 0
-        prevHigh: float = 0
-        for df in (mfast, mslow):
-            data = df["data"]
-            date: str = list(data.keys())[-1]
-            fordate = data[date]
-            atr: float = fordate["atr"]
+        if False:
+            maximumATR: float = 0
+            prevClose: float = 0
+            prevHigh: float = 0
 
-            if atr > maximumATR:
-                maximumATR = atr
-                prevClose = fordate["close"]
-                prevHigh = fordate["high"]
+            # just not running for now, skipping ATR limits
+            for df in (mfast, mslow):
+                data = df["data"]
+                date: str = list(data.keys())[-1]
+                fordate = data[date]
+                atr: float = fordate["atr"]
+
+                if atr > maximumATR:
+                    maximumATR = atr
+                    prevClose = fordate["close"]
+                    prevHigh = fordate["high"]
 
         # quote is already live in quote state...
-        quote = self.state.quoteState[self.symbol]
 
-        # if we subscribed to new quotes, wait up to 3.5 seconds for
+        # HACK TO GET AROUND NOT HAVING INDEX QUOTES
+        useQuoteSymbol = self.symbol
+        if useQuoteSymbol in {"SPX", "SPXW"}:
+            # only works if you're subscribing to Index(SPX, CBOE) things. can also replace with "ES"
+            # if you want to base of the current /ES quote...
+            # TODO: should we do something like "overnight and pre-market, use ES, else use live SPX?"
+            useQuoteSymbol = "SPX"
+        elif useQuoteSymbol in {"NDX", "NDXW"}:
+            # Same problem with SPX, but NDX requires different data subscriptions, but
+            # you may have /MNQ or /NQ instead which may be ~okay?
+            useQuoteSymbol = "MNQ"
+
+        quote = self.state.quoteState[useQuoteSymbol]
+
+        # if we subscribed to new quotes, wait a little while for
         # the IBKR streaming API to start populating our quotes...
-        for i in range(0, 25):
-            currentLow: float = quote.low
+        for i in range(0, 5):
+            # currentLow: float = quote.last # RETURN TO: quote.low
+            # TEMPORARY HACK BECAUSE OVER WEEKEND "SPX" returns NAN for LAST and LOW. SIGH.
+            currentLow: float = quote.last if quote.last == quote.last else quote.close
 
             # note: this can break during non-market hours when
             #       IBKR returns random bad values for current
@@ -908,18 +974,29 @@ class IOpOrderFast(IOp):
             # for any testing after hours/weekends/etc.
             # TODO: could also use 'underlying' value from full OCC quote, but need
             #       a baseline to get the first options quotes anyway...
-            currentPrice: float = quote.last  # quote.marketPrice()
+
+            # used to look up the ATM amount here:
+            currentPrice: float = (
+                quote.last if quote.last == quote.last else quote.close
+            )
 
             if any(np.isnan([currentLow, currentPrice])):
                 logger.warning(
-                    "[{} :: {}] [{}] Quotes not all populated. Waiting for activity...",
+                    "[{} :: {}] [{}] Quotes not all populated ({}). Waiting for activity...",
                     self.symbol,
                     self.direction,
                     i,
+                    quote.last,
                 )
 
                 await asyncio.sleep(0.140)
             else:
+                logger.info(
+                    "[{} :: {}] Using quote last price: {}",
+                    self.symbol,
+                    self.direction,
+                    currentPrice,
+                )
                 break
 
         # sort a nan-free list of atr goals
@@ -930,38 +1007,49 @@ class IOpOrderFast(IOp):
         #       "upper aggressive level" tolerance (low, medium, high)
         usingCalls = self.direction == "C"
 
-        if usingCalls:
-            # call goals sort forward with the highest range as the rightmost value
-            atrGoals = [
-                x
-                for x in sorted(
-                    [
-                        prevClose + maximumATR,
-                        prevHigh + maximumATR,
-                        currentLow + maximumATR,
-                    ]
-                )
-                if x == x  # drop nan values if we are missing a quote
-            ]
-        else:
-            # put goals sort backwards with lowest range as the rightmost value
-            atrGoals = [
-                x
-                for x in reversed(
-                    sorted(
+        if np.isnan([currentPrice]):
+            logger.error("No current price found, can't continue.")
+            return None
+
+        # boundaryPrice hack because we don't have the ATR server at the moment
+        # NOTE: this gets updated for range extremes during the strike calculation loop.
+        boundaryPrice = currentPrice
+
+        if False:
+            # not using ATR for now
+            if usingCalls:
+                # call goals sort forward with the highest range as the rightmost value
+                atrGoals = [
+                    x
+                    for x in sorted(
                         [
-                            prevClose - maximumATR,
-                            prevHigh - maximumATR,
-                            currentLow - maximumATR,
+                            prevClose + maximumATR,
+                            prevHigh + maximumATR,
+                            currentLow + maximumATR,
                         ]
                     )
-                )
-                if x == x  # drop nan values if we are missing a quote
-            ]
+                    if x == x  # drop nan values if we are missing a quote
+                ]
+            else:
+                # put goals sort backwards with lowest range as the rightmost value
+                atrGoals = [
+                    x
+                    for x in reversed(
+                        sorted(
+                            [
+                                prevClose - maximumATR,
+                                prevHigh - maximumATR,
+                                currentLow - maximumATR,
+                            ]
+                        )
+                    )
+                    if x == x  # drop nan values if we are missing a quote
+                ]
 
         # boundary value (the up/down we don't want to cross)
         # is always last element of the sorted goals list
-        boundaryPrice = atrGoals[-1]
+        if False:
+            boundaryPrice = atrGoals[-1]
 
         # it's possible current-day performance is better (or worse) than
         # expected ATR-calculated expected performance, so if underlying
@@ -973,12 +1061,13 @@ class IOpOrderFast(IOp):
         #  up empty because it tries to interrogate an empty range
         #  because currentPrice would be higher than expected prices
         #  to buy (for calls), so we'd never generate a buyQty)
-        if usingCalls:
-            if boundaryPrice <= currentPrice:
-                boundaryPrice += maximumATR
-        else:
-            if boundaryPrice >= currentPrice:
-                boundaryPrice -= maximumATR
+        if False:
+            if usingCalls:
+                if boundaryPrice <= currentPrice:
+                    boundaryPrice += maximumATR
+            else:
+                if boundaryPrice >= currentPrice:
+                    boundaryPrice -= maximumATR
 
         # collect strikes near the current price in gaps as requested
         # until we reach the maximum price
@@ -998,35 +1087,54 @@ class IOpOrderFast(IOp):
         # if puts, walk towards lower strikes instead of higher strikes.
         directionMul = 1 if usingCalls else -1
 
+        # If asking for negative gaps (more ITM instead of more OTM) then our
+        # direction is inverted from normal for the call/put strike discovery.
+        # (e.g. gaps >= 0 == go MORE OTM; gaps < 0 == go MORE ITM)
+        # TODO: fix direction for -0 (need go use ±1 instead of 0 for no gaps...)
+        # directionMul = -directionMul if abs(self.gaps) != self.gaps else directionMul
+
         # the range step paraemter is the "+=" increment between
         # iterations, so step=2 returns 0, 2, 4, ...;
         # step=3 returns 0, 3, 6, 9, ...
         # but our "gaps" params is numbers BETWEEN steps, so we
         # need steps=(gaps+1) becaues the step is 'inclusive' of the
         # next result value, but our 'gaps' is fully exclusive gaps.
-        for i in range(0, 100 * directionMul, (self.gaps + 1) * directionMul):
-            idx = firstStrikeIdx + i
+        while len(buyStrikes) < 3:
+            # if we didn't find a boundary price, then extend it a bit more.
+            # NOTE: This is still a hack because our ATR server isn't live again.
+            boundaryPrice = boundaryPrice * 1.01 if usingCalls else boundaryPrice / 1.01
 
-            # if we walk over or under the strikes, we are done.
-            if idx < 0 or idx >= len(useChain):
-                break
+            # TODO: change initial position back to 0 from len(buyStrikes) when we restore
+            #       proper ATR API reading.
+            # TODO: fix gaps calculation when doing negative gaps
+            # TODO: maybe make gaps=1 be NEXT strike so gaps=-1 is PREV strike for going more ITM?
+            for i in range(
+                len(buyStrikes), 100 * directionMul, (self.gaps + 1) * directionMul
+            ):
+                idx = firstStrikeIdx + i
 
-            strike = useChain[idx]
-
-            logger.info("Checking strike vs. boundary: {} v {}", strike, boundaryPrice)
-
-            # only place orders up to our maximum theoretical price
-            # (either a static percent offset from current OR the actual High-to-Low ATR)
-            if usingCalls:
-                # calls have an UPPER CAP
-                if strike > boundaryPrice:
-                    break
-            else:
-                # puts have a LOWER CAP
-                if strike < boundaryPrice:
+                # if we walk over or under the strikes, we are done.
+                if idx < 0 or idx >= len(useChain):
                     break
 
-            buyStrikes.append(strike)
+                strike = useChain[idx]
+
+                logger.info(
+                    "Checking strike vs. boundary: {} v {}", strike, boundaryPrice
+                )
+
+                # only place orders up to our maximum theoretical price
+                # (either a static percent offset from current OR the actual High-to-Low ATR)
+                if usingCalls:
+                    # calls have an UPPER CAP
+                    if strike > boundaryPrice:
+                        break
+                else:
+                    # puts have a LOWER CAP
+                    if strike < boundaryPrice:
+                        break
+
+                buyStrikes.append(strike)
 
         logger.info(
             "[{} :: {}] Selected strikes to purchase: {}",
@@ -1040,7 +1148,12 @@ class IOpOrderFast(IOp):
             f"{self.symbol}{useExp[2:]}{self.direction[0]}{int(strike * 1000):08}"
             for strike in buyStrikes
         ]
-        await self.state.dispatch.runop("add", " ".join(occs), self.state.opstate)
+
+        logger.info("Adding quotes for: {}", " ".join(occs))
+        await self.runoplive(
+            "add",
+            " ".join(occs),
+        )
 
         buyQty = defaultdict(int)
 
@@ -1061,27 +1174,64 @@ class IOpOrderFast(IOp):
                     occs,
                 )
             ):
-                ask = self.state.quoteState[occ].ask * 100
+                # TODO: for VIX, expire date is N, but contract date is N+1, so we need
+                #       to do calendar math for "add 1 day" to VIX symbols...
+
+                # if weekly index option, needs the special name to check quotes because IBKR
+                # changes our "SPX option weekly expire" dates into SPXW symbols internally, so
+                # even though we request trades and quotes on "SPX" symbol, their .localSymbol
+                # becomes "SPXW[OCC details]", etc.
+                # Basically: All orders and quotes are placed with "SPX", "NDX", etc symbols,
+                # but behind the scenes it changes them to the different root symbols as needed,
+                # so for our quote lookup we need to re-construct the .localSymbol vs. the in-contract
+                # order symbol.
+                occForQuote = (
+                    occ.replace("SPX", "SPXW")
+                    .replace("VIX", "VIXW")
+                    .replace("NDX", "NDXW")
+                    .replace("RUT", "RUTW")
+                )
+
+                logger.info("Iterating: {}", occForQuote)
+
+                ask = self.state.quoteState[occForQuote].ask * 100
 
                 # if quote not populated, wait for it...
-                for i in range(0, 25):
-                    # if ask is populated, skip rest of waiting
-                    # Note: these asks only work for longs! if we have
-                    # shot quotes with negative asks, all of this breaks.
-                    # We check for (ask > 0) because when IBKR has no live
-                    # information (or on init) it returns "ask -1" for a while,
-                    # which blows up our calculations obviously.
-                    if (not np.isnan(ask)) and ask > 0:
-                        break
+                try:
+                    qs = self.state.quoteState[occForQuote]
 
-                    # else, ask is not populated, so try to wait for it...
-                    logger.warning("Ask not populated. Waiting...")
-                    await asyncio.sleep(0.075)
-                    ask = self.state.quoteState[occ].ask * 100
-                else:
-                    # ask failed to populate, so use MP
-                    logger.warning("Failed to populate quote, so using market price...")
-                    ask = self.state.quoteState[occ].marketPrice() * 100
+                    # multipler is a string of a number because of course it is.
+                    # It's likely always an integer, but why risk coercing to int when float is
+                    # also fine here with our flakey price math.
+                    multiplier = float(qs.contract.multiplier)
+
+                    for i in range(0, 25):
+                        # if ask is populated, skip rest of waiting
+                        # Note: these asks only work for longs! if we have
+                        # shot quotes with negative asks, all of this breaks.
+                        # We check for (ask > 0) because when IBKR has no live
+                        # information (or on init) it returns "ask -1" for a while,
+                        # which blows up our calculations obviously.
+                        if (not np.isnan(ask)) and ask > 0:
+                            break
+
+                        # else, ask is not populated, so try to wait for it...
+                        logger.warning("Ask not populated. Waiting...")
+
+                        await asyncio.sleep(0.075)
+
+                        ask = qs.ask * multiplier
+                    else:
+                        # ask failed to populate, so use MP
+                        logger.warning(
+                            "Failed to populate quote, so using market price..."
+                        )
+                        ask = qs.marketPrice() * multiplier
+                except KeyboardInterrupt:
+                    logger.error(
+                        "[FAST Order] Request termination received. Abandoning! No orders were placed."
+                    )
+                    return  # Control-C pressed. Goodbye.
 
                 # attempt to weight lower strikes for optimal
                 # delta capture while still getting gamma exposure
@@ -1094,7 +1244,7 @@ class IOpOrderFast(IOp):
                     if False:
                         logger.debug(
                             "[{}] Checking ({} * {}) + {} < {}",
-                            occ,
+                            occForQuote,
                             ask,
                             i,
                             spend,
@@ -1117,9 +1267,10 @@ class IOpOrderFast(IOp):
                     # )
 
         logger.info(
-            "[{} :: {}] Buying plan (est ${:,.2f}): {}",
+            "[{} :: {}] Buying plan for {} contracts (est ${:,.2f}): {}",
             self.symbol,
             self.direction,
+            sum(buyQty.values()),
             spend,
             " ".join(f"{x}={y}" for x, y in buyQty.items()),
         )
@@ -1160,13 +1311,16 @@ class IOpOrderFast(IOp):
             return None
 
         # qualify contracts for ordering
-        contracts = {occ: contractForName(occ) for occ in buyQty.keys()}
-        await self.state.qualify(*contracts.values())
+        # don't qualify here because they are qualified in the async order runners instead
+        # contracts = {occ: contractForName(occ) for occ in buyQty.keys()}
+        # await self.state.qualify(*contracts.values())
 
         # assemble coroutines with parameters per order
         placement = []
         for occ, qty in buyQty.items():
-            qs = self.state.quoteState[occ]
+            qs = self.state.quoteState[
+                occ.replace("SPX", "SPXW")
+            ]  # TODO: FIX HACK NAME CRAP
             limit = round((qs.bid + qs.ask) / 2, 2)
 
             # if for some reason bid/ask aren't populated, wait for them...
@@ -1174,18 +1328,36 @@ class IOpOrderFast(IOp):
                 await asyncio.sleep(0.075)
                 limit = round((qs.bid + qs.ask) / 2, 2)
 
-            placement.append(
-                self.state.placeOrderForContract(
-                    occ, True, contracts[occ], qty, limit, "LMT + ADAPTIVE + FAST"
-                )
-            )
+            placement.append((occ, qty, limit, "AF"))
+            # placement.append(
+            #     self.state.placeOrderForContract(
+            #         occ, True, contracts[occ], qty, limit, "LMT + ADAPTIVE + FAST"
+            #     )
+            # )
 
         # launch all orders concurrently
-        placed = await asyncio.gather(*placement)
+        # placed = await asyncio.gather(*placement)
 
         # TODO: create follow-the-spread refactor so we can
         # live follow all new strike order simmultaenously.
         # (currently around line 585)
+
+        # re-use the "BUY" self-adjusting price algo here to place orders
+        # for all our calculated strikes.
+        placed = await asyncio.gather(
+            *[
+                self.runoplive(
+                    "buy",
+                    # Note: we're always running weeklies but the quote system
+                    #       uses different symbols for weekly index options, so
+                    #       fixup any of those here.
+                    # f'buy {occ.replace("SPX", "SPXW").replace("VIX", "VIXW").replace("NDX", "NDXW").replace("RUT", "RUTW")} total {qty * price} algo {algo}',
+                    # Since these are per-contract limit price, we need to re-inflate the total by the multiplier again.
+                    f"{occ} buy total {qty * limit * multiplier} algo {algo}",
+                )
+                for occ, qty, limit, algo in placement
+            ]
+        )
 
 
 @dataclass
