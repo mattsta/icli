@@ -232,7 +232,13 @@ class IOpQQuote(IOp):
 
 @dataclass
 class IOpPositionEvict(IOp):
-    """Evict a position using MIDPRICE sell order."""
+    """Evict a position using automatic MIDPRICE sell order for equity or ADAPTIVE FAST for options and futures.
+
+    Note: the symbol name accepts '*' for wildcards!
+
+    Also note: for futures, the actual symbol is the month expiration like "MESU2" and not just "MES",
+               so to evict futures you want to evict MES* and not just MES or /MES.
+    """
 
     def argmap(self):
         return [
@@ -242,6 +248,12 @@ class IOpPositionEvict(IOp):
                 int,
                 lambda x: x != 0 and x >= -1,
                 "qty is the exact quantity to evict (or -1 to evict entire position)",
+            ),
+            DArg(
+                "delta",
+                float,
+                lambda x: 0 <= x <= 1,
+                "only evict matching contracts with current delta >= X (not used if symbol isn't an option). deltas are positive for all contracts in this case (so asking for 0.80 will evict calls with delta >= 0.80 and puts with delta <= -0.80)",
             ),
         ]
 
@@ -255,18 +267,54 @@ class IOpPositionEvict(IOp):
             return None
 
         for contract, qty, price in contracts:
+            if self.delta:
+                # if asking for a delta eviction, check current quote...
+                quotesym = contract.localSymbol.replace(" ", "")
+
+                # verify quote is loaded...
+                await self.runoplive(
+                    "add",
+                    f'"{quotesym}"',
+                )
+
+                # check delta...
+                while not (
+                    thebigd := self.state.quoteState[quotesym].modelGreeks.delta
+                ):
+                    # takes a couple moments for the greeks feed to populate on initial quote...
+                    await asyncio.sleep(0.003)
+
+                # skip placing this contract order if the delta is below the user requested threshold.
+                # (i.e. equivalent to "only evict if self.delta >= abs(contract delta)")
+                if abs(thebigd) < self.delta:
+                    continue
+
             await self.state.qualify(contract)
 
             # set price floor to 3% below current live price for
             # the midprice order floor.
-            limit = round(price / 1.03, 2)
+            if qty < 0:
+                # if position IS SHORT, this is a BUY so we need a HIGHER CAP
+                limit = round(price * 1.03, 2)
 
-            # TODO: fix to BUY back SHORT positions
-            # (is 'qty' returned as negative from contractForPosition for short positions??)
+                if isinstance(contract, Option):
+                    # options have deeper exit floor criteria because their ranges can be wider.
+                    # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
+                    # the spread without immediately going to market, but ymmv.
+                    limit = round(price * 1.25, 2)
+            else:
+                # else, position IS LONG, this is a SELL, so we need a LOWER CAP
+                limit = round(price / 1.03, 2)
+
+                if isinstance(contract, Option):
+                    # options have deeper exit floor criteria because their ranges can be wider.
+                    # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
+                    # the spread without immediately going to market, but ymmv.
+                    limit = round(price / 1.25, 2)
 
             algo = "MIDPRICE"
 
-            if len(contract.localSymbol) > 15:
+            if len(contract.localSymbol) > 10 or isinstance(contract, Future):
                 algo = "LMT + ADAPTIVE + FAST"
 
             # if limit price rounded down to zero, just do a market order
@@ -280,11 +328,16 @@ class IOpPositionEvict(IOp):
             )
 
             # using MIDPRICE for equity-like things and ADAPTIVE for option-like things.
+            # TODO: review this and see if maybe it should be hooked up to just price tracking algo?
+
+            # TODO: when trades complete, have trade event send "trade done" event to listeners for
+            #       next chained action (e.g. EVICT SPXW* -1 0.78 ... THEN BUY MORE ... FAST SPX P {price} 0)
             trade = await self.state.placeOrderForContract(
                 contract.localSymbol,  # TODO: may be unnecessary since 'contract' has symbols too...
-                False,  # SELLING ONLY HERE TODO: (fix for closing shorts later)
+                # True==BUY if currently short so _BUY_ TO CLOSE, False==SELL if currently long so _SELL_ TO CLOSE
+                qty < 0,
                 contract,
-                qty,
+                abs(qty),
                 limit,
                 algo,
             )
