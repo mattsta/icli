@@ -1041,8 +1041,10 @@ class IBKRCmdlineApp:
             return f"{n:>10,.2f}"
 
         def fmtPriceOpt(n):
-            if n:
+            if isinstance(n, (int, float)):
                 # assume trading $0.01 to $99.99 range for options
+                # (we can get intgers here is we have decided there's no valid bid
+                #  and we're just marking a price to 0)
                 return f"{n:>5,.2f}"
 
             return f"{n:>5}"
@@ -1157,17 +1159,21 @@ class IBKRCmdlineApp:
                 #     mark = c.modelGreeks.optPrice
 
                 if c.bid and c.bidSize and c.ask and c.askSize:
+                    mark = round((c.bid + c.ask) / 2, 2)
                     # weighted sum of bid/ask as midpoint
                     # We do extra rounding here so we don't end up with
                     # something like "$0.015" when we really want "$0.01"
-                    mark = round(
-                        ((c.bid * c.bidSize) + (c.ask * c.askSize))
-                        / (c.bidSize + c.askSize),
-                        2,
-                    )
+                    # mark = round(
+                    #     ((c.bid * c.bidSize) + (c.ask * c.askSize))
+                    #     / (c.bidSize + c.askSize),
+                    #     2,
+                    # )
                 else:
-                    # IBKR reports "no bid" as -1. le sigh.
-                    mark = round(((c.bid + c.ask) / 2) if c.bid > 0 else (c.ask / 2), 2)
+                    # IBKR reports "no bid" as -1 but when bid is -1 bidSize is 0.
+                    # If no bid, there's no valid midpoint so just go to the ask directly.
+                    # Different views though: for BUYING, the price is the ask with no midpoint,
+                    #                         for SELLING, the price DOES NOT EXIST because no buyers.
+                    mark = round((c.bid + c.ask) / 2, 2) if c.bid > 0 else 0
 
                 # For options, instead of using percent difference between
                 # prices, we use percent return over the low/close instead.
@@ -1269,7 +1275,7 @@ class IBKRCmdlineApp:
                     return " ".join(
                         [
                             rowName,
-                            f"{fmtPriceOpt(mark):>6}",
+                            f"{fmtPriceOpt(mark):>6} ± {fmtPriceOpt(c.ask - mark):<6}",
                             f" {fmtPriceOpt(c.bid):>} x {b_s}   {fmtPriceOpt(c.ask):>} x {a_s} ",
                             "HALTED!" if c.halted > 0 else "",
                         ]
@@ -1283,7 +1289,7 @@ class IBKRCmdlineApp:
                             f"[u {fmtPricePad(und, padding=8, decimals=2)} ({underlyingStrikeDifference or -0:>7,.2f}%)]",
                             f"[iv {iv or 0:.2f}]",
                             f"[d {delta or 0:>5.2f}]",
-                            f"{fmtPriceOpt(mark):>6}",
+                            f"{fmtPriceOpt(mark):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
                             # f"{fmtPriceOpt(usePrice)}",
                             f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
                             f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low):>6})",
