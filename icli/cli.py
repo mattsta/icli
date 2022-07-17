@@ -327,9 +327,11 @@ class IBKRCmdlineApp:
     def contractsForPosition(
         self, sym, qty: Optional[float] = None
     ) -> list[tuple[Contract, float, float]]:
-        """Returns matching portfolio positions as (contract, size, marketPrice).
+        """Returns matching portfolio positions as list of (contract, size, marketPrice).
 
-        Looks up position by symbol name and returns either provided quantity or total quantity.
+        Note: input 'sym' can be a glob pattern for symbol matching. '?' matches single character, '*' matches any characters.
+
+        Looks up position by symbol name (allowing globs) and returns either provided quantity or total quantity.
         If no input quantity, return total position size.
         If input quantity larger than position size, returned size is capped to max position size."""
         portitems = self.ib.portfolio()
@@ -343,7 +345,10 @@ class IBKRCmdlineApp:
             # Note note: using fnmatch.filter() because we allow 'sym' to
             #            have glob characters for multiple lookups at once!
             # Note 3: options .localSymbols have the space padding, so remove for input compare.
-            if fnmatch.filter([pi.contract.localSymbol.replace(" ", "")], sym):
+            # TODO: fix temporary hack of OUR symbols being like /NQ but position values dont' have the slash...
+            if fnmatch.filter(
+                [pi.contract.localSymbol.replace(" ", "")], sym.replace("/", "")
+            ):
                 contract = None
                 contract = pi.contract
 
@@ -354,6 +359,9 @@ class IBKRCmdlineApp:
                     # else, if qty is larger than position, truncate to position.
                     qty = pi.position
 
+                # note: '.marketPrice' here is IBKR's "best effort" market price because it only
+                #       updates maybe every 30 seconds? So (qty * .marketPrice * multiplier) may not represent the
+                #       actual live value of the position.
                 results.append((contract, qty, pi.marketPrice))
 
         return results
@@ -455,6 +463,7 @@ class IBKRCmdlineApp:
         qty: float,
         price: float,
         orderType: str,
+        preview=False,
     ):
         """Place a BUY (isLong) or SELL (!isLong) for qualified 'contract' at qty/price.
 
@@ -573,6 +582,7 @@ class IBKRCmdlineApp:
                 return None
 
             assert qty > 0
+
             # If integer, show integer, else show fractions.
             logger.info(
                 "Ordering {:,} {} at ${:,.2f} for ${:,.2f}",
@@ -584,9 +594,31 @@ class IBKRCmdlineApp:
 
         assert qty > 0
 
+        if isinstance(contract, Future):
+            # Technically this should probably be done using a combination of things
+            # with this API, but we aren't bothering yet:
+            # https://interactivebrokers.github.io/tws-api/minimum_increment.html
+
+            # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment.
+            # Currently we don't care about other futures, so good luck.
+            price = roundnear(0.25, price, True)
+
         order = orders.IOrder(
             "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif  # type: ignore
         ).order(orderType)
+
+        if preview:
+            logger.info(
+                "[{}] PREVIEW REQUEST {} via {}",
+                contract.localSymbol,
+                contract,
+                pp.pformat(order),
+            )
+            trade = await self.ib.whatIfOrderAsync(contract, order)
+            logger.info(
+                "[{}] PREVIEW RESULT: {}", contract.localSymbol, pp.pformat(trade)
+            )
+            return False
 
         logger.info("[{}] Ordering {} via {}", contract.localSymbol, contract, order)
         trade = self.ib.placeOrder(contract, order)
@@ -627,7 +659,11 @@ class IBKRCmdlineApp:
         # If contract has multiplier (like 100 underlying per option),
         # calculate total spend with mul * p * q.
         # The default "no multiplier" value is '', so this check should be fine.
-        mul = int(trade.contract.multiplier) if trade.contract.multiplier else 1
+        if isinstance(trade.contract, Future):
+            # FUTURES HACK BECAUSE WE DO EXTERNAL MARGIN CALCULATIONS REGARDLESS OF MULTIPLIER
+            mul = 1
+        else:
+            mul = int(trade.contract.multiplier) if trade.contract.multiplier else 1
 
         # use average price IF fills have happened, else use current limit price
         return (
@@ -647,7 +683,16 @@ class IBKRCmdlineApp:
         Also compensates for contracts allowing fractional quantities (Crypto)
         versus only integer quantities (everything else)."""
 
-        mul = int(contract.multiplier) if contract.multiplier else 1
+        # For options, the multipler is PART OF THE COST OF BUYING because a $0.15 option costs $15 to buy,
+        # but for futures, the multiplier is NOT PART OF THE BUY COST because buying futures only costs
+        # future margin which is much less than the quoted contract price (but the futures margin is
+        # technically aorund 4% of the total value because a $4,000 MES contract has a 5 multipler so
+        # your $4,000 MES contract is holding $20,000 notional on a $1,700 margin requirement).
+        if isinstance(contract, Option):
+            mul = int(contract.multiplier) if contract.multiplier else 1
+        else:
+            mul = 1
+
         assert mul > 0
 
         # total spend amount divided by price of thing to buy == how many things to buy
