@@ -40,12 +40,12 @@ diskcache = "^5.2.1"
 beautifulsoup4 = "^4.9.3"
 
 # our API helpers and wrappers
-tradeapis = { git = "https://github.com/mattsta/tradeapis.git", tag="1.0.4" }
 # tradeapis = { path = "../clients/", develop = true }
+tradeapis = { git = "https://github.com/mattsta/tradeapis.git", tag="2.0.2" }
 
 [tool.poetry.dev-dependencies]
 data-science-types = "^0.2.23"
-mypy = "^0.950"
+mypy = "^0.961"
 
 [tool.poetry.scripts]
 icli = "icli.__main__:runit"
