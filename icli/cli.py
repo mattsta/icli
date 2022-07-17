@@ -494,7 +494,7 @@ class IBKRCmdlineApp:
             # Purpose: don't trigger warning about "RTH option has no effect" with options...
             # TODO: check if RTH includes extended late 4:15 ending options SPY / SPX / QQQ / IWM / etc?
             if contract.localSymbol[0:3] in {"SPX", "VIX"}:
-                # SPX and VIX options now trade basically 24/7 but anything not 0930-1600 (-1615?) is
+                # SPX and VIX options now trade 23/5 but anything not 0930-1600 (maybe even to 1615?) is
                 # considered "outside RTH"
                 outsideRth = True
             else:
@@ -1675,7 +1675,11 @@ class IBKRCmdlineApp:
                     )
 
                     break
-                except ConnectionRefusedError:
+                except (
+                    ConnectionRefusedError,
+                    asyncio.exceptions.TimeoutError,
+                    asyncio.exceptions.CancelledError,
+                ):
                     # Don't print exception for just a connection error
                     logger.error("Failed to connect to IB Gateway, trying again...")
                 except:
@@ -1734,12 +1738,14 @@ class IBKRCmdlineApp:
                     complete_while_typing=True,
                 )
 
-                # Attempt to run the command submitted into the prompt
-                cmd, *rest = text1.strip().split(" ", 1)
-                with Timer(cmd):
-                    result = await self.dispatch.runop(
-                        cmd, rest[0] if rest else None, self.opstate
-                    )
+                # Attempt to run the command(s) submitted into the prompt
+                # (allow pasting multiple newline commands)
+                for ccmd in text1.strip().split("\n"):
+                    cmd, *rest = ccmd.split(" ", 1)
+                    with Timer(cmd):
+                        result = await self.dispatch.runop(
+                            cmd, rest[0] if rest else None, self.opstate
+                        )
 
                 continue
 
