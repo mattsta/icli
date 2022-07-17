@@ -912,13 +912,21 @@ class IBKRCmdlineApp:
         # TODO: different sounds if PNL is a loss?
         #       different sounds for big wins vs. big losses?
         #       different sounds for commission credit vs. large commission fee?
-        if fill.execution.side == "BOT":
-            pygame.mixer.music.play()
-        elif fill.execution.side == "SLD":
-            pygame.mixer.music.play()
+
+        # TODO: disable audio for algo trades?
+        # TODO: figure out the bug ehre, sometimes if they play back-to-back too fast, the
+        #       entire program locks up in a 100% CPU loop until manually kill -9'd?
+
+        if self.alert:
+            pygame.mixer.music.stop()
+
+            if fill.execution.side == "BOT":
+                pygame.mixer.music.play()
+            elif fill.execution.side == "SLD":
+                pygame.mixer.music.play()
 
         logger.warning(
-            "[{} :: {} :: {}] Order {} commission: {} {} {} at {} (total {} of {}) (commission {} ({} each)){}",
+            "[{} :: {} :: {}] Order {} commission: {} {} {} at ${:,.2f} (total {} of {}) (commission {} ({} each)){}",
             trade.orderStatus.orderId,
             trade.orderStatus.status,
             trade.contract.localSymbol,
@@ -926,12 +934,12 @@ class IBKRCmdlineApp:
             fill.execution.side,
             fill.execution.shares,
             fill.contract.localSymbol,
-            locale.currency(fill.execution.price),
+            fill.execution.price,
             fill.execution.cumQty,
             trade.order.totalQuantity,
             locale.currency(fill.commissionReport.commission),
             locale.currency(fill.commissionReport.commission / fill.execution.shares),
-            f" (pnl {locale.currency(fill.commissionReport.realizedPNL)})"
+            f" (pnl {fill.commissionReport.realizedPNL:,.2f})"
             if fill.commissionReport.realizedPNL
             else "",
         )
