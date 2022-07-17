@@ -60,7 +60,6 @@ from ib_insync import (
     NewsTick,
     Index,
 )
-import pprint
 import asyncio
 
 import logging
@@ -84,7 +83,9 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
 )
 
-pp = pprint.PrettyPrinter(indent=4)
+import prettyprinter as pp
+
+pp.install_extras(["dataclasses"], warn_on_error=False)
 
 # setup color gradients we use to show gain/loss of daily quotes
 COLOR_COUNT = 100
