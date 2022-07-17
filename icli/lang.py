@@ -22,6 +22,7 @@ from icli.helpers import *
 import icli.orders as orders
 import tradeapis.buylang as buylang
 
+import pendulum
 import asyncio
 import aiohttp
 import pygame
@@ -2281,6 +2282,8 @@ class IOpExecutions(IOp):
                 ["shares", "price", "avgPrice", "commission", "realizedPNL"]
             ].sum()
 
+            df["diff"] = df.price.diff()
+
             needsPrices = "c_each shares price avgPrice commission realizedPNL".split()
             df[needsPrices] = df[needsPrices].applymap(fmtPrice)
 
@@ -2297,7 +2300,7 @@ class IOpExecutions(IOp):
                 (
                     """ secType conId symbol strike right date exchange localSymbol tradingClass time
              side  shares  price    orderId  cumQty  avgPrice
-             lastLiquidity commission c_each realizedPNL""".split()
+             lastLiquidity commission c_each realizedPNL diff""".split()
                 )
             ]
 
