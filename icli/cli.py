@@ -69,7 +69,7 @@ import seaborn
 
 import icli.lang as lang
 from icli.helpers import *  # FUT_EXP is appearing from here
-from mutil.numeric import fmtPrice, fmtPricePad
+from mutil.numeric import fmtPrice, fmtPricePad, roundnear
 from mutil.timer import Timer
 import tradeapis.buylang as buylang
 

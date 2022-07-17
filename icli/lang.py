@@ -11,16 +11,18 @@ from collections import Counter, defaultdict
 
 import mutil.dispatch
 from mutil.dispatch import DArg
-from mutil.numeric import fmtPrice
+from mutil.numeric import fmtPrice, roundnear5, roundnear10, roundnear
 from mutil.frame import printFrame
 
 import pandas as pd
 import numpy as np
 
+import fnmatch
 from loguru import logger
 from icli.helpers import *
 import icli.orders as orders
 import tradeapis.buylang as buylang
+from questionary import Choice
 
 import pendulum
 import asyncio
@@ -31,6 +33,8 @@ import prettyprinter as pp
 
 pp.install_extras(["dataclasses"], warn_on_error=False)
 
+# TODO: convert to proper type and find all misplaced uses of "str" where we want Symbol.
+# TODO: also break out Symbol vs LocalSymbol usage
 Symbol = str
 
 # The choices map nice user strings to the lookup map in orders.order(orderType)
@@ -52,7 +56,7 @@ ORDER_TYPE_Q = Q(
 )
 
 # Also map for user typing shorthand on command line order entry.
-# Values aliases are allowed for easier memory/typing support.
+# Values abbreviations are allowed for easier command typing support.
 ALGOMAP = dict(
     LMT="LMT",
     LIM="LMT",
@@ -255,15 +259,15 @@ class IOpPositionEvict(IOp):
             DArg("sym"),
             DArg(
                 "qty",
-                int,
-                lambda x: x != 0 and x >= -1,
-                "qty is the exact quantity to evict (or -1 to evict entire position)",
+                convert=int,
+                verify=lambda x: x != 0 and x >= -1,
+                desc="qty is the exact quantity to evict (or -1 to evict entire position)",
             ),
             DArg(
                 "delta",
-                float,
-                lambda x: 0 <= x <= 1,
-                "only evict matching contracts with current delta >= X (not used if symbol isn't an option). deltas are positive for all contracts in this case (so asking for 0.80 will evict calls with delta >= 0.80 and puts with delta <= -0.80)",
+                convert=float,
+                verify=lambda x: 0 <= x <= 1,
+                desc="only evict matching contracts with current delta >= X (not used if symbol isn't an option). deltas are positive for all contracts in this case (so asking for 0.80 will evict calls with delta >= 0.80 and puts with delta <= -0.80)",
             ),
         ]
 
@@ -326,6 +330,15 @@ class IOpPositionEvict(IOp):
 
             if len(contract.localSymbol) > 10 or isinstance(contract, Future):
                 algo = "LMT + ADAPTIVE + FAST"
+
+                if isinstance(contract, Future):
+                    # Technically this should probably be done using a combination of things
+                    # with this API, but we aren't bothering yet:
+                    # https://interactivebrokers.github.io/tws-api/minimum_increment.html
+
+                    # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment.
+                    # Currently we don't care about other futures, so good luck.
+                    limit = roundnear(0.25, limit, True)
 
             # if limit price rounded down to zero, just do a market order
             if not limit:
@@ -798,6 +811,7 @@ class IOpOrder(IOp):
         # TODO: write a parser for this language instead of requiring fixed orders for each parameter?
         # allow symbol on command line, optionally
         # BUY IWM TOTAL 50000 ALGO LIMIT/LIM/LMT AF AS REL MP AMF AMS MOO MOC
+        # TODO: find a way to make this aware of margin requirements for futures, currencies, etc
         return [
             DArg("symbol"),
             DArg("bs", verify=lambda x: x.lower() in {"b", "s", "buy", "sell"}),
@@ -810,9 +824,10 @@ class IOpOrder(IOp):
                 verify=lambda x: x in ALGOMAP.keys(),
                 errmsg=f"Available algos: {pp.pformat(ALGOMAP)}",
             ),
+            DArg("*preview", desc="Print as a what-if order to show margin impact." ""),
         ]
 
-    async def run(self):
+    async def run(self) -> bool:
         if " " in self.symbol:
             # is spread, so do bag
             isSpread = True
@@ -849,16 +864,21 @@ class IOpOrder(IOp):
             # limit price since it will be calculated automatically.
             0,
             am,
+            preview=self.preview,
         )
+
+        if self.preview:
+            # Don't continue if this was just a preview request
+            return False
 
         if not placed:
             logger.error("[{}] Order can't continue!", self.symbol)
-            return
+            return False
 
         # if this is a market order, don't run the algo loop
         if {"MOO", "MOC", "MKT"} & set(am.split()):
             logger.warning("Not running price algo because this is a market order...")
-            return
+            return False
 
         order, trade = placed
 
@@ -878,7 +898,7 @@ class IOpOrder(IOp):
                     trade.contract.localSymbol,
                     pp.pformat(trade.orderStatus),
                 )
-                return
+                return False
 
             if rem == 0:
                 logger.warning(
@@ -886,6 +906,7 @@ class IOpOrder(IOp):
                 )
                 # sleep 75 ms and check again
                 await asyncio.sleep(0.075)
+                # TODO: infinite looped here? WHAT?
                 continue
 
             logger.info("Quantity remaining: {}", rem)
@@ -910,30 +931,58 @@ class IOpOrder(IOp):
             if bidask:
                 logger.info("Adjusting price for more aggressive fills...")
                 bid, ask, multiplier = bidask
+
+                # TODO: these need to be more aware of opening-vs-closing so they DO NOT
+                #       REDUCE QUANTITY when closing, because closing means close.
                 if isLong:
                     # if is buy, chase the ask
                     newPrice = round((currentPrice + ask) / 2, 2)
 
-                    # reduce qty to remain in expected total spend constraint
-                    newQty = totalAmount / newPrice
+                    if isinstance(contract, Future):
+                        # Technically this should probably be done using a combination of things
+                        # with this API, but we aren't bothering yet:
+                        # https://interactivebrokers.github.io/tws-api/minimum_increment.html
 
-                    # only crypto supports fractional values over the API,
-                    # so all non-crypto contracts get floor'd
-                    if not isinstance(trade.contract, Crypto):
-                        newQty = math.floor(newQty)
+                        # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment.
+                        # Currently we don't care about other futures, so good luck.
+                        newPrice = roundnear(0.25, newPrice, True)
+
+                    # reduce qty to remain in expected total spend constraint
+                    # FOR NOW, DISABLE DYNAMIC QUANITY REASSESMENT UNTIL WE ADD
+                    #          OPENING / CLOSING BIAS TO THESE (OPENS can adjust qty, CLOSE can't)
+                    if False:
+                        newQty = totalAmount / newPrice
+
+                        # only crypto supports fractional values over the API,
+                        # so all non-crypto contracts get floor'd
+                        if not isinstance(trade.contract, Crypto):
+                            newQty = math.floor(newQty)
+                    else:
+                        newQty = currentQty
                 else:
                     # else if is sell, chase the bid
                     newPrice = round((currentPrice + bid) / 2, 2)
+
+                    if isinstance(contract, Future):
+                        # Technically this should probably be done using a combination of things
+                        # with this API, but we aren't bothering yet:
+                        # https://interactivebrokers.github.io/tws-api/minimum_increment.html
+
+                        # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment.
+                        # Currently we don't care about other futures, so good luck.
+                        newPrice = roundnear(0.25, newPrice, True)
+
                     newQty = currentQty  # don't change quantities on shorts / sells
                     # TODO: this needs to be aware of CLOSING instead of OPEN SHORT.
                     # i.e. on OPENING orders we can grow/shrink qty, but on CLOSING
                     # we DO NOT want to shrink or grow our qty.
 
                 logger.info(
-                    "Price changing from {} to {} ({})",
+                    "Price changing from {} to {} ({}) for spending ${:,.2f}",
                     currentPrice,
                     newPrice,
                     (newPrice - currentPrice),
+                    totalAmount,
                 )
                 logger.info(
                     "Qty changing from {} to {} ({})",
@@ -941,6 +990,12 @@ class IOpOrder(IOp):
                     newQty,
                     (newQty - currentQty),
                 )
+                if newQty <= 0:
+                    logger.error(
+                        "Not submitting order because calculated quantity to zero?"
+                    )
+                    return False
+
                 logger.info("Submitting order update...")
                 order.lmtPrice = newPrice
                 order.totalQuantity = newQty
@@ -963,6 +1018,8 @@ class IOpOrder(IOp):
                     trade.orderStatus.orderId,
                 )
                 break
+
+        return True
 
 
 @dataclass
@@ -1924,6 +1981,7 @@ class IOpPositions(IOp):
             make["type"] = t
             make["sym"] = o.contract.symbol
 
+            # TODO: update this to allow glob matching wtih fnmatch.filter(sourceCollection, targetGlob)
             if self.symbols and make["sym"] not in self.symbols:
                 continue
 
@@ -2179,12 +2237,12 @@ class IOpOrders(IOp):
             populate.append(make)
         # fmt: off
         df = pd.DataFrame(
-            data=populate,
-            columns=["id", "action", "sym", 'PC', 'date', 'strike',
-                     "xchange", "orderType",
-                     "qty", "cashQty", "filled", "rem", "lmt", "aux", "trail", "tif",
-                     "4-8", "lreturn", "lcost", "occ", "legs", "log"],
-        )
+                data=populate,
+                columns=["id", "action", "sym", 'PC', 'date', 'strike',
+                    "xchange", "orderType",
+                    "qty", "cashQty", "filled", "rem", "lmt", "aux", "trail", "tif",
+                    "4-8", "lreturn", "lcost", "occ", "legs", "log"],
+                )
 
         # fmt: on
         if df.empty:
@@ -2355,7 +2413,8 @@ class IOpQuotesAdd(IOp):
         # (because things like spreads have weird keys we construct here the caller
         #  can then use to index into the quoteState[] dict directly later)
         return qs
-        # TODO: save current quote state to global restore state
+
+    # TODO: save current quote state to global restore state
 
 
 @dataclass
@@ -2492,12 +2551,12 @@ class IOpOrderSpread(IOp):
         trade = await self.ib.whatIfOrderAsync(bag, order)
         logger.info("Impact: {}", pp.pformat(trade))
 
+        if self.preview:
+            logger.warning("ONLY PREVIEW. NO TRADE PLACED.")
+            return
+
         trade = self.ib.placeOrder(bag, order)
         logger.info("Trade: {}", pp.pformat(trade))
-
-        # self.ib.reqMarketDataType(2)
-        # self.state.quoteState["THEBAG"] = self.ib.reqMktData(bag)
-        # self.state.quoteContracts["THEBAG"] = bag
 
 
 @dataclass
@@ -2505,16 +2564,25 @@ class IOpOptionChain(IOp):
     """Print option chains for symbol"""
 
     def argmap(self):
-        return [DArg("symbol")]
+        # TODO: add options to allow multiple symbols and also printing cached chains
+        return [
+            DArg(
+                "symbol",
+                convert=lambda x: x.upper(),
+            )
+        ]
 
     async def run(self):
+        # TODO: have this fech from optional external API because IBKR chains API is
+        # excessively rate limited garbage.
+
         # Index cache by symbol AND current date because strikes can change
         # every day even for the same expiration if there's high volatility.
-        now = pendulum.now()
+        now = pendulum.now().in_tz("US/Eastern")
         cacheKey = ("strike", self.symbol, now.date())
         # logger.info("Looking up {}", cacheKey)
         if found := self.cache.get(cacheKey):
-            # logger.info("[{}] Strikes cached: {}", self.symbol, pp.pformat(found))
+            # logger.info("[{}] Strikes cached: {}", self.symbol, pp.pformat(sorted(found)))
             return found
 
         contractExact = contractForName(self.symbol)
@@ -2546,7 +2614,11 @@ class IOpOptionChain(IOp):
             # Revisit end of month discovery and refactor to prefer tradier
             # API fetching first since we can get those in 100ms instead of
             # 6+ seconds for IBKR APIs sometimes.
+
+            # TODO: use FORWARD_MONTHS=1 when this week has two months and
+            #       friday is not the same month as the current month
             FORWARD_MONTHS = 0
+
             useDates = [
                 d.date()
                 for d in pendulum.period(now, now.add(months=FORWARD_MONTHS)).range(
@@ -2571,7 +2643,12 @@ class IOpOptionChain(IOp):
         # or thousands of rows (all strikes at all future dates).
         strikes = defaultdict(list)
         for d in useDates:
-            contractExact.lastTradeDateOrContractMonth = f"{d.year}{d.month:02}"
+            if self.symbol.startswith("/"):
+                # Futures use future expiration
+                contractExact.lastTradeDateOrContractMonth = FUT_EXP
+            else:
+                contractExact.lastTradeDateOrContractMonth = f"{d.year}{d.month:02}"
+
             logger.info(
                 "[{}{}] Fetching strikes...",
                 self.symbol,
@@ -2600,6 +2677,10 @@ class IOpOptionChain(IOp):
             strikes[k] = sorted(set(v))
 
         # logger.info("Saving into {}", cacheKey)
+
+        # expire strike caches at the next 1615 available
+        # TODO: remove date() from cache key and only rely on .expire() instead?
+        # compare now.time() against pendulum.Time(16, 15, 0)
         self.cache.set(cacheKey, strikes, expire=86400)
         logger.info("Strikes: {}", pp.pformat(strikes))
 
