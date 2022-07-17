@@ -391,6 +391,147 @@ class IOpCash(IOp):
 
 
 @dataclass
+class IOpAlert(IOp):
+    """Enable or disable trade completion sound effects."""
+
+    def argmap(self):
+        return [
+            DArg(
+                "cmd",
+                convert=lambda x: x.lower(),
+                verify=lambda x: x in {"yes", "no", "status", "on", "off"},
+                desc="Yes or No or Status to enable/disable/view trade sound effect state.",
+            )
+        ]
+
+    async def run(self):
+        if self.cmd in {"yes", "on"}:
+            logger.info("Setting Alerts ON!")
+            self.state.alert = True
+        elif self.cmd in {"no", "off"}:
+            logger.info("Setting Alerts OFF!")
+            self.state.alert = False
+        else:
+            logger.info("Alert state: {}", self.state.alert)
+
+
+@dataclass
+class IOpScheduleEvent(IOp):
+    """Schedule a command to execute at a specific date+time in the future."""
+
+    # asub /NQ COMBONQ yes 0.66 cash 15 TemaTHMAFasterSlower direct
+    def argmap(self):
+        return [
+            DArg(
+                "name",
+                desc="Name of event (for listing and canceling in the future if needed)",
+            ),
+            DArg(
+                "datetime",
+                convert=lambda dt: pendulum.parse(dt, tz="US/Eastern"),
+                desc="Date and Time of event (timezone will be Eastern Time)",
+            ),
+            DArg("*cmd", desc="icli command to run at the given time"),
+        ]
+
+    async def run(self):
+        if self.name in self.state.scheduler:
+            logger.error(
+                "[{} :: {}] Can't schedule because name already scheduled!",
+                self.name,
+                self.cmd,
+            )
+            return False
+
+        now = pendulum.now()
+        if now > self.datetime:
+            logger.error(
+                "You requested to schedule something in the past? Not scheduling."
+            )
+            return False
+
+        logger.info(
+            "[{} :: {} :: {}] Scheduling: {}",
+            self.name,
+            self.datetime,
+            (self.datetime - now).in_words(),
+            self.cmd,
+        )
+
+        async def doit() -> None:
+            try:
+                howlong = (self.datetime - now).in_seconds()
+                logger.info(
+                    "[{} :: {}] command is scheduled to run in {:,.2f} seconds!",
+                    self.name,
+                    self.cmd,
+                    howlong,
+                )
+
+                await asyncio.sleep(howlong)
+
+                # "self.cmd" is an array of commands to run...
+                for cmd in self.cmd:
+                    logger.info("[{} :: {}] RUNNING UR CMD!", self.name, cmd)
+                    c, *v = cmd.split(" ", 1)
+                    await self.runoplive(c, v[0] if v else None)
+                    logger.info("[{} :: {}] Completed UR CMD!", self.name, cmd)
+
+            except asyncio.CancelledError:
+                logger.warning(
+                    "[{} :: {}] Future Scheduled Task Canceled!", self.name, self.cmd
+                )
+            except:
+                logger.exception(
+                    "[{} :: {}] Scheduled event failed?", self.name, self.cmd
+                )
+            finally:
+                del self.state.scheduler[self.name]
+                logger.info("[{}] Removed scheduled event!", self.name)
+
+        sched = asyncio.create_task(doit())
+
+        # save reference so this task doesn't get GC'd
+        self.state.scheduler[self.name] = (self.datetime, self.cmd, sched)
+        logger.info("[{} :: {}] Scheduled via: {}", self.name, self.cmd, sched)
+
+
+@dataclass
+class IOpScheduleEventList(IOp):
+    """List scheduled events by name and command and target date."""
+
+    async def run(self):
+        logger.info("Listing {} scheduled events by name...", len(self.state.scheduler))
+        for name, (when, cmd, task) in sorted(
+            self.state.scheduler.items(), key=lambda i: i[1][0]
+        ):
+            logger.info("[{} :: {}] {} ({})", name, when, cmd, task)
+
+
+@dataclass
+class IOpScheduleEventCancel(IOp):
+    """Cancel event by name."""
+
+    def argmap(self):
+        return [DArg("name", desc="Name of event to cancel")]
+
+    async def run(self):
+        got = self.state.scheduler.get(self.name)
+        if not got:
+            logger.error("[{}] Scheduled event not found?", self.name)
+            return False
+
+        when, cmd, task = got
+        logger.info("[{} :: {}] Cancelling scheduled task!", self.name, cmd)
+
+        # the .cancel() thows an exception in the task which deletes
+        # itself from the scheduler, so DO NOT 'del' here.
+        task.cancel()
+
+        logger.info("[{} :: {}] Task deleted!", self.name, cmd)
+
+
+@dataclass
 class IOpAlias(IOp):
     def argmap(self):
         return [DArg("cmd"), DArg("*args")]
@@ -2638,6 +2779,12 @@ OP_MAP = {
         "snd": IOpSound,
         "cash": IOpCash,
         "alias": IOpAlias,
+        "alert": IOpAlert,
+    },
+    "Schedule Management": {
+        "sched-add": IOpScheduleEvent,
+        "sched-list": IOpScheduleEventList,
+        "sched-cancel": IOpScheduleEventCancel,
     },
     "Quote Management": {
         "qsave": IOpQuoteSave,

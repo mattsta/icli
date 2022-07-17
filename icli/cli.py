@@ -262,6 +262,12 @@ class IBKRCmdlineApp:
     # The Connection
     ib: IB = field(default_factory=IB)
 
+    # True if use sound for trades...
+    alert: bool = False
+
+    # Events!
+    scheduler: dict[str, Any] = field(default_factory=dict)
+
     # generic cache for data usage (strikes, etc)
     cache: Mapping[Any, Any] = field(
         default_factory=lambda: diskcache.Cache("./cache-multipurpose")
