@@ -620,6 +620,16 @@ class IBKRCmdlineApp:
             logger.info(
                 "[{}] PREVIEW RESULT: {}", contract.localSymbol, pp.pformat(trade)
             )
+
+            # sigh, these are strings of course.
+            excess = float(trade.equityWithLoanAfter) - float(trade.initMarginAfter)
+            if excess < 0:
+                logger.warning(
+                    "[{}] TRADE NOT VIABLE; MISSING EQUITY: ${:,.2f}",
+                    contract.localSymbol,
+                    excess,
+                )
+
             return False
 
         logger.info("[{}] Ordering {} via {}", contract.localSymbol, contract, order)
