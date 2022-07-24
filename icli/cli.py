@@ -872,7 +872,7 @@ class IBKRCmdlineApp:
         if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
             return None
 
-        return q.bid, q.ask, (int(q.contract.multiplier) or 1)
+        return q.bid, q.ask, ((int(q.contract.multiplier) or 1) if q.contract.multiplier else 1)
 
     def updatePosition(self, pos):
         self.position[pos.contract.symbol] = pos
