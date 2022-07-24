@@ -230,6 +230,8 @@ idxs = [
     Index("TICK-NYSE", "NYSE"),
     # > 1 == selling pressure, < 1 == buying pressure; somewhat
     Index("TRIN-NYSE", "NYSE"),
+    # Advancing minus Declining (bid is Advance, ask is Decline) (no idea what the bid/ask qtys represent)
+    Index("AD-NYSE", "NYSE"),
 ]
 
 # Note: ContFuture is only for historical data; it can't quote or trade.
