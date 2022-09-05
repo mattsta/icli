@@ -294,6 +294,11 @@ class IBKRCmdlineApp:
     exiting: bool = False
     ol: buylang.OLang = field(default_factory=buylang.OLang)
 
+    # hold EMA per current symbol with various lookback periods
+    ema: dict[str, dict[int, float]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(float))
+    )
+
     # Specific dict of ONLY fields we show in the live account status toolbar.
     # Saves us from sorting/filtering self.summary() with every full bar update.
     accountStatus: dict[str, float] = field(
@@ -1068,6 +1073,31 @@ class IBKRCmdlineApp:
 
             return f"{n:>5}"
 
+        def updateEMA(sym, price):
+            # if no price, don't update.
+            if (price <= 0) or (price != price):
+                return
+
+            for back in (100, 300):
+                prev = self.ema[sym][back]
+
+                # use previous price or initialize with current price
+                if (prev <= 0) or (prev != prev):
+                    prev = price
+
+                # fmt: off
+                # if prev != prev:
+                #    logger.info("NaN in EMA? [{} :: {}] {} {} -> {}", prev, price, sym, back, self.ema[sym][back])
+                # fmt: on
+
+                k = 2 / (back + 1)
+                self.ema[sym][back] = round(k * (price - prev) + prev, 2)
+
+        def getEMA(sym, back):
+            # If we don't have enough entries for the full EMA period yet,
+            # just return the oldest entry in the recent observation capped collections.
+            return self.ema[sym][back]
+
         # Fields described at:
         # https://ib-insync.readthedocs.io/api.html#module-ib_insync.ticker
         def formatTicker(c):
@@ -1085,7 +1115,22 @@ class IBKRCmdlineApp:
             # NBBO spread because we aren't checking "if last is outside of NBBO, use NBBO midpoint
             # instead" because these are for rather active equity symbols (we do use the current
             # quote midpoint as price for option pricing though due to faster quote-vs-trade movement)
-            usePrice = c.last if c.last == c.last else c.close
+
+            # We switched from using "lastPrice" as the shown price to the current midpoint
+            # as the shown price because sometimes we were getting price lags when midpoints
+            # shifted faster than buying or selling, so we were looking at outdated "prices"
+            # for some decisions.
+            ls = c.contract.localSymbol or c.contract.symbol
+
+            if c.bid > 0 and c.bid == c.bid and c.ask > 0 and c.ask == c.ask:
+                # TODO: add proper rounding for futures tick sizes
+                usePrice = round((c.bid + c.ask) / 2, 2)
+            else:
+                usePrice = c.last if c.last == c.last else c.close
+
+            if c.high == c.high and c.low == c.low:
+                # only update EMA if this has price-like details and isn't TRIN/TICK/AD
+                updateEMA(ls, usePrice)
 
             ago = (self.now - (c.time or self.now)).as_interval()
             try:
@@ -1302,12 +1347,17 @@ class IBKRCmdlineApp:
                 else:
                     rowName = f"{c.contract.localSymbol or c.contract.symbol:<9}:"
 
+                    # TODO: why isn't this updating?
+                    e100 = getEMA(ls, 100)
+                    e100diff = (mark - e100) if e100 else None
+
                     return " ".join(
                         [
                             rowName,
                             f"[u {fmtPricePad(und, padding=8, decimals=2)} ({underlyingStrikeDifference or -0:>7,.2f}%)]",
                             f"[iv {iv or 0:.2f}]",
                             f"[d {delta or 0:>5.2f}]",
+                            f"{fmtPriceOpt(e100):>6} ({fmtPricePad(e100diff, padding=6)})",
                             f"{fmtPriceOpt(mark):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
                             # f"{fmtPriceOpt(usePrice)}",
                             f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
@@ -1353,8 +1403,22 @@ class IBKRCmdlineApp:
                 ],
             )
 
+            e100 = getEMA(ls, 300)
+            e30 = getEMA(ls, 100)
+
+            # for price differences we show the difference as if holding a LONG position
+            # at the historical price as compared against the current price.
+            # (so, if e100 is $50 but current price is $55, our difference is +5 because
+            #      we'd have a +5 profit if held from the historical price.
+            #      This helps align "price think" instead of showing difference from historical
+            #      vs. current where "smaller historical vs. larger current" would cause negative
+            #      difference which is actually a profit if it were LONG'd in the past)
+            e100diff = (usePrice - e100) if e100 else None
+            e30diff = (usePrice - e30) if e30 else None
+            # logger.info("[{}] e100 e30: {} {} {} {}", ls, e100, e30, e100diff, e30diff)
+
             return (
-                f"{c.contract.localSymbol or c.contract.symbol:<9}: {fmtPricePad(usePrice)}  ({pctUndHigh} {amtUndHigh}) ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} {fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}  {fmtPricePad(c.open)} {fmtPricePad(c.close)}    ({str(ago)})"
+                f"{ls:<9}: {fmtPricePad(e100)} ({fmtPricePad(e100diff, padding=6)}) {fmtPricePad(e30)} ({fmtPricePad(e30diff, padding=6)}) {fmtPricePad(usePrice)}  ({pctUndHigh} {amtUndHigh}) ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} <aaa bg='purple'>{fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}</aaa>  {fmtPricePad(c.open)} {fmtPricePad(c.close)}    ({str(ago)})"
                 + ("     HALTED!" if c.halted > 0 else "")
             )
 
