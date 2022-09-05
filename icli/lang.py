@@ -1086,6 +1086,12 @@ class IOpOrderFast(IOp):
                 desc="use N next expiration date (0 is NEAREST, 1 is NEXT, 2 is NEXT NEXT, ...)",
             ),
             DArg(
+                "percentageRun",
+                convert=float,
+                verify=lambda x: x >= 0,  # don't go negative or we infinite loop!
+                desc="percentage from current price for strikes to buy (0.03 => buy up to 3% OTM strikes, etc) — OR — if 1+ then SKIP N STRIKES FROM ATM for first buy",
+            ),
+            DArg(
                 "*preview",
                 desc="If any other arguments present, order not placed, only order logic reported.",
             ),
@@ -1377,42 +1383,64 @@ class IOpOrderFast(IOp):
         # but our "gaps" params is numbers BETWEEN steps, so we
         # need steps=(gaps+1) becaues the step is 'inclusive' of the
         # next result value, but our 'gaps' is fully exclusive gaps.
-        while len(buyStrikes) < 3:
-            # if we didn't find a boundary price, then extend it a bit more.
-            # NOTE: This is still a hack because our ATR server isn't live again.
-            boundaryPrice = boundaryPrice * 1.01 if usingCalls else boundaryPrice / 1.01
 
-            # TODO: change initial position back to 0 from len(buyStrikes) when we restore
-            #       proper ATR API reading.
-            # TODO: fix gaps calculation when doing negative gaps
-            # TODO: maybe make gaps=1 be NEXT strike so gaps=-1 is PREV strike for going more ITM?
-            for i in range(
-                len(buyStrikes), 100 * directionMul, (self.gaps + 1) * directionMul
-            ):
-                idx = firstStrikeIdx + i
+        # user-defined percentage gap for range buys...
 
-                # if we walk over or under the strikes, we are done.
-                if idx < 0 or idx >= len(useChain):
-                    break
+        if self.percentageRun == 0:
+            # If NO WIDTH specified, use current ATM pick
+            picked = useChain[firstStrikeIdx]
+            logger.info("No width requested, so using: {}", picked)
+            buyStrikes.append(picked)
+        elif self.percentageRun >= 1:
+            poffset = int(self.percentageRun)
+            try:
+                picked = useChain[firstStrikeIdx + poffset]
+            except:
+                # lazy catch-all in case 'poffset' overflows the array extent
+                picked = useChain[firstStrikeIdx]
 
-                strike = useChain[idx]
+            logger.info("Requested ATM+{} width, so using: {}", poffset, picked)
+            buyStrikes.append(picked)
+        else:
+            pr = 1 + self.percentageRun
+            while len(buyStrikes) < 1:
+                # if we didn't find a boundary price, then extend it a bit more.
+                # NOTE: This is still a hack because our ATR server isn't live again so we're guessing
+                #       a 0.5% range?
+                # TODO: allow fast buy with delta calculation (0.5 -> 0.25 etc)
+                boundaryPrice = boundaryPrice * pr if usingCalls else boundaryPrice / pr
 
-                logger.info(
-                    "Checking strike vs. boundary: {} v {}", strike, boundaryPrice
-                )
+                # TODO: change initial position back to 0 from len(buyStrikes) when we restore
+                #       proper ATR API reading.
+                # TODO: fix gaps calculation when doing negative gaps
+                # TODO: maybe make gaps=1 be NEXT strike so gaps=-1 is PREV strike for going more ITM?
+                for i in range(
+                    len(buyStrikes), 100 * directionMul, (self.gaps + 1) * directionMul
+                ):
+                    idx = firstStrikeIdx + i
 
-                # only place orders up to our maximum theoretical price
-                # (either a static percent offset from current OR the actual High-to-Low ATR)
-                if usingCalls:
-                    # calls have an UPPER CAP
-                    if strike > boundaryPrice:
+                    # if we walk over or under the strikes, we are done.
+                    if idx < 0 or idx >= len(useChain):
                         break
-                else:
-                    # puts have a LOWER CAP
-                    if strike < boundaryPrice:
-                        break
 
-                buyStrikes.append(strike)
+                    strike = useChain[idx]
+
+                    logger.info(
+                        "Checking strike vs. boundary: {} v {}", strike, boundaryPrice
+                    )
+
+                    # only place orders up to our maximum theoretical price
+                    # (either a static percent offset from current OR the actual High-to-Low ATR)
+                    if usingCalls:
+                        # calls have an UPPER CAP
+                        if strike > boundaryPrice:
+                            break
+                    else:
+                        # puts have a LOWER CAP
+                        if strike < boundaryPrice:
+                            break
+
+                    buyStrikes.append(strike)
 
         logger.info(
             "[{} :: {}] Selected strikes to purchase: {}",
