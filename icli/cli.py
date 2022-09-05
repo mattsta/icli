@@ -364,18 +364,22 @@ class IBKRCmdlineApp:
             ):
                 contract = None
                 contract = pi.contract
+                position = pi.position
 
                 if qty is None:
                     # if no quantity requested, use entire position
-                    qty = pi.position
-                elif abs(qty) > abs(pi.position):
+                    foundqty = position
+                elif abs(qty) >= abs(position):
                     # else, if qty is larger than position, truncate to position.
-                    qty = pi.position
+                    foundqty = position
+                else:
+                    # else, use requested quantity but with sign of position
+                    foundqty = math.copysign(qty, position)
 
                 # note: '.marketPrice' here is IBKR's "best effort" market price because it only
-                #       updates maybe every 30 seconds? So (qty * .marketPrice * multiplier) may not represent the
+                #       updates maybe every 30-90 seconds? So (qty * .marketPrice * multiplier) may not represent the
                 #       actual live value of the position.
-                results.append((contract, qty, pi.marketPrice))
+                results.append((contract, foundqty, pi.marketPrice))
 
         return results
 
