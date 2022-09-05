@@ -1,9 +1,11 @@
+import dataclasses  # just for .replace
 from dataclasses import dataclass, field
 from typing import *
 import enum
 
 from ib_insync import Bag, Contract
 
+import sys
 import math
 import bisect
 import datetime
@@ -259,7 +261,7 @@ class IOpPositionEvict(IOp):
             DArg("sym"),
             DArg(
                 "qty",
-                convert=int,
+                convert=float,
                 verify=lambda x: x != 0 and x >= -1,
                 desc="qty is the exact quantity to evict (or -1 to evict entire position)",
             ),
@@ -360,9 +362,9 @@ class IOpPositionEvict(IOp):
                 # True==BUY if currently short so _BUY_ TO CLOSE, False==SELL if currently long so _SELL_ TO CLOSE
                 qty < 0,
                 contract,
-                abs(qty),
-                limit,
-                algo,
+                qty=abs(qty),
+                price=limit,
+                orderType=algo,
             )
 
 
@@ -763,7 +765,7 @@ class IOpOrderModify(IOp):
                 "Current Order",
                 choices=[
                     Choice(
-                        f"{o.order.action:<4} {o.order.totalQuantity:<6} {o.contract.localSymbol or o.contract.symbol:<21} {o.order.orderType} {o.order.tif} lmt:${fmtPrice(o.order.lmtPrice):<7} aux:${fmtPrice(o.order.auxPrice):<7}",
+                        f"{o.contract.localSymbol or o.contract.symbol:<21} {o.order.action:<4} {o.order.totalQuantity:<6} {o.order.orderType} {o.order.tif} lmt:${fmtPrice(o.order.lmtPrice):<7} aux:${fmtPrice(o.order.auxPrice):<7}",
                         o,
                     )
                     for o in sorted(ords, key=tradeOrderCmp)
@@ -782,7 +784,10 @@ class IOpOrderModify(IOp):
             qty = pord["New Quantity"]
 
             contract = trade.contract
-            ordr = trade.order
+
+            # COPY the underlying order so we don't directly modify the internal trade cache
+            # (so if the order update fails to apply, our data remains in a good state)
+            ordr = dataclasses.replace(trade.order)
 
             if not (lmt or stop or qty):
                 # User didn't provide new data, so stop processing
@@ -797,6 +802,10 @@ class IOpOrderModify(IOp):
             if qty:
                 ordr.totalQuantity = float(qty)
         except:
+            logger.error(
+                "[{}] Failed to update?",
+                trade.contract.localSymbol or trade.contract.symbol,
+            )
             return None
 
         trade = self.ib.placeOrder(contract, ordr)
@@ -998,7 +1007,12 @@ class IOpOrder(IOp):
 
                 logger.info("Submitting order update...")
                 order.lmtPrice = newPrice
-                order.totalQuantity = newQty
+
+                if newQty > 0:
+                    order.totalQuantity = newQty
+                else:
+                    logger.error("Quantity was set to {} so not changing it...", newQty)
+
                 self.ib.placeOrder(contract, order)
 
             waitDuration = 3
@@ -2014,14 +2028,18 @@ class IOpPositions(IOp):
             make["unrealizedPNL"] = o.unrealizedPNL
             try:
                 make["dailyPNL"] = self.state.pnlSingle[o.contract.conId].dailyPnL
+
+                # fix API issue where it returns the largest value possible if not populated.
+                # same as: sys.float_info.max:
+                if make["dailyPNL"] == ib_insync.util.UNSET_DOUBLE:
+                    make["dailyPNL"] = -1
             except:
                 logger.warning("No PNL for: {}", pp.pformat(o))
                 # spreads don't like having daily PNL?
                 pass
 
             if t == "FUT":
-                # multiple is 5 for micros and 10 for minis
-                mult = int(o.contract.multiplier)
+                mult = int(o.contract.multiplier or 1)
                 make["averageCost"] = o.averageCost / mult
                 make["%"] = (o.marketPrice * mult - o.averageCost) / o.averageCost * 100
             elif t == "BAG":
@@ -2070,7 +2088,7 @@ class IOpPositions(IOp):
             ],
         )
 
-        df.sort_values(by=["date", "sym"], ascending=True, inplace=True)
+        df.sort_values(by=["date", "sym", "PC", "strike"], ascending=True, inplace=True)
 
         # re-number DF according to the new sort order
         df.reset_index(drop=True, inplace=True)
@@ -2248,10 +2266,20 @@ class IOpOrders(IOp):
         if df.empty:
             logger.info("No orders!")
         else:
-            df.sort_values(by=["date", "sym"], ascending=True, inplace=True)
+            df.sort_values(
+                by=["date", "sym", "action", "PC", "strike"],
+                ascending=True,
+                inplace=True,
+            )
 
             df = df.set_index("id")
             fmtcols = ["lreturn", "lcost"]
+
+            # logger.info("Types are: {}", df.info())
+
+            # pre-create the Total row to avoid a pandas warning...
+            df.loc["Total"] = 0.0
+
             df.loc["Total"] = df[fmtcols].sum(axis=0)
             df = df.fillna("")
             df.loc[:, fmtcols] = df[fmtcols].applymap(
