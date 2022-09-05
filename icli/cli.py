@@ -7,7 +7,8 @@ from prompt_toolkit import print_formatted_text, Application
 from prompt_toolkit.formatted_text import HTML
 
 import pathlib
-from bs4 import BeautifulSoup
+import bs4
+import re
 
 # http://www.grantjenks.com/docs/diskcache/
 import diskcache
@@ -183,7 +184,9 @@ def readableHTML(html):
     """Return contents of 'html' with tags stripped and in a _reasonably_
     readable plain text format"""
 
-    return re.sub(r"(\n[\s]*)+", "\n", bs4.BeautifulSoup(html).get_text())
+    return re.sub(
+        r"(\n[\s]*)+", "\n", bs4.BeautifulSoup(html, features="html.parser").get_text()
+    )
 
 
 # logger.remove()
