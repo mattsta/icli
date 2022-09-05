@@ -573,7 +573,25 @@ class IBKRCmdlineApp:
             #       See: lang: "buy" for price tracking after order logic.
 
             # calculate current midpoint of spread rounded to 2 decimals.
-            mid = round((bid + ask) / 2, 2)
+            # FAKE THE MIDPOINT WITH A BETTER MARKET BUFFER
+            # If we do *exact* midpoint and prices are rapidly rising or falling, we constantly miss
+            # the fills. So give it a generous buffer for quicker filling.
+            # (could aso just do MKT or MKT PRT orders too in some circumstances)
+            # (LONG means allow HIGHER prices for buying (worse entries the higher it goes);
+            #  SHORT means allow LOWER prices for selling (worse entries the lower it goes)).
+            # We expect the market NBBO to be our actual bounds here, but we're adjusting the
+            # overall price for quicker fills.
+            if isinstance(contract, Option):
+                # Options retain "regular" midpoint behavior because spreads can be wide.
+                mid = round(((bid + ask) / 2), 2)
+
+                # if no bid (nan), just play off the ask.
+                if mid != mid:
+                    mid = round(ask / 2, 2)
+            else:
+                # equity, futures, etc get the wider margins
+                mid = round(((bid + ask) / 2) * (1.01 if isLong else 0.99), 2)
+
             price = mid
 
             # since this is in the "negative quantity" block, we convert the
@@ -619,6 +637,16 @@ class IBKRCmdlineApp:
             # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment.
             # Currently we don't care about other futures, so good luck.
             price = roundnear(0.25, price, True)
+        elif contract.localSymbol.startswith("SPX") and isinstance(contract, Option):
+            # hack for SPX options needing specific increments
+            # (IBKR API for contract details is slow and busted, so we either need to have a
+            #  local DB of symbols to increments or just do minimal hacks like these along the way...)
+
+            # "SPX trades in specific increments of $0.05 when premiums are less than $3 and $0.10 for premiums higher than or equal to $3."
+            if price < 3:
+                price = roundnear(0.05, price, True)
+            else:
+                price = roundnear(0.10, price, True)
 
         order = orders.IOrder(
             "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif  # type: ignore
@@ -636,14 +664,16 @@ class IBKRCmdlineApp:
                 "[{}] PREVIEW RESULT: {}", contract.localSymbol, pp.pformat(trade)
             )
 
-            # sigh, these are strings of course.
-            excess = float(trade.equityWithLoanAfter) - float(trade.initMarginAfter)
-            if excess < 0:
-                logger.warning(
-                    "[{}] TRADE NOT VIABLE; MISSING EQUITY: ${:,.2f}",
-                    contract.localSymbol,
-                    excess,
-                )
+            # (if trade isn't valid, trade is an empty list, so only print valid objects...)
+            if trade:
+                # sigh, these are strings of course.
+                excess = float(trade.equityWithLoanAfter) - float(trade.initMarginAfter)
+                if excess < 0:
+                    logger.warning(
+                        "[{}] TRADE NOT VIABLE; MISSING EQUITY: ${:,.2f}",
+                        contract.localSymbol,
+                        excess,
+                    )
 
             return False
 
@@ -887,7 +917,9 @@ class IBKRCmdlineApp:
         if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
             return None
 
-        return q.bid, q.ask, ((int(q.contract.multiplier) or 1) if q.contract.multiplier else 1)
+        # 'contract.multiplier' is a string and can also be an empty string sometimes,
+        # so if it is empty, default to 1
+        return (q.bid, q.ask, int(q.contract.multiplier or 1))
 
     def updatePosition(self, pos):
         self.position[pos.contract.symbol] = pos
