@@ -1643,13 +1643,17 @@ class IBKRCmdlineApp:
         pygame.mixer.init()
 
         # TODO: could probably just be: pathlib.Path(__file__).parent
-        pygame.mixer.music.load(
-            pathlib.Path(os.path.abspath(__file__)).parent / "CANYON.MID"
-        )
+        pygame.mixer.music.load(pathlib.Path(__file__).parent / "CANYON.MID")
 
         contracts = [Stock(sym, "SMART", "USD") for sym in stocks]
         contracts += futures
         contracts += idxs
+
+        # flip to enable/disable verbose ib_insync library logging
+        if False:
+            import logging
+
+            ib_insync.util.logToConsole(logging.INFO)
 
         # Attach IB events *outside* of the reconnect loop because we don't want to
         # add duplicate event handlers on every reconnect!
@@ -2012,7 +2016,7 @@ class IBKRCmdlineApp:
                         logger.exception("Trying...")
                         break
                     except Exception as e2:
-                        asyncio.sleep(1)
+                        await asyncio.sleep(1)
                         pass
 
     def stop(self):
