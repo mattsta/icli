@@ -268,6 +268,9 @@ class IBKRCmdlineApp:
     # The Connection
     ib: IB = field(default_factory=IB)
 
+    # count total toolbar refreshes
+    updates: int = 0
+
     # True if use sound for trades...
     alert: bool = False
 
@@ -1041,6 +1044,7 @@ class IBKRCmdlineApp:
         self.pnlSingle[v.conId] = v
 
     def bottomToolbar(self):
+        self.updates += 1
         self.now = pendulum.now()
 
         def fmtPrice2(n: float):
@@ -1488,7 +1492,7 @@ class IBKRCmdlineApp:
                 onc = f" (OVERNIGHT REG-T MARGIN CALL: ${-overnightDeficit:,.2f})"
 
             return HTML(
-                f"""{now}{onc}\n"""
+                f"""{now}{onc} [{self.updates:,}]\n"""
                 + "\n".join(
                     [
                         formatTicker(quote)
