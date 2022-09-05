@@ -944,8 +944,8 @@ class IOpOrder(IOp):
                 # TODO: these need to be more aware of opening-vs-closing so they DO NOT
                 #       REDUCE QUANTITY when closing, because closing means close.
                 if isLong:
-                    # if is buy, chase the ask
-                    newPrice = round((currentPrice + ask) / 2, 2)
+                    # if is buy, chase the ask with a market buffer
+                    newPrice = round((((currentPrice + ask) / 2) * 1.01), 2)
 
                     if isinstance(contract, Future):
                         # Technically this should probably be done using a combination of things
@@ -969,8 +969,8 @@ class IOpOrder(IOp):
                     else:
                         newQty = currentQty
                 else:
-                    # else if is sell, chase the bid
-                    newPrice = round((currentPrice + bid) / 2, 2)
+                    # else if is sell, chase the bid with a market buffer
+                    newPrice = round((((currentPrice + bid) / 2) / 1.01), 2)
 
                     if isinstance(contract, Future):
                         # Technically this should probably be done using a combination of things
