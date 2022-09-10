@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 
 import mutil.dispatch
 from mutil.dispatch import DArg
-from mutil.numeric import fmtPrice, roundnear5, roundnear10, roundnear
+from mutil.numeric import fmtPrice
 from mutil.frame import printFrame
 
 import pandas as pd
@@ -332,15 +332,7 @@ class IOpPositionEvict(IOp):
 
             if len(contract.localSymbol) > 10 or isinstance(contract, Future):
                 algo = "LMT + ADAPTIVE + FAST"
-
-                if isinstance(contract, Future):
-                    # Technically this should probably be done using a combination of things
-                    # with this API, but we aren't bothering yet:
-                    # https://interactivebrokers.github.io/tws-api/minimum_increment.html
-
-                    # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment.
-                    # Currently we don't care about other futures, so good luck.
-                    limit = roundnear(0.25, limit, True)
+                limit = comply(contract, limit)
 
             # if limit price rounded down to zero, just do a market order
             if not limit:
@@ -946,15 +938,7 @@ class IOpOrder(IOp):
                 if isLong:
                     # if is buy, chase the ask with a market buffer
                     newPrice = round((((currentPrice + ask) / 2) * 1.01), 2)
-
-                    if isinstance(contract, Future):
-                        # Technically this should probably be done using a combination of things
-                        # with this API, but we aren't bothering yet:
-                        # https://interactivebrokers.github.io/tws-api/minimum_increment.html
-
-                        # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment.
-                        # Currently we don't care about other futures, so good luck.
-                        newPrice = roundnear(0.25, newPrice, True)
+                    newPrice = comply(trade.contract, newPrice)
 
                     # reduce qty to remain in expected total spend constraint
                     # FOR NOW, DISABLE DYNAMIC QUANITY REASSESMENT UNTIL WE ADD
@@ -971,15 +955,7 @@ class IOpOrder(IOp):
                 else:
                     # else if is sell, chase the bid with a market buffer
                     newPrice = round((((currentPrice + bid) / 2) / 1.01), 2)
-
-                    if isinstance(contract, Future):
-                        # Technically this should probably be done using a combination of things
-                        # with this API, but we aren't bothering yet:
-                        # https://interactivebrokers.github.io/tws-api/minimum_increment.html
-
-                        # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment.
-                        # Currently we don't care about other futures, so good luck.
-                        newPrice = roundnear(0.25, newPrice, True)
+                    newPrice = comply(contract, newPrice)
 
                     newQty = currentQty  # don't change quantities on shorts / sells
                     # TODO: this needs to be aware of CLOSING instead of OPEN SHORT.

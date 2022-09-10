@@ -1,9 +1,19 @@
 """ A refactor-base for splitting out common helpers between cli and lang """
 
 import ib_insync  # just for UNSET_DOUBLE
-from ib_insync import Stock, Future, Option, Warrant, FuturesOption, Bond, Crypto
+from ib_insync import (
+    Stock,
+    Future,
+    Option,
+    Warrant,
+    FuturesOption,
+    Bond,
+    Crypto,
+    Contract,
+)
 
 from icli.futsexchanges import FUTS_EXCHANGE
+import tradeapis.rounder as rounder
 import pandas as pd
 import numpy as np
 import pendulum
@@ -20,10 +30,47 @@ from dotenv import dotenv_values
 import os
 
 # TODO: detect this automatically:
-FU_DEFAULT = dict(ICLI_FUT_EXP="202209")
+FU_DEFAULT = dict(ICLI_FUT_EXP="202212")
 FU_CONFIG = {**FU_DEFAULT, **dotenv_values(".env.icli"), **os.environ}  # type: ignore
 
 FUT_EXP = FU_CONFIG["ICLI_FUT_EXP"]
+
+
+def comply(contract: Union[Contract, str], price: float) -> float:
+    """Conform a calculated price to an IBKR-acceptable price increment.
+
+    We say "IBKR-acceptable" because for some price increments IBKR will self-adjust
+    internally, while for other proeducts it requires exact conformity. shrug."""
+
+    if isinstance(contract, Future):
+        # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment and other futures
+        # have different increments, to use an API to figure it out.
+        # TODO: is "symbol" the root symbol like "ES" or the time symbol like ESU2?
+        return rounder.round("/" + contract.symbol, price)
+
+    if isinstance(contract, Option):
+        # hack for SPX or other index options needing specific increments
+        # (IBKR API for contract details is slow and busted, so we either need to have a
+        #  local DB of symbols to increments or just do minimal hacks like these along the way...)
+
+        # note: IBKR handles "penny pilot program" options internally so you don't need to comply with tick
+        #       increments, but for index options, they DO enforce tick increments, so we need this internal
+        #       lookup table hack. thanks, IBKR!
+
+        # "SPX trades in specific increments of $0.05 when premiums are less than $3 and $0.10 for premiums higher than or equal to $3."
+        name = contract.localSymbol[:-15].rstrip()
+        return rounder.round(name, price)
+
+    # another hack in case we're just doing quotes or something?
+    if isinstance(contract, str):
+        # if input is a full option symbol, use only the symbol name
+        if len(contract) > 10:
+            contract = contract[:-15].rstrip()
+
+        return rounder.round(name, price)
+
+    # else, price doesn't match a condition so we remain unchanged
+    return price
 
 
 def contractForName(sym, exchange="SMART", currency="USD"):
@@ -228,7 +275,7 @@ def boundsByPercentDifference(mid: float, percent: float) -> tuple[float, float]
     # re-solved for a and b from: (a - b) / ((a + b) / 2) = percent difference
     lower = -(mid * (percent - 2)) / (percent + 2)
     upper = -(mid * (percent + 2)) / (percent - 2)
-    return (makeQuarter(lower), makeQuarter(upper))
+    return (lower, upper)
 
 
 def strFromPositionRow(o):
@@ -251,18 +298,6 @@ def isset(x: float) -> bool:
     So we have to directly compare against another value to see if a returned float
     is a _set_ value or just a placeholder for the default value. le sigh."""
     return x != ib_insync.util.UNSET_DOUBLE
-
-
-def makeQuarter(x) -> float:
-    # TODO: replace with mutil.numeric.roundnear for 0.25 and 1
-
-    """Convert any price to end in .00, 0.25, 0.50, or 0.75 to match
-    the tick intervals required for futures.
-
-    MES ticks by $0.25, but MYM ticks only by $1, MNQ ticks by $0.25
-
-    Note: this rounds everything down. Could use ceil to round up if necessary."""
-    return round(round(x * 4) / 4, 2)
 
 
 @dataclass

@@ -70,7 +70,7 @@ import seaborn
 
 import icli.lang as lang
 from icli.helpers import *  # FUT_EXP is appearing from here
-from mutil.numeric import fmtPrice, fmtPricePad, roundnear
+from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
 import tradeapis.buylang as buylang
 
@@ -629,24 +629,7 @@ class IBKRCmdlineApp:
 
         assert qty > 0
 
-        if isinstance(contract, Future):
-            # Technically this should probably be done using a combination of things
-            # with this API, but we aren't bothering yet:
-            # https://interactivebrokers.github.io/tws-api/minimum_increment.html
-
-            # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment.
-            # Currently we don't care about other futures, so good luck.
-            price = roundnear(0.25, price, True)
-        elif contract.localSymbol.startswith("SPX") and isinstance(contract, Option):
-            # hack for SPX options needing specific increments
-            # (IBKR API for contract details is slow and busted, so we either need to have a
-            #  local DB of symbols to increments or just do minimal hacks like these along the way...)
-
-            # "SPX trades in specific increments of $0.05 when premiums are less than $3 and $0.10 for premiums higher than or equal to $3."
-            if price < 3:
-                price = roundnear(0.05, price, True)
-            else:
-                price = roundnear(0.10, price, True)
+        price = comply(contract, price)
 
         order = orders.IOrder(
             "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif  # type: ignore
@@ -766,6 +749,7 @@ class IBKRCmdlineApp:
 
     def midpointBracketBuyOrder(
         self,
+        contract: Contract,
         isLong: bool,
         qty: int,
         ask: float,
@@ -782,7 +766,7 @@ class IBKRCmdlineApp:
         lower, upper = boundsByPercentDifference(ask, stopPct)
         if isLong:
             lossPrice = lower
-            trailStop = makeQuarter(ask - lower)
+            trailStop = comply(contract, ask - lower)
 
             openLimit = ask + 1
 
@@ -790,7 +774,7 @@ class IBKRCmdlineApp:
             closeAction = "SELL"
         else:
             lossPrice = upper
-            trailStop = makeQuarter(upper - ask)
+            trailStop = comply(contract, upper - ask)
 
             openLimit = ask - 1
 
@@ -1937,7 +1921,7 @@ class IBKRCmdlineApp:
                     logger.info("qual: {} for {}", qualified, fxchg.name)
 
                     order = self.midpointBracketBuyOrder(
-                        qty=qty, isLong=isLong, ask=ask, stopPct=percentStop
+                        qualified, qty=qty, isLong=isLong, ask=ask, stopPct=percentStop
                     )
 
                     if liveOrder:
