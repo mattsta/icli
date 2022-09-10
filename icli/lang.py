@@ -768,8 +768,10 @@ class IOpOrderModify(IOp):
             Q("New Quantity"),
         ]
 
-        pord = await self.state.qask(promptOrder)
+        trade = None
         try:
+            pord = await self.state.qask(promptOrder)
+
             trade = pord["Current Order"]
             lmt = pord["New Limit Price"]
             stop = pord["New Stop Price"]
@@ -793,11 +795,17 @@ class IOpOrderModify(IOp):
 
             if qty:
                 ordr.totalQuantity = float(qty)
-        except:
-            logger.error(
-                "[{}] Failed to update?",
+        except KeyboardInterrupt:
+            logger.warning(
+                "[{}] Canceled update!",
                 trade.contract.localSymbol or trade.contract.symbol,
             )
+        except:
+            if trade:
+                logger.exception(
+                    "[{}] Failed to update?",
+                    trade.contract.localSymbol or trade.contract.symbol,
+                )
             return None
 
         trade = self.ib.placeOrder(contract, ordr)
