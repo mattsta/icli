@@ -822,7 +822,7 @@ class IOpOrder(IOp):
         # BUY IWM TOTAL 50000 ALGO LIMIT/LIM/LMT AF AS REL MP AMF AMS MOO MOC
         # TODO: find a way to make this aware of margin requirements for futures, currencies, etc
         return [
-            DArg("symbol"),
+            DArg("symbol", convert=lambda x: x.upper()),
             DArg("bs", verify=lambda x: x.lower() in {"b", "s", "buy", "sell"}),
             DArg("t", verify=lambda x: x.lower() in {"t", "total"}),
             DArg("total", convert=float, verify=lambda x: x > 0),
@@ -1378,7 +1378,9 @@ class IOpOrderFast(IOp):
         elif self.percentageRun >= 1:
             poffset = int(self.percentageRun)
             try:
-                picked = useChain[firstStrikeIdx + poffset]
+                picked = useChain[
+                    firstStrikeIdx + (poffset * (1 if usingCalls else -1))
+                ]
             except:
                 # lazy catch-all in case 'poffset' overflows the array extent
                 picked = useChain[firstStrikeIdx]
@@ -2045,9 +2047,9 @@ class IOpPositions(IOp):
             try:
                 make["dailyPNL"] = self.state.pnlSingle[o.contract.conId].dailyPnL
 
-                # fix API issue where it returns the largest value possible if not populated.
+                # API issue where it returns the largest value possible if not populated.
                 # same as: sys.float_info.max:
-                if make["dailyPNL"] == ib_insync.util.UNSET_DOUBLE:
+                if not isset(make["dailyPNL"]):
                     make["dailyPNL"] = -1
             except:
                 logger.warning("No PNL for: {}", pp.pformat(o))
@@ -2436,7 +2438,7 @@ class IOpQuotesAdd(IOp):
             *[self.state.contractForOrderRequest(o) for o in ors]
         )
 
-        qs = []
+        qs = set()
         for ordReq, contract in zip(ors, cs):
             if not contract:
                 logger.error("Failed to find live contract for: {}", ordReq)
@@ -2451,7 +2453,7 @@ class IOpQuotesAdd(IOp):
             self.state.quoteState[symkey] = self.ib.reqMktData(contract, tickFields)
             self.state.quoteContracts[symkey] = contract
 
-            qs.append(symkey)
+            qs.add(symkey)
 
         # return array of quote lookup keys
         # (because things like spreads have weird keys we construct here the caller
