@@ -1079,7 +1079,7 @@ class IBKRCmdlineApp:
 
     def bottomToolbar(self):
         self.updates += 1
-        self.now = pendulum.now()
+        self.now = pendulum.now("US/Eastern")
 
         def fmtPrice2(n: float):
             # Some prices may not be populated if they haven't
@@ -1376,10 +1376,30 @@ class IBKRCmdlineApp:
                 else:
                     rowName = f"{c.contract.localSymbol or c.contract.symbol:<9}:"
 
+                    # Also generate a nice split to reconstruct...
+                    sym, y, m, d, pc, price = re.match(
+                        "(\w+)\s*(\d\d)(\d\d)(\d\d)([PC])(\d\d\d\d\d\d\d\d)", rowName
+                    ).groups()
+                    rowNice = f"{sym:<6} {y}-{m}-{d} {pc} {int(price) / 1000:>8,.2f}"
+
+                    # TODO: should this be fancier and decay cleaner?
+                    #       we could do more accurate countdowns to actual expiration time instead of just "days"
+                    when = (
+                        pendulum.parse(f"20{y}-{m}-{d} 16:00", tz="US/Eastern")
+                        - self.now
+                    ).days
+
                     # TODO: why isn't this updating?
                     e100 = getEMA(ls, 100)
                     e100diff = (mark - e100) if e100 else None
 
+                    # this may be too wide for some people? works for me.
+                    # just keep shrinking your terminal font size until everything fits?
+                    # currently works nicely via:
+                    #   - font: Monaco
+                    #   - size: 10
+                    #   - terminal width: 275+ characters
+                    #   - terminal height: 60+ characters
                     return " ".join(
                         [
                             rowName,
@@ -1392,11 +1412,10 @@ class IBKRCmdlineApp:
                             f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
                             f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low):>6})",
                             f"({pctBigClose} {amtBigClose} {fmtPriceOpt(c.close):>6})",
-                            #                        f"[h {fmtPriceOpt(c.high)}]",
-                            #                        f"[l {fmtPriceOpt(c.low)}]",
                             f" {fmtPriceOpt(c.bid):>6} x {b_s}   {fmtPriceOpt(c.ask):>6} x {a_s} ",
-                            #                        f"[c {fmtPriceOpt(c.close)}]",
-                            f"  ({str(ago)})",
+                            f"  ({str(ago):>13})  ",
+                            rowNice,
+                            f"({when:>3} d)",
                             "HALTED!" if c.halted > 0 else "",
                         ]
                     )
@@ -1562,8 +1581,6 @@ class IBKRCmdlineApp:
                 priority = 0
                 return (1, priority, invertstr(c.symbol.lower()))
 
-            now = str(pendulum.now("US/Eastern"))
-
             # RegT overnight margin can be at maximum 50% of total account value.
             # (note: does not apply to portfolion margin / SPAN accounts)
             # "TotalCashValue" will be negative if using margin, so the negative amount is the
@@ -1585,7 +1602,7 @@ class IBKRCmdlineApp:
                 onc = f" (OVERNIGHT REG-T MARGIN CALL: ${-overnightDeficit:,.2f})"
 
             return HTML(
-                f"""{now}{onc} [{self.updates:,}]\n"""
+                f"""{self.now}{onc} [{self.updates:,}]\n"""
                 + "\n".join(
                     [
                         formatTicker(quote)
