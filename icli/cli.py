@@ -1157,7 +1157,7 @@ class IBKRCmdlineApp:
             else:
                 usePrice = c.last if c.last == c.last else c.close
 
-            if c.high == c.high and c.low == c.low:
+            if (c.high == c.high and c.low == c.low) or (c.bid > 0 and c.ask > 0):
                 # only update EMA if this has price-like details and isn't TRIN/TICK/AD
                 updateEMA(ls, usePrice)
 
