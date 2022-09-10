@@ -518,11 +518,20 @@ class IBKRCmdlineApp:
                 outsideRth = False
         else:
             # Algos can only operate RTH:
-            if " " in orderType or "MIDPRICE" in orderType:
+            if " " in orderType or (
+                orderType
+                in {"MIDPRICE", "MKT + ADAPTIVE + FAST", "LMT + ADAPTIVE + FAST"}
+            ):
                 outsideRth = False
             else:
                 # REL and LMT/MKT/MOO/MOC orders can be outside RTH
                 outsideRth = True
+
+        # TODO: cleanup, also verify how we want to run FAST or EVICT outside RTH?
+        if " " in orderType or (
+            orderType in {"MIDPRICE", "MKT + ADAPTIVE + FAST", "LMT + ADAPTIVE + FAST"}
+        ):
+            outsideRth = False
 
         if isinstance(contract, Crypto) and isLong:
             # Crypto can only use IOC or Minutes for tif BUY
