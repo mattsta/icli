@@ -1,12 +1,12 @@
 """ Common order types with reusable parameter configurations."""
 from ib_insync import (
     Order,
-    LimitOrder,
     TagValue,
-    MarketOrder,
     Contract,
     OrderCondition,
-    StopLimitOrder,
+    # NOTE: DO NOT add LimitOrder, MarketOrder, StopLimitOrder, etc because those are
+    #       non-dataclass subclasses of the Order dataclass and we can't dataclass.replace() on
+    #       any other order classes except the primary Order() superclass!
 )
 from dataclasses import dataclass, field
 
@@ -209,9 +209,10 @@ class IOrder:
         self.adjustForCashQuantity(o)
         return o
 
-    def adaptiveFastLmt(self) -> LimitOrder:
+    def adaptiveFastLmt(self) -> Order:
         # Note: adaptive can't be GTC!
-        o = LimitOrder(
+        o = Order(
+            orderType="LMT",
             action=self.action,
             totalQuantity=self.qty,
             lmtPrice=self.lmt,
@@ -223,9 +224,10 @@ class IOrder:
         self.adjustForCashQuantity(o)
         return o
 
-    def adaptiveSlowLmt(self) -> LimitOrder:
+    def adaptiveSlowLmt(self) -> Order:
         # Note: adaptive can't be GTC!
-        o = LimitOrder(
+        o = Order(
+            orderType="LMT",
             action=self.action,
             totalQuantity=self.qty,
             lmtPrice=self.lmt,
@@ -237,9 +239,10 @@ class IOrder:
         self.adjustForCashQuantity(o)
         return o
 
-    def adaptiveFastMkt(self) -> MarketOrder:
+    def adaptiveFastMkt(self) -> Order:
         # Note: adaptive can't be GTC!
-        o = MarketOrder(
+        o = Order(
+            orderType="MKT",
             action=self.action,
             totalQuantity=self.qty,
             algoStrategy="Adaptive",
@@ -250,9 +253,10 @@ class IOrder:
         self.adjustForCashQuantity(o)
         return o
 
-    def adaptiveSlowMkt(self) -> MarketOrder:
+    def adaptiveSlowMkt(self) -> Order:
         # Note: adaptive can't be GTC!
-        o = MarketOrder(
+        o = Order(
+            orderType="MKT",
             action=self.action,
             totalQuantity=self.qty,
             algoStrategy="Adaptive",
@@ -263,12 +267,13 @@ class IOrder:
         self.adjustForCashQuantity(o)
         return o
 
-    def stopLimit(self) -> StopLimitOrder:
-        o = StopLimitOrder(
-            self.action,
-            self.qty,
-            self.lmt,  # Limit price under the stop...
-            self.aux,  # Stop trigger price...
+    def stopLimit(self) -> Order:
+        o = Order(
+            orderType="STP LMT",
+            action=self.action,
+            totalQuantity=self.qty,
+            lmtPrice=self.lmt,  # Limit price under the stop...
+            auxPrice=self.aux,  # Stop trigger price...
             **self.commonArgs(),
         )
 
@@ -300,11 +305,12 @@ class IOrder:
         self.adjustForCashQuantity(o)
         return o
 
-    def limit(self) -> LimitOrder:
-        o = LimitOrder(
-            self.action,
-            self.qty,
-            self.lmt,
+    def limit(self) -> Order:
+        o = Order(
+            orderType="LMT",
+            action=self.action,
+            totalQuantity=self.qty,
+            lmtPrice=self.lmt,
             **self.commonArgs(),
         )
 
