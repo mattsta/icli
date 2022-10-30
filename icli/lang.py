@@ -1126,12 +1126,16 @@ class IOpOrderFast(IOp):
                 logger.error("[{}] No strikes found?", self.symbol)
                 return None
 
-            strikes = strikes[self.symbol]
+            initSym = self.symbol
+            if initSym.upper() == "SPXW":
+                initSym = "SPX"
+
+            strikes = strikes[initSym]
 
             # also make sure quote for the underlying is populated...
             await self.runoplive(
                 "add",
-                f'"{self.symbol}"',
+                f'"{initSym}"',
             )
         else:
             atrReqFast = dict(cmd="atr", sym=self.symbol, avg=3, back=1)
@@ -1390,8 +1394,9 @@ class IOpOrderFast(IOp):
         # user-defined percentage gap for range buys...
 
         if self.percentageRun == 0:
-            # If NO WIDTH specified, use current ATM pick
-            picked = useChain[firstStrikeIdx]
+            # If NO WIDTH specified, use current ATM pick (potentially moved by 'gaps' requested to start)
+            poffset = self.gaps
+            picked = useChain[firstStrikeIdx + (poffset * (1 if usingCalls else -1))]
             logger.info("No width requested, so using: {}", picked)
             buyStrikes.append(picked)
         elif self.percentageRun >= 1:
@@ -1471,6 +1476,7 @@ class IOpOrderFast(IOp):
         remaining = self.amount
         spend = 0
         skip = 0
+        lastPrice = 0
         while remaining > 0 and skip < len(occs):
             logger.info(
                 "[{} :: {}] Remaining: ${:,.2f} plan {}",
@@ -1517,7 +1523,7 @@ class IOpOrderFast(IOp):
                     # multipler is a string of a number because of course it is.
                     # It's likely always an integer, but why risk coercing to int when float is
                     # also fine here with our flakey price math.
-                    multiplier = float(qs.contract.multiplier)
+                    multiplier = float(qs.contract.multiplier or 1)
 
                     for i in range(0, 25):
                         # if ask is populated, skip rest of waiting
