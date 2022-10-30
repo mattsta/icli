@@ -10,6 +10,8 @@ from ib_insync import (
     Bond,
     Crypto,
     Contract,
+    Forex,
+    CFD
 )
 
 from icli.futsexchanges import FUTS_EXCHANGE
@@ -156,6 +158,7 @@ def contractForName(sym, exchange="SMART", currency="USD"):
         # if symbol has a : we are namespacing by type:
         #   - W: - warrant
         #   - C: - crypto
+        #   - F: - forex
         #   - B: - bond
         #   - S: - stock (or no contract namespace)
         # Note: futures and future options are prefixed with /
@@ -176,6 +179,13 @@ def contractForName(sym, exchange="SMART", currency="USD"):
                 contract = Bond(symbol, exchange, currency)
             elif contractNamespace == "S":
                 contract = Stock(symbol, exchange, currency)
+            elif contractNamespace == "F":
+                # things like F:GBPUSD F:EURUSD (but not F:JPYUSD or F:RMBUSD shrug)
+                # also remember C: is CRYPTO not "CURRENCY," so currencies are F for FOREX
+                contract = Forex(symbol)
+            elif contractNamespace == "CFD":
+                # things like CFD:XAUUSD
+                contract = CFD(symbol)
         else:
             # TODO: warrants, bonds, bills, etc
             contract = Stock(sym, exchange, currency)
