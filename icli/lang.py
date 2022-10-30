@@ -2575,10 +2575,15 @@ class IOpQuotesRemove(IOp):
                     symkey = lookupKey(contract)
                     del self.state.quoteContracts[symkey]
                     del self.state.quoteState[symkey]
+                    logger.info(
+                        "Removed: {} ({})",
+                        contract.localSymbol or contract.symbol,
+                        symkey,
+                    )
                 except:
                     # user requested removal of non-subscribed quote
                     # (which is still okay)
-                    logger.exception("no go?")
+                    # logger.exception("no go?")
                     pass
 
 
