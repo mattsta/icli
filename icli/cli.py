@@ -398,7 +398,7 @@ class IBKRCmdlineApp:
 
         if oreq.isSingle():
             contract = contractForName(oreq.orders[0].symbol, exchange=exchange)
-            await self.qualify(contract)
+            cgot = await self.qualify(contract)
 
             # only return success if the contract validated
             if contract.conId:
@@ -432,17 +432,21 @@ class IBKRCmdlineApp:
 
         contractUnderlying = contracts[0].symbol
         reqUnderlying = oreq.orders[0].underlying()
-        if contractUnderlying != reqUnderlying.lstrip("/"):
-            logger.error(
-                "Resolved symbol [{}] doesn't match order underlying [{}]?",
-                contractUnderlying,
-                reqUnderlying,
-            )
-            return None
 
-        if not all(c.symbol == contractUnderlying for c in contracts):
-            logger.error("All contracts must have same underlying for spread!")
-            return None
+        # Temporarily removed because it breaks with weekly index options
+        if False:
+            # FIX for SPX/SPXW
+            if contractUnderlying != reqUnderlying.lstrip("/"):
+                logger.error(
+                    "Resolved symbol [{}] doesn't match order underlying [{}]?",
+                    contractUnderlying,
+                    reqUnderlying,
+                )
+                return None
+
+            if not all(c.symbol == contractUnderlying for c in contracts):
+                logger.error("All contracts must have same underlying for spread!")
+                return None
 
         # Iterate (in MATCHED PAIRS) the resolved contracts with their original order details
         legs = []
@@ -491,10 +495,21 @@ class IBKRCmdlineApp:
         # turn option contract lookup into non-spaced version
         sym = sym.replace(" ", "")
 
-        logger.info("[{}] Request to order qty {} price {}", sym, qty, price)
+        if price > 0:
+            price = comply(contract, price)
+            logger.info(
+                "[{}] Request to order qty {:,.2f} price {:,.2f}", sym, qty, price
+            )
+        else:
+            logger.info(
+                "[{}] Request to order at dynamic qty/price: {:,.2f} price {:,.2f}",
+                sym,
+                qty,
+                price,
+            )
 
         # need to replace underlying if is "fake settled underlying"
-        quotesym = self.symbolNormalizeIndexWeeklyOptions(sym)
+        quotesym = sym  # self.symbolNormalizeIndexWeeklyOptions(sym)
         await self.dispatch.runop("add", f'"{quotesym}"', self.opstate)
 
         if not contract.conId:
@@ -601,7 +616,7 @@ class IBKRCmdlineApp:
                 # equity, futures, etc get the wider margins
                 mid = round(((bid + ask) / 2) * (1.01 if isLong else 0.99), 2)
 
-            price = mid
+            price = comply(contract, mid)
 
             # since this is in the "negative quantity" block, we convert the
             # negative number to a positive number for representing total
@@ -610,10 +625,10 @@ class IBKRCmdlineApp:
 
             # calculate order quantity for spend budget at current estimated price
             logger.info(
-                "[{}] Trying to order ${:,.2f} worth at ${:,.2f}...", sym, amt, mid
+                "[{}] Trying to order ${:,.2f} worth at ${:,.2f}...", sym, amt, price
             )
 
-            qty = self.quantityForAmount(contract, amt, mid)
+            qty = self.quantityForAmount(contract, amt, price)
 
             if not qty:
                 logger.error(
@@ -621,7 +636,7 @@ class IBKRCmdlineApp:
                     sym,
                     contract,
                     amt,
-                    mid,
+                    price,
                 )
                 return None
 
@@ -637,8 +652,6 @@ class IBKRCmdlineApp:
             )
 
         assert qty > 0
-
-        price = comply(contract, price)
 
         order = orders.IOrder(
             "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif  # type: ignore

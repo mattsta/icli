@@ -143,6 +143,14 @@ def contractForName(sym, exchange="SMART", currency="USD"):
             right=right,
             exchange=exchange,
             currency=currency,
+
+            # also pass in tradingClass so options like SPXW220915P03850000 work
+            # directly instead of having IBKR guess if we want SPX or SPXW.
+            # for all other symbols the underlying trading class doesn't alter
+            # behavior (and we don't allow users to specify extra classes yet
+            # like if you want to trade on fragemented options chains after
+            # reverse splits, etc).
+            tradingClass=symbol
         )
     else:
         # if symbol has a : we are namespacing by type:

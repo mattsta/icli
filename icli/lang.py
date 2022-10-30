@@ -1469,24 +1469,27 @@ class IOpOrderFast(IOp):
                 # TODO: for VIX, expire date is N, but contract date is N+1, so we need
                 #       to do calendar math for "add 1 day" to VIX symbols...
 
-                # if weekly index option, needs the special name to check quotes because IBKR
-                # changes our "SPX option weekly expire" dates into SPXW symbols internally, so
-                # even though we request trades and quotes on "SPX" symbol, their .localSymbol
-                # becomes "SPXW[OCC details]", etc.
-                # Basically: All orders and quotes are placed with "SPX", "NDX", etc symbols,
-                # but behind the scenes it changes them to the different root symbols as needed,
-                # so for our quote lookup we need to re-construct the .localSymbol vs. the in-contract
-                # order symbol.
-                occForQuote = (
-                    occ.replace("SPX", "SPXW")
-                    .replace("VIX", "VIXW")
-                    .replace("NDX", "NDXW")
-                    .replace("RUT", "RUTW")
-                )
+                # (was this fixed by adding dual symbols to the Option constructor?)
+                occForQuote = occ
+                if False:
+                    # if weekly index option, needs the special name to check quotes because IBKR
+                    # changes our "SPX option weekly expire" dates into SPXW symbols internally, so
+                    # even though we request trades and quotes on "SPX" symbol, their .localSymbol
+                    # becomes "SPXW[OCC details]", etc.
+                    # Basically: All orders and quotes are placed with "SPX", "NDX", etc symbols,
+                    # but behind the scenes it changes them to the different root symbols as needed,
+                    # so for our quote lookup we need to re-construct the .localSymbol vs. the in-contract
+                    # order symbol.
+                    occForQuote = (
+                        occ.replace("SPX", "SPXW")
+                        .replace("VIX", "VIXW")
+                        .replace("NDX", "NDXP")
+                        .replace("RUT", "RUTW")
+                    )
 
-                logger.info("Iterating: {}", occForQuote)
+                ask = self.state.quoteState[occForQuote].ask
 
-                ask = self.state.quoteState[occForQuote].ask * 100
+                logger.info("Iterating [{}]: {}", ask, occForQuote)
 
                 # if quote not populated, wait for it...
                 try:
@@ -1640,10 +1643,6 @@ class IOpOrderFast(IOp):
             *[
                 self.runoplive(
                     "buy",
-                    # Note: we're always running weeklies but the quote system
-                    #       uses different symbols for weekly index options, so
-                    #       fixup any of those here.
-                    # f'buy {occ.replace("SPX", "SPXW").replace("VIX", "VIXW").replace("NDX", "NDXW").replace("RUT", "RUTW")} total {qty * price} algo {algo}',
                     # Since these are per-contract limit price, we need to re-inflate the total by the multiplier again.
                     f"{occ} buy total {qty * limit * multiplier} algo {algo}",
                 )
@@ -2627,6 +2626,10 @@ class IOpOptionChain(IOp):
         now = pendulum.now().in_tz("US/Eastern")
         got = {}
         for symbol in self.symbols:
+            # if asking for weeklies, need to correct symbol for underlying quote...
+            if symbol.upper() == "SPXW":
+                symbol = "SPX"
+
             cacheKey = ("strike", symbol, now.date())
             # logger.info("Looking up {}", cacheKey)
             if found := self.cache.get(cacheKey):
@@ -2694,6 +2697,7 @@ class IOpOptionChain(IOp):
             # or thousands of rows (all strikes at all future dates).
             strikes = defaultdict(list)
             got[symbol] = strikes
+
             for d in useDates:
                 if symbol.startswith("/"):
                     # Futures use future expiration
@@ -2707,6 +2711,8 @@ class IOpOptionChain(IOp):
                     contractExact.lastTradeDateOrContractMonth,
                 )
                 chainsExact = await self.ib.reqContractDetailsAsync(contractExact)
+
+                # logger.info("Full result: {}", chainsExact)
 
                 # group strike results by date
                 logger.info(
