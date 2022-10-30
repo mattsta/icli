@@ -476,6 +476,15 @@ class IBKRCmdlineApp:
         """Weekly index options have symbol names with 'W' but orders are placed without."""
         return name.replace("SPXW", "SPX").replace("RUTW", "RUT").replace("NDXP", "NDX")
 
+    def quoteResolve(self, lookup: str) -> str:
+        """Resolve a local symbol alias like ':33' to current symbol name for the index."""
+
+        # TODO: this doesn't work for futures symbols. Probably need to read the contract type
+        #       to re-apply or internal formatting? futs: /; CFD: CFD; crypto: C; ...
+        return self.quotesPositional[int(lookup[1:])][1].contract.localSymbol.replace(
+            " ", ""
+        )
+
     async def placeOrderForContract(
         self,
         sym: str,
@@ -1614,14 +1623,38 @@ class IBKRCmdlineApp:
             if overnightDeficit < 0:
                 onc = f" (OVERNIGHT REG-T MARGIN CALL: ${-overnightDeficit:,.2f})"
 
+            qs = sorted(self.quoteState.items(), key=sortQuotes)
+            self.quotesPositional = qs
+
+            spxbreakers = ""
+            spx = self.quoteState.get("SPX")
+            if spx:
+                # hack around IBKR quotes being broken over weekends/holdays
+                # NOTE: this isn't valid across weekends because until Monday morning, the "close" is "Thursday close" not frday close. sigh.
+                #       also the SPX symbol never has '.open' value so we can't detect "stale vs. current quote from last close"
+                spxc = spx.close
+                spxl = spx.last
+
+                def undX(spxd, spxIn):
+                    return (spxd / spxIn) * 100
+
+                spxc7 = round(spxc / 1.07, 2)
+                spxcd7 = round(spxl - spxc7, 2)
+
+                spxc13 = round(spxc / 1.13, 2)
+                spxcd13 = round(spxl - spxc13, 2)
+
+                spxc20 = round(spxc / 1.20, 2)
+                spxcd20 = round(spxl - spxc20, 2)
+
+                spxbreakers = f"7%: {spxc7} ({spxcd7}; {undX(spxcd7, spxc7):.2f}%)   13%: {spxc13}  ({spxcd13}; {undX(spxcd13, spxc13):.2f}%)  20%: {spxc20} ({spxcd20}; {undX(spxcd20, spxc20):.2f}%)"
+
             return HTML(
-                f"""{self.now}{onc} [{self.updates:,}]\n"""
+                f"""{self.now}{onc} [{self.updates:,}]                {spxbreakers}\n"""
                 + "\n".join(
                     [
-                        formatTicker(quote)
-                        for sym, quote in sorted(
-                            self.quoteState.items(), key=sortQuotes
-                        )
+                        f"{qp:>2}) " + formatTicker(quote)
+                        for qp, (sym, quote) in enumerate(qs)
                     ]
                 )
                 + "\n"

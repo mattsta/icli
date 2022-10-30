@@ -608,6 +608,10 @@ class IOpDepth(IOp):
 
     async def run(self):
         try:
+            if self.sym.startswith(":"):
+                self.sym = self.state.quoteResolve(self.sym)
+                assert self.sym
+
             (contract,) = await self.state.qualify(contractForName(self.sym))
         except:
             logger.error("No contract found for: {}", self.sym)
@@ -845,6 +849,13 @@ class IOpOrder(IOp):
         else:
             # else, is symbol
             isSpread = False
+
+            # if ordering current positional quote, do the lookup.
+            # TODO: make centralized lookup helper function
+            if self.symbol.startswith(":"):
+                self.symbol = self.state.quoteResolve(self.symbol)
+                assert self.symbol
+
             contract = contractForName(self.symbol)
 
         if contract is None:
@@ -1719,7 +1730,15 @@ class IOpOrderLimit(IOp):
             # OPENING
             # provide any arguments as pre-populated symbol by default
             promptPosition = [
-                Q("Symbol", value=" ".join(self.args)),
+                Q(
+                    "Symbol",
+                    value=" ".join(
+                        [
+                            self.state.quoteResolve(x) if x.startswith(":") else x
+                            for x in self.args
+                        ]
+                    ),
+                ),
                 Q("Price"),
                 Q("Quantity"),
                 ORDER_TYPE_Q,
@@ -2528,6 +2547,9 @@ class IOpQuotesRemove(IOp):
                 orderReq = self.state.ol.parse(sym)
                 contract = await self.state.contractForOrderRequest(orderReq)
             else:
+                if sym.startswith(":"):
+                    sym = self.state.quoteResolve(sym)
+
                 # else, just a regular one-symbol lookup
                 # logger.warning("QCs are: {}", pp.pformat(self.state.quoteContracts))
                 contract = self.state.quoteContracts.get(sym)
