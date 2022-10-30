@@ -1922,9 +1922,12 @@ class IBKRCmdlineApp:
                 for ccmd in text1.strip().split("\n"):
                     cmd, *rest = ccmd.split(" ", 1)
                     with Timer(cmd):
-                        result = await self.dispatch.runop(
-                            cmd, rest[0] if rest else None, self.opstate
-                        )
+                        try:
+                            result = await self.dispatch.runop(
+                                cmd, rest[0] if rest else None, self.opstate
+                            )
+                        except:
+                            logger.exception("sorry, what now?")
 
                 continue
 
@@ -2018,36 +2021,6 @@ class IBKRCmdlineApp:
                     # reset bar cache so it doesn't grow forever...
                     for k, v in self.liveBars.items():
                         v.clear()
-                elif text1 == "try":
-                    logger.info("Ordering...")
-                    logger.info("QS: {}", self.quoteState["ES"])
-                    contract = Stock("AMD", "SMART", "USD")
-                    order = LimitOrder(
-                        action="BUY",
-                        totalQuantity=500,
-                        lmtPrice=33.33,
-                        algoStrategy="Adaptive",
-                        algoParams=[TagValue("adaptivePriority", "Urgent")],
-                    )
-                    ordstate = await self.ib.whatIfOrderAsync(contract, order)
-                    logger.info("ordstate: {}", ordstate)
-                elif text1 == "tryf":
-                    logger.info("Ordering...")
-                    contract = Future(
-                        currency="USD",
-                        symbol="MES",
-                        lastTradeDateOrContractMonth=FUT_EXP,
-                        exchange="GLOBEX",
-                    )
-                    order = LimitOrder(
-                        action="BUY",
-                        totalQuantity=770,
-                        lmtPrice=400.75,
-                        algoStrategy="Adaptive",
-                        algoParams=[TagValue("adaptivePriority", "Urgent")],
-                    )
-                    ordstate = await self.ib.whatIfOrderAsync(contract, order)
-                    logger.info("ordstate: {}", ordstate)
 
                 if not text1:
                     continue
