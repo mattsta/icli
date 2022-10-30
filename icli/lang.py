@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import *
 import enum
 
-from ib_insync import Bag, Contract
+from ib_insync import Bag, Contract, Order
 
 import sys
 import math
@@ -783,22 +783,33 @@ class IOpOrderModify(IOp):
 
             contract = trade.contract
 
-            # COPY the underlying order so we don't directly modify the internal trade cache
-            # (so if the order update fails to apply, our data remains in a good state)
-            ordr = dataclasses.replace(trade.order)
+            # start with the current live order, then COPY IT into a NEW ORDER each time
+            # with per-field modifications so we aren't changing the live state (live state
+            # should ONLY be updated by IBKR callbacks, not by us mutating values directly!)
+            ordr = trade.order
+            assert isinstance(ordr, Order)
 
             if not (lmt or stop or qty):
                 # User didn't provide new data, so stop processing
                 return None
 
             if lmt:
-                ordr.lmtPrice = float(lmt)
+                # COPY the underlying order so we don't directly modify the internal trade cache
+                # (so if the order update fails to apply, our data remains in a good state)
+                ordr = dataclasses.replace(ordr, lmtPrice=float(lmt))
 
             if stop:
-                ordr.auxPrice = float(stop)
+                ordr = dataclasses.replace(ordr, auxPrice=float(stop))
 
             if qty:
-                ordr.totalQuantity = float(qty)
+                ordr = dataclasses.replace(ordr, totalQuantity=float(qty))
+
+            # we MUST have replaced the order by now or else the conditions above are broken
+            assert ordr != trade.order
+
+            logger.info("Submitting order update: {} :: {}", contract, ordr)
+            trade = self.ib.placeOrder(contract, ordr)
+            logger.info("Updated: {}", pp.pformat(trade))
         except KeyboardInterrupt:
             logger.warning(
                 "[{}] Canceled update!",
@@ -811,9 +822,6 @@ class IOpOrderModify(IOp):
                     trade.contract.localSymbol or trade.contract.symbol,
                 )
             return None
-
-        trade = self.ib.placeOrder(contract, ordr)
-        logger.info("Updated: {}", pp.pformat(trade))
 
 
 @dataclass
