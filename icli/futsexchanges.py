@@ -46,7 +46,12 @@ def generateFuturesMapping() -> dict[Symbol, FutureSymbol]:
                 "SMFE",
                 "ICECRYPTO",
             }:
-                fs[row[1]] = FutureSymbol(symbol=symbol, exchange=exchange, name=name)
+                # why setdefault()? Because we only want the FIRST TIME we see a symbol to generate
+                # an entry here. This page as additional tables after the ones we want and we DO NOT WANT
+                # the final "time at exchange" tables to pollute our previously-populated correct values.
+                fs.setdefault(
+                    row[1], FutureSymbol(symbol=symbol, exchange=exchange, name=name)
+                )
 
     return fs
 
@@ -69,961 +74,706 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "ACD": FutureSymbol(
-        symbol="ACD",
-        exchange="GLOBEX",
-        name="Australian dollar",
+    "VIX": FutureSymbol(
+        symbol="VIX",
+        exchange="CFE",
+        name="CBOE Volatility Index",
+        multiplier="",
+        delayed=False,
+    ),
+    "VXM": FutureSymbol(
+        symbol="VXM",
+        exchange="CFE",
+        name="Mini Cboe Volatility Index Futures",
         multiplier="",
         delayed=False,
     ),
     "AUD": FutureSymbol(
         symbol="AUD",
-        exchange="GLOBEX",
+        exchange="CME",
+        name="Australian dollar",
+        multiplier="",
+        delayed=False,
+    ),
+    "GBP": FutureSymbol(
+        symbol="GBP", exchange="CME", name="British pound", multiplier="", delayed=False
+    ),
+    "CAD": FutureSymbol(
+        symbol="CAD",
+        exchange="CME",
+        name="Canadian dollar",
+        multiplier="",
+        delayed=False,
+    ),
+    "EUR": FutureSymbol(
+        symbol="EUR",
+        exchange="CME",
+        name="European Monetary Union Euro",
+        multiplier="",
+        delayed=False,
+    ),
+    "JPY": FutureSymbol(
+        symbol="JPY", exchange="CME", name="Japanese yen", multiplier="", delayed=False
+    ),
+    "BRE": FutureSymbol(
+        symbol="BRE",
+        exchange="CME",
+        name="Brazilian Real in US Dollars",
+        multiplier="",
+        delayed=False,
+    ),
+    "MXP": FutureSymbol(
+        symbol="MXP", exchange="CME", name="Mexican Peso", multiplier="", delayed=False
+    ),
+    "NZD": FutureSymbol(
+        symbol="NZD",
+        exchange="CME",
+        name="New Zealand dollar",
+        multiplier="",
+        delayed=False,
+    ),
+    "RUR *": FutureSymbol(
+        symbol="RUR *",
+        exchange="CME",
+        name="Russian Ruble in US Dollars",
+        multiplier="",
+        delayed=False,
+    ),
+    "CHF": FutureSymbol(
+        symbol="CHF", exchange="CME", name="Swiss franc", multiplier="", delayed=False
+    ),
+    "ZAR": FutureSymbol(
+        symbol="ZAR",
+        exchange="CME",
+        name="South African Rand",
+        multiplier="",
+        delayed=False,
+    ),
+    "ACD": FutureSymbol(
+        symbol="ACD",
+        exchange="CME",
         name="Australian dollar",
         multiplier="",
         delayed=False,
     ),
     "AJY": FutureSymbol(
         symbol="AJY",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Australian dollar",
-        multiplier="",
-        delayed=False,
-    ),
-    "GBP": FutureSymbol(
-        symbol="GBP",
-        exchange="GLOBEX",
-        name="British pound",
-        multiplier="",
-        delayed=False,
-    ),
-    "BRE": FutureSymbol(
-        symbol="BRE",
-        exchange="GLOBEX",
-        name="Brazilian Real in US Dollars",
-        multiplier="",
-        delayed=False,
-    ),
-    "CAD": FutureSymbol(
-        symbol="CAD",
-        exchange="GLOBEX",
-        name="Canadian dollar",
-        multiplier="",
-        delayed=False,
-    ),
-    "CZK": FutureSymbol(
-        symbol="CZK",
-        exchange="GLOBEX",
-        name="Czech koruna",
-        multiplier="",
-        delayed=False,
-    ),
-    "EUR": FutureSymbol(
-        symbol="EUR",
-        exchange="GLOBEX",
-        name="European Monetary Union Euro",
-        multiplier="",
-        delayed=False,
-    ),
-    "ECK": FutureSymbol(
-        symbol="ECK",
-        exchange="GLOBEX",
-        name="Czech koruna",
-        multiplier="",
-        delayed=False,
-    ),
-    "GE": FutureSymbol(
-        symbol="GE", exchange="GLOBEX", name="EURODOLLARS", multiplier="", delayed=False
-    ),
-    "EHF": FutureSymbol(
-        symbol="EHF",
-        exchange="GLOBEX",
-        name="Hungarian forint",
-        multiplier="",
-        delayed=False,
-    ),
-    "EM": FutureSymbol(
-        symbol="EM",
-        exchange="GLOBEX",
-        name="1 Month LIBOR (Int. Rate)",
-        multiplier="",
-        delayed=False,
-    ),
-    "EPZ": FutureSymbol(
-        symbol="EPZ",
-        exchange="GLOBEX",
-        name="Polish zloty",
-        multiplier="",
-        delayed=False,
-    ),
-    "GF": FutureSymbol(
-        symbol="GF",
-        exchange="GLOBEX",
-        name="Feeder Cattle",
-        multiplier="",
-        delayed=False,
-    ),
-    "GSCI": FutureSymbol(
-        symbol="GSCI",
-        exchange="GLOBEX",
-        name="S&P-GSCI Index",
-        multiplier="",
-        delayed=False,
-    ),
-    "HUF": FutureSymbol(
-        symbol="HUF",
-        exchange="GLOBEX",
-        name="Hungarian forint",
-        multiplier="",
-        delayed=False,
-    ),
-    "JPY": FutureSymbol(
-        symbol="JPY",
-        exchange="GLOBEX",
-        name="Japanese yen",
-        multiplier="",
-        delayed=False,
-    ),
-    "LE": FutureSymbol(
-        symbol="LE", exchange="GLOBEX", name="Live Cattle", multiplier="", delayed=False
-    ),
-    "HE": FutureSymbol(
-        symbol="HE", exchange="GLOBEX", name="Lean Hogs", multiplier="", delayed=False
-    ),
-    "MXP": FutureSymbol(
-        symbol="MXP",
-        exchange="GLOBEX",
-        name="Mexican Peso",
-        multiplier="",
-        delayed=False,
-    ),
-    "NZD": FutureSymbol(
-        symbol="NZD",
-        exchange="GLOBEX",
-        name="New Zealand dollar",
-        multiplier="",
-        delayed=False,
-    ),
-    "NKD": FutureSymbol(
-        symbol="NKD", exchange="GLOBEX", name="NIKKEI 225", multiplier="", delayed=False
-    ),
-    "PLN": FutureSymbol(
-        symbol="PLN",
-        exchange="GLOBEX",
-        name="Polish zloty",
-        multiplier="",
-        delayed=False,
-    ),
-    "ZAR": FutureSymbol(
-        symbol="ZAR",
-        exchange="GLOBEX",
-        name="South African Rand",
-        multiplier="",
-        delayed=False,
-    ),
-    "RF": FutureSymbol(
-        symbol="RF",
-        exchange="GLOBEX",
-        name="European Monetary Union Euro",
-        multiplier="",
-        delayed=False,
-    ),
-    "RP": FutureSymbol(
-        symbol="RP",
-        exchange="GLOBEX",
-        name="European Monetary Union Euro",
-        multiplier="",
-        delayed=False,
-    ),
-    "RY": FutureSymbol(
-        symbol="RY",
-        exchange="GLOBEX",
-        name="European Monetary Union Euro",
-        multiplier="",
-        delayed=False,
-    ),
-    "CHF": FutureSymbol(
-        symbol="CHF",
-        exchange="GLOBEX",
-        name="Swiss franc",
-        multiplier="",
-        delayed=False,
-    ),
-    "BTCEURRR": FutureSymbol(
-        symbol="BTCEURRR",
-        exchange="CMECRYPTO",
-        name="CME CF Bitcoin-Euro Reference Rate",
-        multiplier="",
-        delayed=False,
-    ),
-    "ETHEURRR": FutureSymbol(
-        symbol="ETHEURRR",
-        exchange="CMECRYPTO",
-        name="CME CF Ether-Euro Reference Rate",
-        multiplier="",
-        delayed=False,
-    ),
-    "ETHUSDRR": FutureSymbol(
-        symbol="ETHUSDRR",
-        exchange="CMECRYPTO",
-        name="CME CF Ether-Dollar Reference Rate",
-        multiplier="",
-        delayed=False,
-    ),
-    "MET": FutureSymbol(
-        symbol="MET",
-        exchange="CMECRYPTO",
-        name="Micro Ether",
-        multiplier="",
-        delayed=False,
-    ),
-    "10Y": FutureSymbol(
-        symbol="10Y",
-        exchange="ECBOT",
-        name="10 Year Micro Treasury Yield",
-        multiplier="",
-        delayed=False,
-    ),
-    "2YY": FutureSymbol(
-        symbol="2YY",
-        exchange="ECBOT",
-        name="2 Year Micro Treasury Yield",
-        multiplier="",
-        delayed=False,
-    ),
-    "30Y": FutureSymbol(
-        symbol="30Y",
-        exchange="ECBOT",
-        name="30 Year Micro Treasury Yield",
-        multiplier="",
-        delayed=False,
-    ),
-    "5YY": FutureSymbol(
-        symbol="5YY",
-        exchange="ECBOT",
-        name="5 Year Micro Treasury Yield",
-        multiplier="",
-        delayed=False,
-    ),
-    "AIGCI": FutureSymbol(
-        symbol="AIGCI",
-        exchange="ECBOT",
-        name="Bloomberg Commodity Index",
-        multiplier="",
-        delayed=False,
-    ),
-    "B1U": FutureSymbol(
-        symbol="B1U",
-        exchange="ECBOT",
-        name="30-Year Deliverable Interest Rate Swap Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "AC": FutureSymbol(
-        symbol="AC", exchange="ECBOT", name="Ethanol -CME", multiplier="", delayed=False
-    ),
-    "F1U": FutureSymbol(
-        symbol="F1U",
-        exchange="ECBOT",
-        name="5-Year Deliverable Interest Rate Swap Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "KE": FutureSymbol(
-        symbol="KE",
-        exchange="ECBOT",
-        name="Hard Red Winter Wheat -KCBOT-",
-        multiplier="",
-        delayed=False,
-    ),
-    "LIT": FutureSymbol(
-        symbol="LIT",
-        exchange="ECBOT",
-        name="2-Year Eris Swap Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "LIW": FutureSymbol(
-        symbol="LIW",
-        exchange="ECBOT",
-        name="5-Year Eris Swap Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "MYM": FutureSymbol(
-        symbol="MYM",
-        exchange="ECBOT",
-        name="Micro E-mini DJIA",
-        multiplier="",
-        delayed=False,
-    ),
-    "N1U": FutureSymbol(
-        symbol="N1U",
-        exchange="ECBOT",
-        name="10-Year Deliverable Interest Rate Swap Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "DJUSRE": FutureSymbol(
-        symbol="DJUSRE",
-        exchange="ECBOT",
-        name="Dow Jones US Real Estate Index",
-        multiplier="",
-        delayed=False,
-    ),
-    "T1U": FutureSymbol(
-        symbol="T1U",
-        exchange="ECBOT",
-        name="2-Year Deliverable Interest Rate Swap Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "TN": FutureSymbol(
-        symbol="TN",
-        exchange="ECBOT",
-        name="10-YR T-NOTES",
-        multiplier="",
-        delayed=False,
-    ),
-    "TWE": FutureSymbol(
-        symbol="TWE",
-        exchange="ECBOT",
-        name="20-Year U.S. Treasury Bond",
-        multiplier="",
-        delayed=False,
-    ),
-    "UB": FutureSymbol(
-        symbol="UB",
-        exchange="ECBOT",
-        name="Ultra T-BONDS",
-        multiplier="",
-        delayed=False,
-    ),
-    "YC": FutureSymbol(
-        symbol="YC",
-        exchange="ECBOT",
-        name="Mini Sized Corn Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "YK": FutureSymbol(
-        symbol="YK",
-        exchange="ECBOT",
-        name="Mini Sized Soybean Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "YW": FutureSymbol(
-        symbol="YW",
-        exchange="ECBOT",
-        name="Mini Sized Wheat Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "YM": FutureSymbol(
-        symbol="YM", exchange="ECBOT", name="MINI DJIA", multiplier="", delayed=False
-    ),
-    "Z3N": FutureSymbol(
-        symbol="Z3N", exchange="ECBOT", name="3-YR TREAS.", multiplier="", delayed=False
-    ),
-    "ZB": FutureSymbol(
-        symbol="ZB",
-        exchange="ECBOT",
-        name="30-year T-BONDS",
-        multiplier="",
-        delayed=False,
-    ),
-    "ZC": FutureSymbol(
-        symbol="ZC", exchange="ECBOT", name="Corn Futures", multiplier="", delayed=False
-    ),
-    "ZF": FutureSymbol(
-        symbol="ZF", exchange="ECBOT", name="5-YR TREAS.", multiplier="", delayed=False
-    ),
-    "ZL": FutureSymbol(
-        symbol="ZL",
-        exchange="ECBOT",
-        name="Soybean Oil Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "ZM": FutureSymbol(
-        symbol="ZM",
-        exchange="ECBOT",
-        name="Soybean Meal Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "ZN": FutureSymbol(
-        symbol="ZN", exchange="ECBOT", name="10-YR TREAS.", multiplier="", delayed=False
-    ),
-    "ZO": FutureSymbol(
-        symbol="ZO", exchange="ECBOT", name="Oat Futures", multiplier="", delayed=False
-    ),
-    "ZQ": FutureSymbol(
-        symbol="ZQ",
-        exchange="ECBOT",
-        name="30 Day Federal Funds",
-        multiplier="",
-        delayed=False,
-    ),
-    "ZR": FutureSymbol(
-        symbol="ZR",
-        exchange="ECBOT",
-        name="Rough Rice Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "ZS": FutureSymbol(
-        symbol="ZS",
-        exchange="ECBOT",
-        name="Soybean Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "ZT": FutureSymbol(
-        symbol="ZT", exchange="ECBOT", name="2-YR TREAS.", multiplier="", delayed=False
-    ),
-    "ZW": FutureSymbol(
-        symbol="ZW",
-        exchange="ECBOT",
-        name="Wheat Futures",
         multiplier="",
         delayed=False,
     ),
     "BQX": FutureSymbol(
         symbol="BQX",
-        exchange="GLOBEX",
+        exchange="CME",
         name="CME E-Mini NASDAQ Biotechnology",
         multiplier="",
         delayed=False,
     ),
     "BOS": FutureSymbol(
         symbol="BOS",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Boston Housing Index",
         multiplier="",
         delayed=False,
     ),
     "BSBY": FutureSymbol(
         symbol="BSBY",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Three-Month Bloomberg Short-Term Bank Yield",
+        multiplier="",
+        delayed=False,
+    ),
+    "BRR": FutureSymbol(
+        symbol="BRR",
+        exchange="CME",
+        name="CME CF Bitcoin Reference Rate",
+        multiplier="",
+        delayed=False,
+    ),
+    "BTCEURRR": FutureSymbol(
+        symbol="BTCEURRR",
+        exchange="CME",
+        name="CME CF Bitcoin-Euro Reference Rate",
         multiplier="",
         delayed=False,
     ),
     "CB": FutureSymbol(
         symbol="CB",
-        exchange="GLOBEX",
+        exchange="CME",
         name="CME Cash-Settled Butter Futures",
         multiplier="",
         delayed=False,
     ),
     "CHI": FutureSymbol(
         symbol="CHI",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Chicago Housing Index",
         multiplier="",
         delayed=False,
     ),
     "CLP": FutureSymbol(
-        symbol="CLP",
-        exchange="GLOBEX",
-        name="Chilean peso",
-        multiplier="",
-        delayed=False,
+        symbol="CLP", exchange="CME", name="Chilean peso", multiplier="", delayed=False
     ),
     "CJY": FutureSymbol(
         symbol="CJY",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Canadian dollar",
         multiplier="",
         delayed=False,
     ),
     "CNH": FutureSymbol(
         symbol="CNH",
-        exchange="GLOBEX",
+        exchange="CME",
         name="United States dollar",
         multiplier="",
         delayed=False,
     ),
     "CSC": FutureSymbol(
-        symbol="CSC", exchange="GLOBEX", name="Cheese", multiplier="", delayed=False
+        symbol="CSC", exchange="CME", name="Cheese", multiplier="", delayed=False
     ),
     "CUS": FutureSymbol(
         symbol="CUS",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Housing Index Composite",
         multiplier="",
         delayed=False,
     ),
+    "CZK": FutureSymbol(
+        symbol="CZK", exchange="CME", name="Czech koruna", multiplier="", delayed=False
+    ),
     "DA": FutureSymbol(
         symbol="DA",
-        exchange="GLOBEX",
+        exchange="CME",
         name="MILK CLASS III INDEX",
         multiplier="",
         delayed=False,
     ),
     "DEN": FutureSymbol(
         symbol="DEN",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Denver Housing Index",
         multiplier="",
         delayed=False,
     ),
     "DY": FutureSymbol(
         symbol="DY",
-        exchange="GLOBEX",
+        exchange="CME",
         name="CME DRY WHEY INDEX",
         multiplier="",
         delayed=False,
     ),
     "E7": FutureSymbol(
         symbol="E7",
-        exchange="GLOBEX",
+        exchange="CME",
         name="European Monetary Union Euro",
         multiplier="",
         delayed=False,
     ),
     "EAD": FutureSymbol(
         symbol="EAD",
-        exchange="GLOBEX",
+        exchange="CME",
         name="European Monetary Union Euro",
         multiplier="",
         delayed=False,
     ),
     "ECD": FutureSymbol(
         symbol="ECD",
-        exchange="GLOBEX",
+        exchange="CME",
         name="European Monetary Union Euro",
+        multiplier="",
+        delayed=False,
+    ),
+    "ECK": FutureSymbol(
+        symbol="ECK", exchange="CME", name="Czech koruna", multiplier="", delayed=False
+    ),
+    "EHF": FutureSymbol(
+        symbol="EHF",
+        exchange="CME",
+        name="Hungarian forint",
         multiplier="",
         delayed=False,
     ),
     "EMD": FutureSymbol(
         symbol="EMD",
-        exchange="GLOBEX",
+        exchange="CME",
         name="E-mini S&P Midcap 400 Futures",
         multiplier="",
         delayed=False,
     ),
     "NIY": FutureSymbol(
         symbol="NIY",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Yen Denominated Nikkei 225 Index",
         multiplier="",
         delayed=False,
     ),
+    "EPZ": FutureSymbol(
+        symbol="EPZ", exchange="CME", name="Polish zloty", multiplier="", delayed=False
+    ),
     "ES": FutureSymbol(
-        symbol="ES",
-        exchange="GLOBEX",
-        name="MINI-S&P 500",
-        multiplier="",
-        delayed=False,
+        symbol="ES", exchange="CME", name="E-mini S&P 500", multiplier="", delayed=False
     ),
     "SPXESUP": FutureSymbol(
         symbol="SPXESUP",
-        exchange="GLOBEX",
+        exchange="CME",
         name="E-mini S&P 500 ESG",
+        multiplier="",
+        delayed=False,
+    ),
+    "ETHEURRR": FutureSymbol(
+        symbol="ETHEURRR",
+        exchange="CME",
+        name="CME CF Ether-Euro Reference Rate",
+        multiplier="",
+        delayed=False,
+    ),
+    "ETHUSDRR": FutureSymbol(
+        symbol="ETHUSDRR",
+        exchange="CME",
+        name="CME CF Ether-Dollar Reference Rate",
+        multiplier="",
+        delayed=False,
+    ),
+    "GSCI": FutureSymbol(
+        symbol="GSCI",
+        exchange="CME",
+        name="S&P-GSCI Index",
         multiplier="",
         delayed=False,
     ),
     "GDK": FutureSymbol(
         symbol="GDK",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Class IV Milk - 200k lbs",
+        multiplier="",
+        delayed=False,
+    ),
+    "GE": FutureSymbol(
+        symbol="GE", exchange="CME", name="Euro-Dollar", multiplier="", delayed=False
+    ),
+    "GF": FutureSymbol(
+        symbol="GF", exchange="CME", name="Feeder Cattle", multiplier="", delayed=False
+    ),
+    "EM": FutureSymbol(
+        symbol="EM",
+        exchange="CME",
+        name="1 Month LIBOR (Int. Rate)",
         multiplier="",
         delayed=False,
     ),
     "NF": FutureSymbol(
         symbol="NF",
-        exchange="GLOBEX",
+        exchange="CME",
         name="NON FAT DRY MILK INDEX",
+        multiplier="",
+        delayed=False,
+    ),
+    "HE": FutureSymbol(
+        symbol="HE", exchange="CME", name="Lean Hogs", multiplier="", delayed=False
+    ),
+    "HUF": FutureSymbol(
+        symbol="HUF",
+        exchange="CME",
+        name="Hungarian forint",
         multiplier="",
         delayed=False,
     ),
     "IBAA": FutureSymbol(
         symbol="IBAA",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Bovespa Index - USD",
         multiplier="",
         delayed=False,
     ),
     "ILS": FutureSymbol(
         symbol="ILS",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Israeli Shekel in US Dollar",
         multiplier="",
         delayed=False,
     ),
     "J7": FutureSymbol(
-        symbol="J7",
-        exchange="GLOBEX",
-        name="Japanese yen",
-        multiplier="",
-        delayed=False,
+        symbol="J7", exchange="CME", name="Japanese yen", multiplier="", delayed=False
     ),
     "KRW": FutureSymbol(
-        symbol="KRW", exchange="GLOBEX", name="Korean Won", multiplier="", delayed=False
+        symbol="KRW", exchange="CME", name="Korean Won", multiplier="", delayed=False
     ),
     "LAV": FutureSymbol(
         symbol="LAV",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Las Vegas Housing Index",
         multiplier="",
         delayed=False,
     ),
     "LAX": FutureSymbol(
         symbol="LAX",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Los Angeles Housing Index",
+        multiplier="",
+        delayed=False,
+    ),
+    "LBR": FutureSymbol(
+        symbol="LBR",
+        exchange="CME",
+        name="Lumber Futures",
         multiplier="",
         delayed=False,
     ),
     "LB": FutureSymbol(
         symbol="LB",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Random Length Lumber",
         multiplier="",
         delayed=False,
     ),
+    "LE": FutureSymbol(
+        symbol="LE", exchange="CME", name="Live Cattle", multiplier="", delayed=False
+    ),
     "M2K": FutureSymbol(
         symbol="M2K",
-        exchange="GLOBEX",
-        name="Micro E-mini Russell 2000",
+        exchange="CME",
+        name="Micro E-Mini Russell 2000 Index",
         multiplier="",
         delayed=False,
     ),
     "M6A": FutureSymbol(
         symbol="M6A",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Australian dollar",
         multiplier="",
         delayed=False,
     ),
     "M6B": FutureSymbol(
-        symbol="M6B",
-        exchange="GLOBEX",
-        name="British pound",
-        multiplier="",
-        delayed=False,
+        symbol="M6B", exchange="CME", name="British pound", multiplier="", delayed=False
     ),
     "M6C": FutureSymbol(
         symbol="M6C",
-        exchange="GLOBEX",
+        exchange="CME",
         name="United States dollar",
         multiplier="",
         delayed=False,
     ),
     "M6E": FutureSymbol(
         symbol="M6E",
-        exchange="GLOBEX",
+        exchange="CME",
         name="European Monetary Union Euro",
         multiplier="",
         delayed=False,
     ),
     "M6J": FutureSymbol(
         symbol="M6J",
-        exchange="GLOBEX",
+        exchange="CME",
         name="United States dollar",
         multiplier="",
         delayed=False,
     ),
     "M6S": FutureSymbol(
         symbol="M6S",
-        exchange="GLOBEX",
+        exchange="CME",
         name="United States dollar",
         multiplier="",
         delayed=False,
     ),
+    "MBT": FutureSymbol(
+        symbol="MBT", exchange="CME", name="Micro Bitcoin", multiplier="", delayed=False
+    ),
     "MCD": FutureSymbol(
         symbol="MCD",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Canadian dollar",
         multiplier="",
         delayed=False,
     ),
     "MES": FutureSymbol(
         symbol="MES",
-        exchange="GLOBEX",
-        name="Micro E-mini S&P 500",
+        exchange="CME",
+        name="Micro E-Mini S&P 500 Stock Price Index",
         multiplier="",
         delayed=False,
     ),
+    "MET": FutureSymbol(
+        symbol="MET", exchange="CME", name="Micro Ether", multiplier="", delayed=False
+    ),
     "MIA": FutureSymbol(
         symbol="MIA",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Miami Housing Index",
         multiplier="",
         delayed=False,
     ),
     "MIR": FutureSymbol(
-        symbol="MIR",
-        exchange="GLOBEX",
-        name="Indian Rupee",
-        multiplier="",
-        delayed=False,
+        symbol="MIR", exchange="CME", name="Indian Rupee", multiplier="", delayed=False
     ),
     "MNH": FutureSymbol(
         symbol="MNH",
-        exchange="GLOBEX",
+        exchange="CME",
         name="United States dollar",
         multiplier="",
         delayed=False,
     ),
     "MNQ": FutureSymbol(
         symbol="MNQ",
-        exchange="GLOBEX",
-        name="Micro E-mini NASDAQ-100",
+        exchange="CME",
+        name="Micro E-Mini Nasdaq-100 Index",
         multiplier="",
         delayed=False,
     ),
     "MSF": FutureSymbol(
-        symbol="MSF",
-        exchange="GLOBEX",
-        name="Swiss franc",
+        symbol="MSF", exchange="CME", name="Swiss franc", multiplier="", delayed=False
+    ),
+    "NKD": FutureSymbol(
+        symbol="NKD",
+        exchange="CME",
+        name="Dollar Denominated Nikkei 225 Index",
         multiplier="",
         delayed=False,
     ),
     "NOK": FutureSymbol(
         symbol="NOK",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Norwegian krone",
         multiplier="",
         delayed=False,
     ),
     "NQ": FutureSymbol(
         symbol="NQ",
-        exchange="GLOBEX",
-        name="NASDAQ E-MINI",
+        exchange="CME",
+        name="E-mini NASDAQ 100",
         multiplier="",
         delayed=False,
     ),
     "NYM": FutureSymbol(
         symbol="NYM",
-        exchange="GLOBEX",
+        exchange="CME",
         name="New York Housing Index",
         multiplier="",
         delayed=False,
     ),
     "PJY": FutureSymbol(
-        symbol="PJY",
-        exchange="GLOBEX",
-        name="British pound",
-        multiplier="",
-        delayed=False,
+        symbol="PJY", exchange="CME", name="British pound", multiplier="", delayed=False
+    ),
+    "PLN": FutureSymbol(
+        symbol="PLN", exchange="CME", name="Polish zloty", multiplier="", delayed=False
     ),
     "PSF": FutureSymbol(
-        symbol="PSF",
-        exchange="GLOBEX",
-        name="British pound",
+        symbol="PSF", exchange="CME", name="British pound", multiplier="", delayed=False
+    ),
+    "RF": FutureSymbol(
+        symbol="RF",
+        exchange="CME",
+        name="European Monetary Union Euro",
         multiplier="",
         delayed=False,
     ),
     "RMB": FutureSymbol(
         symbol="RMB",
-        exchange="GLOBEX",
+        exchange="CME",
         name="CME Chinese Renminbi in US Dollar Cross Rate",
         multiplier="",
         delayed=False,
     ),
     "RME": FutureSymbol(
         symbol="RME",
-        exchange="GLOBEX",
+        exchange="CME",
         name="CME Chinese Renminbi in Euro Cross Rate",
+        multiplier="",
+        delayed=False,
+    ),
+    "RP": FutureSymbol(
+        symbol="RP",
+        exchange="CME",
+        name="European Monetary Union Euro",
         multiplier="",
         delayed=False,
     ),
     "RS1": FutureSymbol(
         symbol="RS1",
-        exchange="GLOBEX",
+        exchange="CME",
         name="E-mini Russell 1000 Index Futures",
         multiplier="",
         delayed=False,
     ),
     "RSG": FutureSymbol(
         symbol="RSG",
-        exchange="GLOBEX",
+        exchange="CME",
         name="E-mini Russell 1000 Growth Index Futures",
         multiplier="",
         delayed=False,
     ),
     "RSV": FutureSymbol(
         symbol="RSV",
-        exchange="GLOBEX",
+        exchange="CME",
         name="E-Mini Russell 1000 Value Index Futures",
         multiplier="",
         delayed=False,
     ),
     "RTY": FutureSymbol(
         symbol="RTY",
-        exchange="GLOBEX",
-        name="E-Mini Russell 2000 Index",
+        exchange="CME",
+        name="E-mini Russell 2000 Index",
+        multiplier="",
+        delayed=False,
+    ),
+    "RY": FutureSymbol(
+        symbol="RY",
+        exchange="CME",
+        name="European Monetary Union Euro",
         multiplier="",
         delayed=False,
     ),
     "SPXDIVAN": FutureSymbol(
         symbol="SPXDIVAN",
-        exchange="GLOBEX",
+        exchange="CME",
         name="S&P 500 Dividend Points (Annual) Index",
         multiplier="",
         delayed=False,
     ),
     "SDG": FutureSymbol(
         symbol="SDG",
-        exchange="GLOBEX",
+        exchange="CME",
         name="San Diego Housing Index",
         multiplier="",
         delayed=False,
     ),
     "SEK": FutureSymbol(
-        symbol="SEK",
-        exchange="GLOBEX",
-        name="Swedish krona",
-        multiplier="",
-        delayed=False,
+        symbol="SEK", exchange="CME", name="Swedish krona", multiplier="", delayed=False
     ),
     "SFR": FutureSymbol(
         symbol="SFR",
-        exchange="GLOBEX",
+        exchange="CME",
         name="San Francisco Housing Index",
         multiplier="",
         delayed=False,
     ),
     "SGX": FutureSymbol(
         symbol="SGX",
-        exchange="GLOBEX",
+        exchange="CME",
         name="S&P 500 / Citigroup Growth Index",
         multiplier="",
         delayed=False,
     ),
     "SIR": FutureSymbol(
-        symbol="SIR",
-        exchange="GLOBEX",
-        name="Indian Rupee",
-        multiplier="",
-        delayed=False,
+        symbol="SIR", exchange="CME", name="Indian Rupee", multiplier="", delayed=False
     ),
     "SJY": FutureSymbol(
-        symbol="SJY",
-        exchange="GLOBEX",
-        name="Swiss franc",
-        multiplier="",
-        delayed=False,
+        symbol="SJY", exchange="CME", name="Swiss franc", multiplier="", delayed=False
     ),
     "SMC": FutureSymbol(
         symbol="SMC",
-        exchange="GLOBEX",
+        exchange="CME",
         name="E-Mini S&P SmallCap 600 Futures",
         multiplier="",
         delayed=False,
     ),
     "SONIA": FutureSymbol(
         symbol="SONIA",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Sterling Overnight Index Average",
         multiplier="",
         delayed=False,
     ),
     "SOFR1": FutureSymbol(
         symbol="SOFR1",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Secured Overnight Financing Rate 1-month average of rates",
         multiplier="",
         delayed=False,
     ),
     "SOFR3": FutureSymbol(
         symbol="SOFR3",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Secured Overnight Financing Rate 3-month average of rates",
         multiplier="",
         delayed=False,
     ),
     "SVX": FutureSymbol(
         symbol="SVX",
-        exchange="GLOBEX",
+        exchange="CME",
         name="S&P 500 / Citigroup Value Index",
         multiplier="",
         delayed=False,
     ),
     "VOLQ": FutureSymbol(
         symbol="VOLQ",
-        exchange="GLOBEX",
+        exchange="CME",
         name="NASDAQ-100 Volatility Index",
         multiplier="",
         delayed=False,
     ),
     "WDC": FutureSymbol(
         symbol="WDC",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Washington DC Housing Index",
         multiplier="",
         delayed=False,
     ),
     "IXB": FutureSymbol(
         symbol="IXB",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Materials Select Sector Index",
         multiplier="",
         delayed=False,
     ),
     "IXE": FutureSymbol(
         symbol="IXE",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Energy Select Sector Index",
         multiplier="",
         delayed=False,
     ),
     "IXM": FutureSymbol(
         symbol="IXM",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Financial Select Sector Index",
         multiplier="",
         delayed=False,
     ),
     "IXI": FutureSymbol(
         symbol="IXI",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Industrial Select Sector Index",
         multiplier="",
         delayed=False,
     ),
     "IXT": FutureSymbol(
         symbol="IXT",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Technology Select Sector Index -",
         multiplier="",
         delayed=False,
     ),
     "IXR": FutureSymbol(
         symbol="IXR",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Consumer Staples Select Sector Index",
         multiplier="",
         delayed=False,
     ),
     "IXRE": FutureSymbol(
         symbol="IXRE",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Real Estate Select Sector Index",
         multiplier="",
         delayed=False,
     ),
     "IXU": FutureSymbol(
         symbol="IXU",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Utilities Select Sector Index",
         multiplier="",
         delayed=False,
     ),
     "IXV": FutureSymbol(
         symbol="IXV",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Health Care Select Sector Index",
         multiplier="",
         delayed=False,
     ),
     "IXY": FutureSymbol(
         symbol="IXY",
-        exchange="GLOBEX",
+        exchange="CME",
         name="Consumer Discretionary Select Sector Index",
         multiplier="",
         delayed=False,
@@ -1078,13 +828,6 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "ALI": FutureSymbol(
-        symbol="ALI",
-        exchange="NYMEX",
-        name="NYMEX Aluminum Index",
-        multiplier="",
-        delayed=False,
-    ),
     "BB": FutureSymbol(
         symbol="BB",
         exchange="NYMEX",
@@ -1100,18 +843,16 @@ FUTS_EXCHANGE = {
         delayed=False,
     ),
     "CL": FutureSymbol(
-        symbol="CL", exchange="NYMEX", name="Crude oil", multiplier="", delayed=False
-    ),
-    "GC": FutureSymbol(
-        symbol="GC", exchange="NYMEX", name="Gold", multiplier="", delayed=False
-    ),
-    "HG": FutureSymbol(
-        symbol="HG", exchange="NYMEX", name="Copper", multiplier="", delayed=False
+        symbol="CL",
+        exchange="NYMEX",
+        name="Light Sweet Crude Oil",
+        multiplier="",
+        delayed=False,
     ),
     "HH": FutureSymbol(
         symbol="HH",
         exchange="NYMEX",
-        name="Nautral Gas Last Day Financial  Future",
+        name="Natural Gas Last Day Financial Futures Index",
         multiplier="",
         delayed=False,
     ),
@@ -1125,31 +866,10 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "HRC": FutureSymbol(
-        symbol="HRC",
-        exchange="NYMEX",
-        name="Hot-Rolled Coil Steel Index",
-        multiplier="",
-        delayed=False,
-    ),
     "MCL": FutureSymbol(
         symbol="MCL",
         exchange="NYMEX",
         name="Micro WTI Crude Oil",
-        multiplier="",
-        delayed=False,
-    ),
-    "MGC": FutureSymbol(
-        symbol="MGC",
-        exchange="NYMEX",
-        name="E-Micro Gold",
-        multiplier="",
-        delayed=False,
-    ),
-    "MHG": FutureSymbol(
-        symbol="MHG",
-        exchange="NYMEX",
-        name="Micro Copper",
         multiplier="",
         delayed=False,
     ),
@@ -1168,80 +888,51 @@ FUTS_EXCHANGE = {
         delayed=False,
     ),
     "NG": FutureSymbol(
-        symbol="NG", exchange="NYMEX", name="Natural gas", multiplier="", delayed=False
+        symbol="NG",
+        exchange="NYMEX",
+        name="Henry Hub Natural Gas",
+        multiplier="",
+        delayed=False,
     ),
     "PA": FutureSymbol(
         symbol="PA",
         exchange="NYMEX",
-        name="NYMEX Palladium Index",
+        name="Palladium Index",
         multiplier="",
         delayed=False,
     ),
     "PL": FutureSymbol(
         symbol="PL",
         exchange="NYMEX",
-        name="NYMEX Platinum Index",
+        name="Platinum Index",
         multiplier="",
         delayed=False,
-    ),
-    "QC": FutureSymbol(
-        symbol="QC", exchange="NYMEX", name="Copper", multiplier="", delayed=False
     ),
     "QG": FutureSymbol(
         symbol="QG",
         exchange="NYMEX",
-        name="Natural gas E-Mini",
+        name="NYMEX MINY Natural Gas Index",
         multiplier="",
         delayed=False,
-    ),
-    "QI": FutureSymbol(
-        symbol="QI", exchange="NYMEX", name="Silver Mini", multiplier="", delayed=False
     ),
     "QM": FutureSymbol(
         symbol="QM",
         exchange="NYMEX",
-        name="Crude oil E-Mini",
+        name="NYMEX MINY Light Sweet Crude Oil",
         multiplier="",
         delayed=False,
-    ),
-    "QO": FutureSymbol(
-        symbol="QO", exchange="NYMEX", name="Gold", multiplier="", delayed=False
     ),
     "RB": FutureSymbol(
         symbol="RB",
         exchange="NYMEX",
-        name="RBOB Gasoline",
+        name="NYMEX RBOB Gasoline Index",
         multiplier="",
         delayed=False,
-    ),
-    "SGC": FutureSymbol(
-        symbol="SGC",
-        exchange="NYMEX",
-        name="Shanghai Gold Exchange Gold Benchmark PM Price Index - CNH Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "SGUF": FutureSymbol(
-        symbol="SGUF",
-        exchange="NYMEX",
-        name="Shanghai Gold Exchange Gold Benchmark PM Price Index - USD Futures",
-        multiplier="",
-        delayed=False,
-    ),
-    "SI": FutureSymbol(
-        symbol="SI", exchange="NYMEX", name="Silver", multiplier="", delayed=False
     ),
     "TT": FutureSymbol(
         symbol="TT",
         exchange="NYMEX",
         name="NYMEX Cotton index",
-        multiplier="",
-        delayed=False,
-    ),
-    "UX": FutureSymbol(
-        symbol="UX",
-        exchange="NYMEX",
-        name="NYMEX Uranium Index",
         multiplier="",
         delayed=False,
     ),
@@ -1266,34 +957,6 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "S420": FutureSymbol(
-        symbol="S420",
-        exchange="SMFE",
-        name="Small Cannabis",
-        multiplier="",
-        delayed=False,
-    ),
-    "SCCX": FutureSymbol(
-        symbol="SCCX",
-        exchange="SMFE",
-        name="Small Cryptocurrency",
-        multiplier="",
-        delayed=False,
-    ),
-    "FXSME": FutureSymbol(
-        symbol="FXSME",
-        exchange="SMFE",
-        name="Small US Dollar",
-        multiplier="",
-        delayed=False,
-    ),
-    "75SME": FutureSymbol(
-        symbol="75SME",
-        exchange="SMFE",
-        name="Small Stocks 75",
-        multiplier="",
-        delayed=False,
-    ),
     "SMO": FutureSymbol(
         symbol="SMO",
         exchange="SMFE",
@@ -1301,22 +964,24 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "PRESME": FutureSymbol(
-        symbol="PRESME",
-        exchange="SMFE",
-        name="Small Precious Metals",
-        multiplier="",
-        delayed=False,
-    ),
-    "STXSME": FutureSymbol(
-        symbol="STXSME",
-        exchange="SMFE",
-        name="Small Technology 60",
-        multiplier="",
-        delayed=False,
-    ),
     "SP": FutureSymbol(
         symbol="SP", exchange="GLOBEX", name="S&P 500", multiplier="", delayed=False
+    ),
+    "GC": FutureSymbol(
+        symbol="GC", exchange="NYMEX", name="Gold", multiplier="", delayed=False
+    ),
+    "HG": FutureSymbol(
+        symbol="HG", exchange="NYMEX", name="Copper", multiplier="", delayed=False
+    ),
+    "MGC": FutureSymbol(
+        symbol="MGC",
+        exchange="NYMEX",
+        name="E-Micro Gold",
+        multiplier="",
+        delayed=False,
+    ),
+    "QC": FutureSymbol(
+        symbol="QC", exchange="NYMEX", name="Copper", multiplier="", delayed=False
     ),
     "QH": FutureSymbol(
         symbol="QH",
@@ -1325,12 +990,21 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
+    "QI": FutureSymbol(
+        symbol="QI", exchange="NYMEX", name="Silver Mini", multiplier="", delayed=False
+    ),
+    "QO": FutureSymbol(
+        symbol="QO", exchange="NYMEX", name="Gold", multiplier="", delayed=False
+    ),
     "QU": FutureSymbol(
         symbol="QU",
         exchange="NYMEX",
         name="Unleaded Gasoline E-Mini",
         multiplier="",
         delayed=False,
+    ),
+    "SI": FutureSymbol(
+        symbol="SI", exchange="NYMEX", name="Silver", multiplier="", delayed=False
     ),
     "SIL": FutureSymbol(
         symbol="SIL", exchange="NYMEX", name="Silver", multiplier="", delayed=False
@@ -1344,13 +1018,13 @@ FUTS_EXCHANGE = {
     # We distinguish our usable names via /BTC for full and /MBT for micros.
     "BTC": FutureSymbol(
         symbol="BRR",
-        exchange="CMECRYPTO",
+        exchange="CME",
         multiplier=5,
         name="CME CF Bitcoin Reference Rate",
     ),
     "MBT": FutureSymbol(
         symbol="BRR",
-        exchange="CMECRYPTO",
+        exchange="CME",
         multiplier=0.1,
         name="CME CF Micro Bitcoin Reference Rate",
     ),

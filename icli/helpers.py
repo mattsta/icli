@@ -32,7 +32,7 @@ from dotenv import dotenv_values
 import os
 
 # TODO: detect this automatically:
-FU_DEFAULT = dict(ICLI_FUT_EXP="202212")
+FU_DEFAULT = dict(ICLI_FUT_EXP="202306")
 FU_CONFIG = {**FU_DEFAULT, **dotenv_values(".env.icli"), **os.environ}  # type: ignore
 
 FUT_EXP = FU_CONFIG["ICLI_FUT_EXP"]
