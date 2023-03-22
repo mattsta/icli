@@ -213,7 +213,7 @@ stocks = ["IWM", "QQQ", "SPY", "UVXY", "AAPL", "SBUX", "TSM"]
 # NQ :: MNQ
 sfutures = {
     "CME": ["ES", "RTY", "MNQ", "GBP"],  # "HE"],
-    "ECBOT": ["YM"],  # , "TN", "ZF"],
+    "CBOT": ["YM"],  # , "TN", "ZF"],
     #    "NYMEX": ["GC", "QM"],
 }
 

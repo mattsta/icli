@@ -36,7 +36,7 @@ def generateFuturesMapping() -> dict[Symbol, FutureSymbol]:
             symbol = row[1]
             name = row[2]
             if exchange in {
-                "ECBOT",
+                "CBOT",
                 "CME",
                 "GLOBEX",
                 "CMECRYPTO",
@@ -60,6 +60,235 @@ def generateFuturesMapping() -> dict[Symbol, FutureSymbol]:
 # Used for generating ibkr api Future Contract specification since
 # each symbol must have an exchange declared.
 FUTS_EXCHANGE = {
+    "10Y": FutureSymbol(
+        symbol="10Y",
+        exchange="CBOT",
+        name="10 Year Micro Treasury Yield",
+        multiplier="",
+        delayed=False,
+    ),
+    "2YY": FutureSymbol(
+        symbol="2YY",
+        exchange="CBOT",
+        name="2 Year Micro Treasury Yield",
+        multiplier="",
+        delayed=False,
+    ),
+    "30Y": FutureSymbol(
+        symbol="30Y",
+        exchange="CBOT",
+        name="30 Year Micro Treasury Yield",
+        multiplier="",
+        delayed=False,
+    ),
+    "5YY": FutureSymbol(
+        symbol="5YY",
+        exchange="CBOT",
+        name="5 Year Micro Treasury Yield",
+        multiplier="",
+        delayed=False,
+    ),
+    "AIGCI": FutureSymbol(
+        symbol="AIGCI",
+        exchange="CBOT",
+        name="Bloomberg Commodity Index",
+        multiplier="",
+        delayed=False,
+    ),
+    "B1U": FutureSymbol(
+        symbol="B1U",
+        exchange="CBOT",
+        name="30-Year Deliverable Interest Rate Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "AC": FutureSymbol(
+        symbol="AC", exchange="CBOT", name="Ethanol -CME", multiplier="", delayed=False
+    ),
+    "F1U": FutureSymbol(
+        symbol="F1U",
+        exchange="CBOT",
+        name="5-Year Deliverable Interest Rate Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "KE": FutureSymbol(
+        symbol="KE",
+        exchange="CBOT",
+        name="Hard Red Winter Wheat -KCBOT-",
+        multiplier="",
+        delayed=False,
+    ),
+    "LIT": FutureSymbol(
+        symbol="LIT",
+        exchange="CBOT",
+        name="2-Year Eris Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "LIW": FutureSymbol(
+        symbol="LIW",
+        exchange="CBOT",
+        name="5-Year Eris Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "MYM": FutureSymbol(
+        symbol="MYM",
+        exchange="CBOT",
+        name="Micro E-Mini Dow Jones Industrial Average Index",
+        multiplier="",
+        delayed=False,
+    ),
+    "N1U": FutureSymbol(
+        symbol="N1U",
+        exchange="CBOT",
+        name="10-Year Deliverable Interest Rate Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "DJUSRE": FutureSymbol(
+        symbol="DJUSRE",
+        exchange="CBOT",
+        name="Dow Jones US Real Estate Index",
+        multiplier="",
+        delayed=False,
+    ),
+    "T1U": FutureSymbol(
+        symbol="T1U",
+        exchange="CBOT",
+        name="2-Year Deliverable Interest Rate Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "TN": FutureSymbol(
+        symbol="TN",
+        exchange="CBOT",
+        name="Ultra 10-Year US Treasury Note",
+        multiplier="",
+        delayed=False,
+    ),
+    "TWE": FutureSymbol(
+        symbol="TWE",
+        exchange="CBOT",
+        name="20-Year U.S. Treasury Bond",
+        multiplier="",
+        delayed=False,
+    ),
+    "UB": FutureSymbol(
+        symbol="UB",
+        exchange="CBOT",
+        name="Ultra Treasury Bond",
+        multiplier="",
+        delayed=False,
+    ),
+    "YC": FutureSymbol(
+        symbol="YC",
+        exchange="CBOT",
+        name="Mini Sized Corn Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "YK": FutureSymbol(
+        symbol="YK",
+        exchange="CBOT",
+        name="Mini Sized Soybean Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "YW": FutureSymbol(
+        symbol="YW",
+        exchange="CBOT",
+        name="Mini Sized Wheat Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "YM": FutureSymbol(
+        symbol="YM",
+        exchange="CBOT",
+        name="E-mini Dow Jones Industrial Average",
+        multiplier="",
+        delayed=False,
+    ),
+    "Z3N": FutureSymbol(
+        symbol="Z3N",
+        exchange="CBOT",
+        name="3 YEAR US TREASURY NOTE",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZB": FutureSymbol(
+        symbol="ZB",
+        exchange="CBOT",
+        name="30 Year US Treasury Bond",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZC": FutureSymbol(
+        symbol="ZC", exchange="CBOT", name="Corn Futures", multiplier="", delayed=False
+    ),
+    "ZF": FutureSymbol(
+        symbol="ZF",
+        exchange="CBOT",
+        name="5 Year US Treasury Note",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZL": FutureSymbol(
+        symbol="ZL",
+        exchange="CBOT",
+        name="Soybean Oil Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZM": FutureSymbol(
+        symbol="ZM",
+        exchange="CBOT",
+        name="Soybean Meal Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZN": FutureSymbol(
+        symbol="ZN",
+        exchange="CBOT",
+        name="10 Year US Treasury Note",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZO": FutureSymbol(
+        symbol="ZO", exchange="CBOT", name="Oat Futures", multiplier="", delayed=False
+    ),
+    "ZQ": FutureSymbol(
+        symbol="ZQ",
+        exchange="CBOT",
+        name="30 Day Fed Funds",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZR": FutureSymbol(
+        symbol="ZR",
+        exchange="CBOT",
+        name="Rough Rice Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZS": FutureSymbol(
+        symbol="ZS",
+        exchange="CBOT",
+        name="Soybean Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZT": FutureSymbol(
+        symbol="ZT",
+        exchange="CBOT",
+        name="2 Year US Treasury Note",
+        multiplier="",
+        delayed=False,
+    ),
+    "ZW": FutureSymbol(
+        symbol="ZW", exchange="CBOT", name="Wheat Futures", multiplier="", delayed=False
+    ),
     "IBXXIBHY": FutureSymbol(
         symbol="IBXXIBHY",
         exchange="CFE",
@@ -908,6 +1137,13 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
+    "PLM": FutureSymbol(
+        symbol="PLM",
+        exchange="NYMEX",
+        name="Micro Platinum",
+        multiplier="",
+        delayed=False,
+    ),
     "QG": FutureSymbol(
         symbol="QG",
         exchange="NYMEX",
@@ -954,13 +1190,6 @@ FUTS_EXCHANGE = {
         symbol="30YSME",
         exchange="SMFE",
         name="Small 30YR US Treasury Yield",
-        multiplier="",
-        delayed=False,
-    ),
-    "SMO": FutureSymbol(
-        symbol="SMO",
-        exchange="SMFE",
-        name="Small US Crude Oil",
         multiplier="",
         delayed=False,
     ),
@@ -1012,6 +1241,7 @@ FUTS_EXCHANGE = {
     "TF": FutureSymbol(
         symbol="TF", exchange="NYBOT", name="RUSSELL 2000", multiplier="", delayed=False
     ),
+} | {
     # NOTABLE MANUAL EXCEPTIONS TO THE ABOVE:
     # IBKR uses the SAME SYMBOL for bitcoin futures and micro bitcoin futures, with
     # the only difference being the multiplier requirement.
