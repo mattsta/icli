@@ -11,11 +11,12 @@ from ib_insync import (
     Crypto,
     Contract,
     Forex,
-    CFD
+    CFD,
 )
 
 from icli.futsexchanges import FUTS_EXCHANGE
 import tradeapis.rounder as rounder
+import tradeapis.cal as tcal
 import pandas as pd
 import numpy as np
 import pendulum
@@ -24,15 +25,24 @@ from dataclasses import dataclass, field
 import questionary
 from questionary import Choice
 
+
 from typing import *
+import datetime
 
 from loguru import logger
 import shutil
 from dotenv import dotenv_values
 import os
 
-# TODO: detect this automatically:
-FU_DEFAULT = dict(ICLI_FUT_EXP="202306")
+# auto-detect next index futures expiration month based on roll date
+# we add some padding to the futs exp to compensate for having the client open a couple days before
+# (which will be weekends or sunday night, which is fine)
+futexp = tcal.nextFuturesRollDate(
+    datetime.datetime.now().date() + datetime.timedelta(days=3)
+)
+
+logger.info("Futures Using Expiration: {}", futexp)
+FU_DEFAULT = dict(ICLI_FUT_EXP=f"{futexp.year}{futexp.month:02}")  # YM like: 202309
 FU_CONFIG = {**FU_DEFAULT, **dotenv_values(".env.icli"), **os.environ}  # type: ignore
 
 FUT_EXP = FU_CONFIG["ICLI_FUT_EXP"]
@@ -145,14 +155,13 @@ def contractForName(sym, exchange="SMART", currency="USD"):
             right=right,
             exchange=exchange,
             currency=currency,
-
             # also pass in tradingClass so options like SPXW220915P03850000 work
             # directly instead of having IBKR guess if we want SPX or SPXW.
             # for all other symbols the underlying trading class doesn't alter
             # behavior (and we don't allow users to specify extra classes yet
             # like if you want to trade on fragemented options chains after
             # reverse splits, etc).
-            tradingClass=symbol
+            tradingClass=symbol,
         )
     else:
         # if symbol has a : we are namespacing by type:
@@ -260,7 +269,8 @@ def tradeOrderCmp(o):
         - DATE (if has date, expiration, option, warrant, etc)
         - SYMBOL
 
-    Sorting is also flexible where if no date is available, the sort still works fine."""
+    Sorting is also flexible where if no date is available, the sort still works fine.
+    """
 
     # Sort all options by expiration first then symbol
     # (no impact on symbols without expirations)

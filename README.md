@@ -161,7 +161,7 @@ git clone https://github.com/mattsta/icli
 Create your local environment:
 
 ```bash
-poetry update
+poetry install
 ```
 
 Even though you are logged in to the gateway, the IBKR API still requires your account ID for some actions (because IBKR allows multiple account management, so even if you are logged in as you, it needs to know which account you _really_ want to modify).
@@ -178,16 +178,17 @@ Even though you are logged in to the gateway, the IBKR API still requires your a
 - You can also configure the idle refresh time for toolbar quotes (in seconds):
     - `ICLI_REFRESH=3.3`
 
-- You should specify the futures expiration quarter month for quotes and trades too:
-    - `ICLI_FUT_EXP=202109`
-        - we don't have a way to detect when you want to roll to the next quarter yet, so it needs to be manually specified
-        - also the setting is global for all futures quotes and transactions, so we don't currently support futures calendar spreads (but futures options calendar spreads should work since the dates are in the symbol names)
+- You can specify a specific futures expiration quarter month for quotes and trades too:
+    - `ICLI_FUT_EXP=202309`
+        - If not specified, we auto-detect the next futures date on startup using standard "roll forward 4 days before expiration" logic.
+        - If you want to use a different contract month, you can use this env var to override the auto-calculated value.
+        - the setting is global for all futures quotes and transactions, so we don't currently support futures calendar spreads (but futures options calendar spreads should work since the dates are in the symbol names)
 
 
 Configure environment settings as above, confirm the IBKR Gateway is started (and confirm whether you want read-only mode or full mode in addition to noting which port the gateway is opening for local connections), login to the IBKR Gateway (requires 2fa to the IBKR app on your phone), then run:
 
 ```bash
-ICLI_FUT_EXP=202109 ICLI_IBKR_PORT=[gateway localhost port] poetry run icli
+ICLI_IBKR_PORT=[gateway localhost port] poetry run icli
 ```
 
 You should see your account details showing in the large bottom toolbar along with a default set of quotes (assuming you have all the streaming market data permissions required).
