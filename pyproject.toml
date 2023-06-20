@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "icli"
-version = "0.7.7"
+version = "0.7.9"
 description = "ibkr cli et al"
 authors = ["Matt Stancliff <matt@genges.com>"]
 license = "Apache-2.0"
