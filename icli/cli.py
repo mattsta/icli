@@ -1,78 +1,84 @@
 #!/usr/bin/env python3
 
 original_print = print
-from prompt_toolkit import print_formatted_text, Application
-
-# from prompt_toolkit import print_formatted_text as print
-from prompt_toolkit.formatted_text import HTML
-
-import pathlib
-import bs4
-import re
-
-# http://www.grantjenks.com/docs/diskcache/
-import diskcache
-
-from icli.futsexchanges import FUTS_EXCHANGE
-import icli.orders as orders
-import decimal
-import sys
-
-from collections import Counter, defaultdict
-from dataclasses import dataclass, field
 import datetime
-import os
+import decimal
 
 import fnmatch  # for glob string matching!
-from typing import Union, Optional, Sequence, Any, Mapping
-
-import numpy as np
-
-import pendulum
-
-import pandas as pd
 
 # for automatic money formatting in some places
 import locale
 import math
+import os
+
+import pathlib
+import re
+import sys
+
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Optional, Sequence, Union
+
+import bs4
+
+# http://www.grantjenks.com/docs/diskcache/
+import diskcache
+
+import numpy as np
+
+import pandas as pd
+
+import pendulum
+from prompt_toolkit import Application, print_formatted_text
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+
+# from prompt_toolkit import print_formatted_text as print
+from prompt_toolkit.formatted_text import HTML
+
+import icli.orders as orders
+
+from icli.futsexchanges import FUTS_EXCHANGE
+
+from . import agent
 
 locale.setlocale(locale.LC_ALL, "")
 
+import asyncio
+
+import logging
 import os
+
+import ib_insync
+
+# sounds!
 
 # Tell pygame to not print a hello message when it is imported
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 
-# sounds!
 import pygame
 
-import ib_insync
+import seaborn
 from ib_insync import (
-    IB,
-    Contract,
-    Trade,
     Bag,
     ComboLeg,
-    Ticker,
-    RealTimeBarList,
-    PnLSingle,
-    Order,
+    Contract,
+    IB,
+    Index,
     NewsBulletin,
     NewsTick,
-    Index,
+    Order,
+    PnLSingle,
+    RealTimeBarList,
+    Ticker,
+    Trade,
 )
-import asyncio
-
-import logging
 from loguru import logger
-
-import seaborn
 
 import icli.lang as lang
 from icli.helpers import *  # FUT_EXP is appearing from here
+import tradeapis.buylang as buylang
 from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
-import tradeapis.buylang as buylang
 
 
 # Configure logger where the ib_insync live service logs get written.
@@ -189,16 +195,17 @@ def readableHTML(html):
     )
 
 
+import asyncio
+import os
+
 # logger.remove()
 # logger.add(asink, colorize=True)
 
 # Create prompt object.
 from prompt_toolkit import PromptSession
-from prompt_toolkit.history import FileHistory, ThreadedHistory
 from prompt_toolkit.application import get_app
+from prompt_toolkit.history import FileHistory, ThreadedHistory
 from prompt_toolkit.shortcuts import set_title
-import asyncio
-import os
 
 stocks = ["IWM", "QQQ", "SPY", "UVXY", "AAPL", "SBUX", "TSM"]
 

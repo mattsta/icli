@@ -1,37 +1,41 @@
 import dataclasses  # just for .replace
 from dataclasses import dataclass, field
 from typing import *
-import enum
-
-from ib_insync import Bag, Contract, Order
-
-import sys
-import math
 import bisect
 import datetime
+import enum
+
+import fnmatch
+import math
+
+import sys
 from collections import Counter, defaultdict
 
 import mutil.dispatch
-from mutil.dispatch import DArg
-from mutil.numeric import fmtPrice
-from mutil.frame import printFrame
-
-import pandas as pd
 import numpy as np
 
-import fnmatch
+import pandas as pd
+
+from ib_insync import Bag, Contract, Order
 from loguru import logger
+from mutil.dispatch import DArg
+from mutil.frame import printFrame
+from mutil.numeric import fmtPrice
 from icli.helpers import *
-import icli.orders as orders
+import asyncio
+
+import aiohttp
+
+import pendulum
+
+import prettyprinter as pp
+import pygame
 import tradeapis.buylang as buylang
 from questionary import Choice
 
-import pendulum
-import asyncio
-import aiohttp
-import pygame
+import icli.orders as orders
 
-import prettyprinter as pp
+from .agent import AgentController, AgentSymbol
 
 pp.install_extras(["dataclasses"], warn_on_error=False)
 
