@@ -41,7 +41,8 @@ futexp = tcal.nextFuturesRollDate(
     datetime.datetime.now().date() + datetime.timedelta(days=3)
 )
 
-logger.info("Futures Using Expiration: {}", futexp)
+# Also compare: https://www.cmegroup.com/trading/equity-index/rolldates.html
+logger.info("Futures Next Roll-Forward Date: {}", futexp)
 FU_DEFAULT = dict(ICLI_FUT_EXP=f"{futexp.year}{futexp.month:02}")  # YM like: 202309
 FU_CONFIG = {**FU_DEFAULT, **dotenv_values(".env.icli"), **os.environ}  # type: ignore
 
