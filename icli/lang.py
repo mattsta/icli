@@ -2938,6 +2938,53 @@ class IOpQuoteClean(IOp):
         )
 
 
+@dataclass
+class IOpQuoteList(IOp):
+    """Show current quote group names usable by other q* commands"""
+
+    def argmap(self):
+        return [
+            DArg(
+                "*groups",
+                convert=set,
+                desc="optional groups to fetch. if not provided, return all groups and their members.",
+            )
+        ]
+
+    async def run(self):
+        if self.groups:
+            # if only specific groups requested, use them
+            groups = sorted(self.groups)
+        else:
+            # else, use all quote groups found
+            groups = sorted([k[1] for k in self.cache if k[0] == "quotes"])
+
+        logger.info("Groups: {}", pp.pformat(groups))
+
+        for group in groups:
+            logger.info(
+                "[{}] Members: {}",
+                group,
+                pp.pformat(sorted(self.cache.get(("quotes", group), []))),
+            )
+
+
+@dataclass
+class IOpQuoteGroupDelete(IOp):
+    """Delete an entire quote group"""
+
+    def argmap(self):
+        return [DArg("*groups", convert=set, desc="quote group names to delete.")]
+
+    async def run(self):
+        if not self.groups:
+            logger.error("No groups provided!")
+
+        for group in sorted(groups):
+            logger.info("Deleting quote group: {}", group)
+            self.cache.delete(("quotes", group))
+
+
 # TODO: potentially split these out into indepdent plugin files?
 OP_MAP = {
     "Live Market Quotes": {
@@ -2987,8 +3034,10 @@ OP_MAP = {
         "qsave": IOpQuoteSave,
         "qadd": IOpQuoteAppend,
         "qremove": IOpQuoteRemove,
+        "qdelete": IOpQuoteGroupDelete,
         "qrestore": IOpQuoteRestore,
         "qclean": IOpQuoteClean,
+        "qlist": IOpQuoteList,
     },
 }
 
