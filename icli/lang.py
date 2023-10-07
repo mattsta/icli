@@ -554,6 +554,7 @@ class IOpAlias(IOp):
         aliases = {
             "buy-spx": {"async": ["fast spx c :1 0 :2*"]},
             "sell-spx": {"async": ["evict SPXW* -1"]},
+            "evict": {"async": ["evict * -1"]},
             "clear-quotes": {"async": ["qremove blahblah SPXW*"]},
             # TODO: if RTH, use 4x, if PM or AH use 2x
             "buy-screen": {
@@ -1095,7 +1096,9 @@ class IOpOrderFast(IOp):
             DArg(
                 "percentageRun",
                 convert=float,
-                verify=lambda x: x >= 0,  # don't go negative or we infinite loop!
+                # don't go negative or we infinite loop!
+                # TODO: allow INNER (negative) percentages/offsets so we back up with ITM strikes instead of only OTM strikes...
+                verify=lambda x: x >= 0,
                 desc="percentage from current price for strikes to buy (0.03 => buy up to 3% OTM strikes, etc) — OR — if 1+ then SKIP N STRIKES FROM ATM for first buy",
             ),
             DArg(
@@ -1489,7 +1492,7 @@ class IOpOrderFast(IOp):
                 remaining,
                 " ".join(f"{x}={y}" for x, y in buyQty.items()) or "[none yet]",
             )
-            for idx, (strike, occ), in enumerate(
+            for idx, (strike, occ) in enumerate(
                 zip(
                     buyStrikes,
                     occs,
@@ -1988,8 +1991,13 @@ class IOpPositions(IOp):
             ) * 100
 
         # Calculated weighted percentage ownership profit/loss...
-        df["w%"] = df["%"] * (abs(df.totalCost) / df.loc["Total", "totalCost"])
-        df.loc["Total", "w%"] = df["w%"].sum()
+        try:
+            df["w%"] = df["%"] * (abs(df.totalCost) / df.loc["Total", "totalCost"])
+            df.loc["Total", "w%"] = df["w%"].sum()
+        except:
+            # you probably don't have any positions...
+            df["w%"] = 0
+            df.loc["Total", "w%"] = 0
 
         if not self.symbols:
             # give actual price columns more detail for sub-penny prices
@@ -2675,7 +2683,7 @@ class IOpOptionChain(IOp):
             if symbol.upper() == "SPXW":
                 symbol = "SPX"
 
-            cacheKey = ("strike", symbol, now.date())
+            cacheKey = ("chains", symbol, now.date())
             # logger.info("Looking up {}", cacheKey)
             if found := self.cache.get(cacheKey):
                 logger.info(
@@ -2786,7 +2794,6 @@ class IOpOptionChain(IOp):
             # compare now.time() against pendulum.Time(16, 15, 0)
             self.cache.set(cacheKey, strikes, expire=86400)
 
-            # TODO: sort these by the dict key so it prints output in date order
             logger.info("Strikes: {}", pp.pformat(sorted(strikes.items())))
 
             if False:
@@ -2837,6 +2844,8 @@ class IOpQuoteAppend(IOp):
 
 @dataclass
 class IOpQuoteRemove(IOp):
+    """Remove symbols from a quote group."""
+
     def argmap(self):
         return [DArg("group"), DArg("*symbols")]
 
