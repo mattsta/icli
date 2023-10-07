@@ -1802,7 +1802,7 @@ class IBKRCmdlineApp:
                     await self.ib.connectAsync(
                         self.host,
                         self.port,
-                        clientId=0,
+                        clientId=int(os.getenv("ICLI_CLIENT_ID", 0)),
                         readonly=False,
                         account=self.accountId,
                     )
