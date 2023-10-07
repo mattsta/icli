@@ -1519,19 +1519,18 @@ class IOpOrderFast(IOp):
                         .replace("RUT", "RUTW")
                     )
 
-                ask = self.state.quoteState[occForQuote].ask
+                # multipler is a string of a number because of course it is.
+                # It's likely always an integer, but why risk coercing to int when float is
+                # also fine here with our flakey price math.
+                qs = self.state.quoteState[occForQuote]
+                multiplier = float(qs.contract.multiplier or 1)
+
+                ask = self.state.quoteState[occForQuote].ask * multiplier
 
                 logger.info("Iterating [{}]: {}", ask, occForQuote)
 
                 # if quote not populated, wait for it...
                 try:
-                    qs = self.state.quoteState[occForQuote]
-
-                    # multipler is a string of a number because of course it is.
-                    # It's likely always an integer, but why risk coercing to int when float is
-                    # also fine here with our flakey price math.
-                    multiplier = float(qs.contract.multiplier or 1)
-
                     for i in range(0, 25):
                         # if ask is populated, skip rest of waiting
                         # Note: these asks only work for longs! if we have
