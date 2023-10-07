@@ -1,38 +1,40 @@
 """ A refactor-base for splitting out common helpers between cli and lang """
 
+from dataclasses import dataclass, field
+
 import ib_insync  # just for UNSET_DOUBLE
+import numpy as np
+import pandas as pd
+import pendulum
+import questionary
+import tradeapis.cal as tcal
+import tradeapis.rounder as rounder
 from ib_insync import (
-    Stock,
-    Future,
-    Option,
-    Warrant,
-    FuturesOption,
     Bond,
-    Crypto,
-    Contract,
-    Forex,
     CFD,
+    Contract,
+    Crypto,
+    Forex,
+    Future,
+    FuturesOption,
+    Index,
+    Option,
+    Stock,
+    Warrant,
 )
+from questionary import Choice
 
 from icli.futsexchanges import FUTS_EXCHANGE
-import tradeapis.rounder as rounder
-import tradeapis.cal as tcal
-import pandas as pd
-import numpy as np
-import pendulum
-
-from dataclasses import dataclass, field
-import questionary
-from questionary import Choice
 
 
 from typing import *
 import datetime
+import os
+import shutil
+
+from dotenv import dotenv_values
 
 from loguru import logger
-import shutil
-from dotenv import dotenv_values
-import os
 
 # auto-detect next index futures expiration month based on roll date
 # we add some padding to the futs exp to compensate for having the client open a couple days before
