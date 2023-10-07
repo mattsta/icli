@@ -92,14 +92,10 @@ def comply(contract: Union[Contract, str], price: float) -> float:
 
 
 def contractForName(sym, exchange="SMART", currency="USD"):
-    """Convert a single text symbol into an ib_insync contract.
+    """Convert a single text symbol data format into an ib_insync contract."""
 
-    Text symbols are assumed to be one of:
-        - Future if symbol begins with '/'
-        - Option if symbol is > 15 characters long
-            - Future Option if symbol is large *and* starts with '/'
-        - Stock otherwise
-    """
+    sym = sym.upper()
+
     # TODO: how to specify warrants/equity options/future options/spreads/bonds/tbills/etc?
     if sym.startswith("/"):
         sym = sym[1:]
@@ -176,6 +172,7 @@ def contractForName(sym, exchange="SMART", currency="USD"):
         #   - F: - forex
         #   - B: - bond
         #   - S: - stock (or no contract namespace)
+        #   - I: - an index value (VIX, VIN, SPX, etc)
         # Note: futures and future options are prefixed with /
         #       equity options are the full OCC symbol with no prefix
         namespaceParts = sym.split(":")
@@ -194,6 +191,9 @@ def contractForName(sym, exchange="SMART", currency="USD"):
                 contract = Bond(symbol, exchange, currency)
             elif contractNamespace == "S":
                 contract = Stock(symbol, exchange, currency)
+            elif contractNamespace == "I":
+                # this appears to work fine without specifying the full Index(symbol, exchange) format
+                contract = Index(symbol)
             elif contractNamespace == "F":
                 # things like F:GBPUSD F:EURUSD (but not F:JPYUSD or F:RMBUSD shrug)
                 # also remember C: is CRYPTO not "CURRENCY," so currencies are F for FOREX
