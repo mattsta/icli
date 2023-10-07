@@ -1893,6 +1893,7 @@ class IBKRCmdlineApp:
                     os.path.expanduser(f"~/.tplatcli_ibkr_history.{self.levelName()}")
                 )
             ),
+            auto_suggest=AutoSuggestFromHistory(),
         )
 
         app = session.app
@@ -1916,6 +1917,7 @@ class IBKRCmdlineApp:
             try:
                 text1 = await session.prompt_async(
                     f"{self.levelName()}> ",
+                    enable_history_search=True,
                     bottom_toolbar=self.bottomToolbar,
                     # refresh_interval=3,
                     # mouse_support=True,
