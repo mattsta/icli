@@ -2015,16 +2015,16 @@ class IOpPositions(IOp):
                 "totalCost",
             ]
 
-            df.loc[:, detailCols] = df[detailCols].applymap(lambda x: fmtPrice(x))
-            df.loc[:, simpleCols] = df[simpleCols].applymap(lambda x: f"{x:,.2f}")
+            df.loc[:, detailCols] = df[detailCols].map(lambda x: fmtPrice(x))
+            df.loc[:, simpleCols] = df[simpleCols].map(lambda x: f"{x:,.2f}")
 
             # show fractional shares only if they exist
             defaultG = ["position"]
-            df.loc[:, defaultG] = df[defaultG].applymap(lambda x: f"{x:,.10g}")
+            df.loc[:, defaultG] = df[defaultG].map(lambda x: f"{x:,.10g}")
 
         df = df.fillna("")
 
-        # manually override the string-printed 'nan' from .applymap() of totalCols
+        # manually override the string-printed 'nan' from .map() of totalCols
         # for columns we don't want summations of.
         df.at["Total", "closeOrder"] = ""
 
@@ -2343,13 +2343,13 @@ class IOpOrders(IOp):
 
             df.loc["Total"] = df[fmtcols].sum(axis=0)
             df = df.fillna("")
-            df.loc[:, fmtcols] = df[fmtcols].applymap(
+            df.loc[:, fmtcols] = df[fmtcols].map(
                 lambda x: f"{x:,.2f}" if isinstance(x, float) else x
             )
 
             toint = ["qty", "filled", "rem"]
-            df[toint] = df[toint].applymap(lambda x: f"{x:,.0f}" if x else "")
-            df[["4-8"]] = df[["4-8"]].applymap(lambda x: True if x else "")
+            df[toint] = df[toint].map(lambda x: f"{x:,.0f}" if x else "")
+            df[["4-8"]] = df[["4-8"]].map(lambda x: True if x else "")
 
             printFrame(df)
 
@@ -2432,7 +2432,7 @@ class IOpExecutions(IOp):
             df["diff"] = df.price.diff()
 
             needsPrices = "c_each shares price avgPrice commission realizedPNL".split()
-            df[needsPrices] = df[needsPrices].applymap(fmtPrice)
+            df[needsPrices] = df[needsPrices].map(fmtPrice)
 
             # convert contract IDs to integers (and fill in any missing
             # contract ids with placeholders so they don't get turned to
