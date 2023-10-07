@@ -207,7 +207,7 @@ from prompt_toolkit.application import get_app
 from prompt_toolkit.history import FileHistory, ThreadedHistory
 from prompt_toolkit.shortcuts import set_title
 
-stocks = ["IWM", "QQQ", "SPY", "UVXY", "AAPL", "SBUX", "TSM"]
+stocks = ["QQQ", "SPY", "AAPL"]
 
 # Futures to exchange mappings:
 # https://www.interactivebrokers.com/en/index.php?f=26662
@@ -233,8 +233,8 @@ idxs = [
     # No NANOS because most brokers don't offer it and it has basically no volume
     # Index("NANOS", "CBOE"),  # SPY-priced index options with no multiplier
     Index("VIN", "CBOE"),  # VIX Front-Month Component (near term)
-    Index("VIF", "CBOE"),  # VIX Back-Month Component (far term)
-    Index("VIX", "CBOE"),  # VIX Currently
+    Index("VIF", "CBOE"),  # VIX Front-er-Month Component (far term)
+    Index("VIX", "CBOE"),  # VIX Currently (a mix of VIN and VIF basically)
     # No VOL-NYSE because it displays billions of shares and breaks our views
     # Index("VOL-NYSE", "NYSE"),
     Index("TICK-NYSE", "NYSE"),
