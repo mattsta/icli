@@ -59,7 +59,10 @@ def comply(contract: Union[Contract, str], price: float) -> float:
         # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment and other futures
         # have different increments, to use an API to figure it out.
         # TODO: is "symbol" the root symbol like "ES" or the time symbol like ESU2?
-        return rounder.round("/" + contract.symbol, price)
+        logger.info("[/{}] ROUNDING REQUEST: {}", contract.symbol, price)
+        rounded = rounder.round("/" + contract.symbol, price)
+        logger.info("[/{}] ROUNDED: {}", contract.symbol, rounded)
+        return rounded
 
     if isinstance(contract, Option):
         # hack for SPX or other index options needing specific increments
