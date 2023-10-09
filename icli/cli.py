@@ -62,6 +62,7 @@ from ib_insync import (
     Bag,
     ComboLeg,
     Contract,
+    Future,
     IB,
     Index,
     NewsBulletin,
@@ -77,6 +78,8 @@ from loguru import logger
 import icli.lang as lang
 from icli.helpers import *  # FUT_EXP is appearing from here
 import tradeapis.buylang as buylang
+import tradeapis.rounder as rounder
+
 from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
 
@@ -1181,8 +1184,12 @@ class IBKRCmdlineApp:
             ls = c.contract.localSymbol or c.contract.symbol
 
             if c.bid > 0 and c.bid == c.bid and c.ask > 0 and c.ask == c.ask:
-                # TODO: add proper rounding for futures tick sizes
-                usePrice = round((c.bid + c.ask) / 2, 2)
+                if isinstance(c.contract, Future):
+                    usePrice = rounder.round(
+                        "/" + c.contract.symbol, (c.bid + c.ask) / 2
+                    )
+                else:
+                    usePrice = round((c.bid + c.ask) / 2, 2)
             else:
                 usePrice = c.last if c.last == c.last else c.close
 
