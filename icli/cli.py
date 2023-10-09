@@ -1139,8 +1139,17 @@ class IBKRCmdlineApp:
             if (price <= 0) or (price != price):
                 return
 
-            for back in (100, 300):
-                prev = self.ema[sym][back]
+            # Normalize the EMAS s so they are in TIME and not "updates per ICLI_REFRESH interval"
+            # 1 minute and 3 minute EMAs
+
+            # these are in units of fractional seconds we need to normalize to our "bar update duration intervals"
+            refresh = self.toolbarUpdateInterval
+
+            MIN_1 = 60 // refresh
+            MIN_3 = (60 * 3) // refresh
+
+            for name, back in (("1m", MIN_1), ("3m", MIN_3)):
+                prev = self.ema[sym][name]
 
                 # use previous price or initialize with current price
                 if (prev <= 0) or (prev != prev):
@@ -1152,12 +1161,12 @@ class IBKRCmdlineApp:
                 # fmt: on
 
                 k = 2 / (back + 1)
-                self.ema[sym][back] = round(k * (price - prev) + prev, 2)
+                self.ema[sym][name] = round(k * (price - prev) + prev, 2)
 
-        def getEMA(sym, back):
+        def getEMA(sym, name):
             # If we don't have enough entries for the full EMA period yet,
             # just return the oldest entry in the recent observation capped collections.
-            return self.ema[sym][back]
+            return self.ema[sym][name]
 
         # Fields described at:
         # https://ib-insync.readthedocs.io/api.html#module-ib_insync.ticker
@@ -1425,8 +1434,7 @@ class IBKRCmdlineApp:
                         - self.now
                     ).days
 
-                    # TODO: why isn't this updating?
-                    e100 = getEMA(ls, 100)
+                    e100 = getEMA(ls, "1m")
                     e100diff = (mark - e100) if e100 else None
 
                     # this may be too wide for some people? works for me.
@@ -1487,8 +1495,8 @@ class IBKRCmdlineApp:
                 ],
             )
 
-            e100 = getEMA(ls, 300)
-            e30 = getEMA(ls, 100)
+            e100 = getEMA(ls, "1m")
+            e300 = getEMA(ls, "3m")
 
             # for price differences we show the difference as if holding a LONG position
             # at the historical price as compared against the current price.
@@ -1498,11 +1506,20 @@ class IBKRCmdlineApp:
             #      vs. current where "smaller historical vs. larger current" would cause negative
             #      difference which is actually a profit if it were LONG'd in the past)
             e100diff = (usePrice - e100) if e100 else None
-            e30diff = (usePrice - e30) if e30 else None
-            # logger.info("[{}] e100 e30: {} {} {} {}", ls, e100, e30, e100diff, e30diff)
+            e300diff = (usePrice - e300) if e300 else None
+            # logger.info("[{}] e100 e300: {} {} {} {}", ls, e100, e300, e100diff, e300diff)
+
+            # also add a marker for if the short term trend (1m) is GT, LT, or EQ to the longer term trend (3m)
+            ediff = e100 - e300
+            if ediff > 0:
+                trend = "&gt;"
+            elif ediff < 0:
+                trend = "&lt;"
+            else:
+                trend = "="
 
             return (
-                f"{ls:<9}: {fmtPricePad(e100)} ({fmtPricePad(e100diff, padding=6)}) {fmtPricePad(e30)} ({fmtPricePad(e30diff, padding=6)}) {fmtPricePad(usePrice)}  ({pctUndHigh} {amtUndHigh}) ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} <aaa bg='purple'>{fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}</aaa>  {fmtPricePad(c.open)} {fmtPricePad(c.close)}    ({str(ago)})"
+                f"{ls:<9}: {fmtPricePad(e100)} ({fmtPricePad(e100diff, padding=6)}) {trend} {fmtPricePad(e300)} ({fmtPricePad(e300diff, padding=6)}) {fmtPricePad(usePrice)}  ({pctUndHigh} {amtUndHigh}) ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} <aaa bg='purple'>{fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}</aaa>  {fmtPricePad(c.open)} {fmtPricePad(c.close)}    ({str(ago)})"
                 + ("     HALTED!" if c.halted > 0 else "")
             )
 
