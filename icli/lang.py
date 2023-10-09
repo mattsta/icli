@@ -707,6 +707,8 @@ class IOpDepth(IOp):
                 else:
                     fixedAsks = pd.DataFrame()
 
+                fixedBids.loc["sum", "size"] = fixedBids["size"].sum()
+                fixedAsks.loc["sum", "size"] = fixedAsks["size"].sum()
                 fmtJoined = {"Bids": fixedBids, "Asks": fixedAsks}
 
                 # Create an order book with high bids and low asks first.
@@ -716,6 +718,7 @@ class IOpDepth(IOp):
                 #       as blank because the cols have been coerced to
                 #       specific data types via 'convert_dtypes()')
                 both = pd.concat(fmtJoined, axis=1)
+                both.fillna("", inplace=True)
                 printFrame(
                     both,
                     f"{contract.symbol} :: {contract.localSymbol} Grouped by Price",
