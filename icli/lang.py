@@ -679,7 +679,7 @@ class IOpDepth(IOp):
                     fixedBids = (
                         pd.DataFrame(t.domBids)
                         .groupby("price", as_index=False)
-                        .agg({"size": sum, "marketMaker": list})
+                        .agg({"size": "sum", "marketMaker": list})
                         .convert_dtypes()
                         .sort_values(by=["price"], ascending=False)
                         .reset_index(drop=True)
@@ -696,7 +696,7 @@ class IOpDepth(IOp):
                     fixedAsks = (
                         pd.DataFrame(t.domAsks)
                         .groupby("price", as_index=False)
-                        .agg({"size": sum, "marketMaker": list})
+                        .agg({"size": "sum", "marketMaker": list})
                         .convert_dtypes()
                         .sort_values(by=["price"], ascending=True)
                         .reset_index(drop=True)
