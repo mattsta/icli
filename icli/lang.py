@@ -1466,6 +1466,8 @@ class IOpOrderFast(IOp):
             buyStrikes,
         )
 
+        STRIKES_COUNT = len(buyStrikes)
+
         # get quotes for strikes...
         occs = [
             f"{self.symbol}{useExp[2:]}{self.direction[0]}{int(strike * 1000):08}"
@@ -1484,7 +1486,7 @@ class IOpOrderFast(IOp):
         spend = 0
         skip = 0
         lastPrice = 0
-        while remaining > 0 and skip < len(occs):
+        while remaining > 0 and skip < STRIKES_COUNT:
             logger.info(
                 "[{} :: {}] Remaining: ${:,.2f} plan {}",
                 self.symbol,
@@ -1503,21 +1505,6 @@ class IOpOrderFast(IOp):
 
                 # (was this fixed by adding dual symbols to the Option constructor?)
                 occForQuote = occ
-                if False:
-                    # if weekly index option, needs the special name to check quotes because IBKR
-                    # changes our "SPX option weekly expire" dates into SPXW symbols internally, so
-                    # even though we request trades and quotes on "SPX" symbol, their .localSymbol
-                    # becomes "SPXW[OCC details]", etc.
-                    # Basically: All orders and quotes are placed with "SPX", "NDX", etc symbols,
-                    # but behind the scenes it changes them to the different root symbols as needed,
-                    # so for our quote lookup we need to re-construct the .localSymbol vs. the in-contract
-                    # order symbol.
-                    occForQuote = (
-                        occ.replace("SPX", "SPXW")
-                        .replace("VIX", "VIXW")
-                        .replace("NDX", "NDXP")
-                        .replace("RUT", "RUTW")
-                    )
 
                 # multipler is a string of a number because of course it is.
                 # It's likely always an integer, but why risk coercing to int when float is
@@ -1527,7 +1514,7 @@ class IOpOrderFast(IOp):
 
                 ask = self.state.quoteState[occForQuote].ask * multiplier
 
-                logger.info("Iterating [{}]: {}", ask, occForQuote)
+                logger.info("Iterating [cost ${:,.2f}]: {}", ask, occForQuote)
 
                 # if quote not populated, wait for it...
                 try:
