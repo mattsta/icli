@@ -84,12 +84,14 @@ from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
 
 
+ICLI_CLIENT_ID = int(os.getenv("ICLI_CLIENT_ID", 0))
+
 # Configure logger where the ib_insync live service logs get written.
 # Note: if you have weird problems you don't think are being exposed
 # in the CLI, check this log file for what ib_insync is actually doing.
 logging.basicConfig(
     level=logging.INFO,
-    filename=f"icli-{pendulum.now('US/Eastern')}.log",
+    filename=f"icli-id={ICLI_CLIENT_ID}-{pendulum.now('US/Eastern')}.log",
     format="%(asctime)s %(message)s",
 )
 
@@ -1849,7 +1851,7 @@ class IBKRCmdlineApp:
                     await self.ib.connectAsync(
                         self.host,
                         self.port,
-                        clientId=int(os.getenv("ICLI_CLIENT_ID", 0)),
+                        clientId=ICLI_CLIENT_ID,
                         readonly=False,
                         account=self.accountId,
                     )
