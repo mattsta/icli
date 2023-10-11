@@ -1139,7 +1139,7 @@ class IBKRCmdlineApp:
             if (price <= 0) or (price != price):
                 return
 
-            # Normalize the EMAS s so they are in TIME and not "updates per ICLI_REFRESH interval"
+            # Normalize the EMAs s so they are in TIME and not "updates per ICLI_REFRESH interval"
             # 1 minute and 3 minute EMAs
 
             # these are in units of fractional seconds we need to normalize to our "bar update duration intervals"
@@ -1161,12 +1161,12 @@ class IBKRCmdlineApp:
                 # fmt: on
 
                 k = 2 / (back + 1)
-                self.ema[sym][name] = round(k * (price - prev) + prev, 2)
+                self.ema[sym][name] = (k * (price - prev)) + prev
 
-        def getEMA(sym, name):
-            # If we don't have enough entries for the full EMA period yet,
-            # just return the oldest entry in the recent observation capped collections.
-            return self.ema[sym][name]
+        def getEMA(sym, name, roundto=2):
+            # Round our results here so we don't need to excessively format all the prints.
+            # Though, this doesn't show usable results for currencies and 3-decimal futures.
+            return round(self.ema[sym][name], roundto)
 
         # Fields described at:
         # https://ib-insync.readthedocs.io/api.html#module-ib_insync.ticker
@@ -1202,8 +1202,13 @@ class IBKRCmdlineApp:
             else:
                 usePrice = c.last if c.last == c.last else c.close
 
-            if (c.high == c.high and c.low == c.low) or (c.bid > 0 and c.ask > 0):
-                # only update EMA if this has price-like details and isn't TRIN/TICK/AD
+            if (
+                (c.high == c.high and c.low == c.low)
+                or (c.bid > 0 and c.ask > 0)
+                or ("-" in ls)
+            ):
+                # only update EMA if this has price-like details (or "-" allows matching TICK/TRIN since they never had bid/ask populated)
+                # logger.info("[{}] Updating EMA with price: {}", ls, usePrice)
                 updateEMA(ls, usePrice)
 
             ago = (self.now - (c.time or self.now)).as_interval()
@@ -1435,7 +1440,17 @@ class IBKRCmdlineApp:
                     ).days
 
                     e100 = getEMA(ls, "1m")
+                    e300 = getEMA(ls, "3m")
+                    # logger.info("[{}] Got EMA for OPT: {}", ls, e100)
                     e100diff = (mark - e100) if e100 else None
+
+                    ediff = e100 - e300
+                    if ediff > 0:
+                        trend = "&gt;"
+                    elif ediff < 0:
+                        trend = "&lt;"
+                    else:
+                        trend = "="
 
                     # this may be too wide for some people? works for me.
                     # just keep shrinking your terminal font size until everything fits?
@@ -1450,7 +1465,9 @@ class IBKRCmdlineApp:
                             f"[u {fmtPricePad(und, padding=8, decimals=2)} ({underlyingStrikeDifference or -0:>7,.2f}%)]",
                             f"[iv {iv or 0:.2f}]",
                             f"[d {delta or 0:>5.2f}]",
-                            f"{fmtPriceOpt(e100):>6} ({fmtPricePad(e100diff, padding=6)})",
+                            f"{fmtPriceOpt(e100):>6}",
+                            f"{trend}",
+                            f"{fmtPriceOpt(e300):>6}",
                             f"{fmtPriceOpt(mark):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
                             # f"{fmtPriceOpt(usePrice)}",
                             f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
@@ -1495,8 +1512,14 @@ class IBKRCmdlineApp:
                 ],
             )
 
-            e100 = getEMA(ls, "1m")
-            e300 = getEMA(ls, "3m")
+            roundto = 2
+            # symbol exceptions for things we want bigger (GBP is a future and not a Forex...)
+            # TODO: fix for 3-decimal futures too.
+            if ls in {"GBP"}:
+                roundto = 4
+
+            e100 = getEMA(ls, "1m", roundto)
+            e300 = getEMA(ls, "3m", roundto)
 
             # for price differences we show the difference as if holding a LONG position
             # at the historical price as compared against the current price.
