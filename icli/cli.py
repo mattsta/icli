@@ -1973,6 +1973,7 @@ class IBKRCmdlineApp:
                     # completer=completer, # <-- causes not to be full screen due to additional dropdown space
                     complete_in_thread=True,
                     complete_while_typing=True,
+                    search_ignore_case=True,
                 )
 
                 # Attempt to run the command(s) submitted into the prompt
