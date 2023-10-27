@@ -690,6 +690,39 @@ class IBKRCmdlineApp:
                 "[{}] PREVIEW RESULT: {}", contract.localSymbol, pp.pformat(trade)
             )
 
+            # for options or other conditions, there's no margin change to report
+            if float(trade.initMarginChange) > 0:
+                # Also note: there is _something_ off with our math because we aren't getting exactly 30% or 25% or 3% or 5% etc,
+                #            but it's close enough for what we're trying to show at this point.
+
+                multiplier = (
+                    float(contract.multiplier) if isinstance(contract, Future) else 1
+                )
+
+                margPctInit = (
+                    float(trade.initMarginChange)
+                    / (order.totalQuantity * order.lmtPrice * multiplier)
+                ) * 100
+
+                margPctMaint = (
+                    float(trade.initMarginChange)
+                    / (order.totalQuantity * order.lmtPrice * multiplier)
+                ) * 100
+
+                logger.info(
+                    "[{}] PREVIEW MARGIN REQUIREMENT INIT: {:.2f} %",
+                    contract.localSymbol,
+                    margPctInit,
+                )
+
+                # "MAIN" for "MAINTENANCE" to match the length of "INIT" above for alignment.
+                logger.info(
+                    "[{}] PREVIEW MARGIN REQUIREMENT MAIN: {:.2f} % (IBKR is loaning {:.2f} %)",
+                    contract.localSymbol,
+                    margPctMaint,
+                    100 - margPctMaint,
+                )
+
             # (if trade isn't valid, trade is an empty list, so only print valid objects...)
             if trade:
                 # sigh, these are strings of course.
