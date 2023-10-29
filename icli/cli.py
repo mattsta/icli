@@ -783,7 +783,7 @@ class IBKRCmdlineApp:
             # FUTURES HACK BECAUSE WE DO EXTERNAL MARGIN CALCULATIONS REGARDLESS OF MULTIPLIER
             mul = 1
         else:
-            mul = int(trade.contract.multiplier) if trade.contract.multiplier else 1
+            mul = float(trade.contract.multiplier or 1)
 
         # use average price IF fills have happened, else use current limit price
         return (
@@ -809,7 +809,7 @@ class IBKRCmdlineApp:
         # technically aorund 4% of the total value because a $4,000 MES contract has a 5 multipler so
         # your $4,000 MES contract is holding $20,000 notional on a $1,700 margin requirement).
         if isinstance(contract, Option):
-            mul = int(contract.multiplier) if contract.multiplier else 1
+            mul = float(contract.multiplier or 1)
         else:
             mul = 1
 
@@ -983,7 +983,7 @@ class IBKRCmdlineApp:
 
         # 'contract.multiplier' is a string and can also be an empty string sometimes,
         # so if it is empty, default to 1
-        return (q.bid, q.ask, int(q.contract.multiplier or 1))
+        return (q.bid, q.ask, float(q.contract.multiplier or 1))
 
     def updatePosition(self, pos):
         self.position[pos.contract.symbol] = pos

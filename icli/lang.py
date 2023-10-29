@@ -2098,7 +2098,7 @@ class IOpPositions(IOp):
                 pass
 
             if t == "FUT":
-                mult = int(o.contract.multiplier or 1)
+                mult = float(o.contract.multiplier or 1)
                 make["averageCost"] = o.averageCost / mult
                 make["%"] = (o.marketPrice * mult - o.averageCost) / o.averageCost * 100
             elif t == "BAG":
