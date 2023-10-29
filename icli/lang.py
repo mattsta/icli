@@ -849,7 +849,11 @@ class IOpOrder(IOp):
             DArg("symbol", convert=lambda x: x.upper()),
             DArg("bs", verify=lambda x: x.lower() in {"b", "s", "buy", "sell"}),
             DArg("t", verify=lambda x: x.lower() in {"t", "total"}),
-            DArg("total", convert=float, verify=lambda x: x > 0),
+            DArg(
+                "total",
+                convert=lambda x: float(x.replace("_", "")),
+                verify=lambda x: x > 0,
+            ),
             DArg("a", verify=lambda x: x.lower() in {"a", "algo"}),
             DArg(
                 "algo",
