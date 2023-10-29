@@ -456,7 +456,10 @@ class IOpScheduleEvent(IOp):
             return False
 
         now = pendulum.now()
-        if now > self.datetime:
+
+        # "- 1 second" allows us to schedule for "now" without time slipping into the past and
+        # complaining we scheduled into the past. sometimes we just want it now.
+        if (now - pendulum.duration(seconds=1)) > self.datetime:
             logger.error(
                 "You requested to schedule something in the past? Not scheduling."
             )
@@ -474,10 +477,11 @@ class IOpScheduleEvent(IOp):
             try:
                 howlong = (self.datetime - now).in_seconds()
                 logger.info(
-                    "[{} :: {}] command is scheduled to run in {:,.2f} seconds!",
+                    "[{} :: {}] command is scheduled to run in {:,.2f} seconds ({:,.2f} minutes)!",
                     self.name,
                     self.cmd,
                     howlong,
+                    howlong / 60,
                 )
 
                 await asyncio.sleep(howlong)
