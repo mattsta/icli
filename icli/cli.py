@@ -1577,8 +1577,13 @@ class IBKRCmdlineApp:
             #      This helps align "price think" instead of showing difference from historical
             #      vs. current where "smaller historical vs. larger current" would cause negative
             #      difference which is actually a profit if it were LONG'd in the past)
-            e100diff = (usePrice - e100) if e100 else None
-            e300diff = (usePrice - e300) if e300 else None
+            # also don't show differences for TICK because it's not really a useful number (and it's too big breaking formatting)
+            if ls == "TICK-NYSE":
+                e100diff = np.nan
+                e300diff = np.nan
+            else:
+                e100diff = (usePrice - e100) if e100 else None
+                e300diff = (usePrice - e300) if e300 else None
             # logger.info("[{}] e100 e300: {} {} {} {}", ls, e100, e300, e100diff, e300diff)
 
             # also add a marker for if the short term trend (1m) is GT, LT, or EQ to the longer term trend (3m)
