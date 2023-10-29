@@ -147,7 +147,10 @@ def invertstr(x):
 LIVE_ACCOUNT_STATUS = [
     # row 1
     "AvailableFunds",
-    "BuyingPower",
+    # NOTE: we replaced "BuyingPower" with a 3-way breakdown instead:
+    "BuyingPower4",
+    "BuyingPower3",
+    "BuyingPower2",
     "Cushion",
     "DailyPnL",
     "DayTradesRemaining",
@@ -172,7 +175,8 @@ LIVE_ACCOUNT_STATUS = [
     #    "HighestSeverity",
 ]
 
-STATUS_FIELDS = set(LIVE_ACCOUNT_STATUS)
+# we need to add this back for the CHECKS, but we don't show the BuyingPower key directly...
+STATUS_FIELDS_PROCESS = set(LIVE_ACCOUNT_STATUS) | {"BuyingPower"}
 
 
 def asink(x):
@@ -1102,9 +1106,19 @@ class IBKRCmdlineApp:
         if self.isSandbox is None and v.account != "All":
             self.isSandbox = v.account.startswith("D")
 
-        if v.tag in STATUS_FIELDS:
+        if v.tag in STATUS_FIELDS_PROCESS:
             try:
-                self.accountStatus[v.tag] = float(v.value)
+                if v.tag == "BuyingPower":
+                    # regular 25% margin for boring symbols
+                    self.accountStatus["BuyingPower4"] = float(v.value)
+
+                    # 30% margin for "exciting" symbols"
+                    self.accountStatus["BuyingPower3"] = float(v.value) / 1.3333333333
+
+                    # 50% margin for overnight or "really exciting" symbols
+                    self.accountStatus["BuyingPower2"] = float(v.value) / 2
+                else:
+                    self.accountStatus[v.tag] = float(v.value)
             except:
                 # don't care, just keep going
                 pass
