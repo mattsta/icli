@@ -1506,10 +1506,13 @@ class IBKRCmdlineApp:
                     #   - size: 10
                     #   - terminal width: 275+ characters
                     #   - terminal height: 60+ characters
+
+                    # our "is ITM" indicator (ITM always has a delta of abs(±0.50), so any delta larger than 0.50 is ITM)
+                    itm = "I" if abs(delta or 0) >= 0.50 else ""
                     return " ".join(
                         [
                             rowName,
-                            f"[u {fmtPricePad(und, padding=8, decimals=2)} ({underlyingStrikeDifference or -0:>7,.2f}%)]",
+                            f"[u {fmtPricePad(und, padding=8, decimals=2)} ({itm:<1} {underlyingStrikeDifference or -0:>7,.2f}%)]",
                             f"[iv {iv or 0:.2f}]",
                             f"[d {delta or 0:>5.2f}]",
                             f"{fmtPriceOpt(e100):>6}",
