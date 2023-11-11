@@ -695,24 +695,53 @@ class IBKRCmdlineApp:
 
         assert qty > 0
 
-        order = orders.IOrder(
-            "BUY" if isLong else "SELL", qty, price, outsiderth=outsideRth, tif=tif  # type: ignore
-        ).order(orderType)
+        try:
+            side = "BUY" if isLong else "SELL"
+            logger.info(
+                "[{} :: {}] {:,.2f} @ ${:,.2f} x {:,.2f} (${:,.2f}) ALL_HOURS={} TIF={}",
+                orderType,
+                side,
+                qty,
+                price,
+                multiplier,
+                qty * price * multiplier,
+                outsideRth,
+                tif,
+            )
+            order = orders.IOrder(
+                side, qty, price, outsiderth=outsideRth, tif=tif  # type: ignore
+            ).order(orderType)
+        except:
+            logger.exception("ORDER GENERATION FAILED. CANNOT PLACE ORDER!")
+            return
 
+        name = contract.localSymbol.replace(" ", "")
+        desc = f"{name} :: QTY {order.totalQuantity:,}"
         if preview:
             logger.info(
                 "[{}] PREVIEW REQUEST {} via {}",
-                contract.localSymbol,
+                desc,
                 contract,
                 pp.pformat(order),
             )
             trade = await self.ib.whatIfOrderAsync(contract, order)
-            logger.info(
-                "[{}] PREVIEW RESULT: {}", contract.localSymbol, pp.pformat(trade)
-            )
+            logger.info("[{}] PREVIEW RESULT: {}", desc, pp.pformat(trade))
 
-            # for options or other conditions, there's no margin change to report
-            if float(trade.initMarginChange) > 0:
+            if not trade:
+                logger.error("Preview not created for order?")
+                return False
+
+            # We currently assume only two kinds of things exist. We could add more.
+            nameOfThing = "SHARE" if isinstance(contract, Stock) else "CONTRACT"
+
+            # for options or other conditions, there's no margin change to report.
+            # also, if there is a "warning" on the trade, the numbers aren't valid.
+            # Also, we need this extra 'isset()' check because unpopulated values from IBKR show up as string '1.7976931348623157E308'
+            if (
+                not (trade.warningText)
+                and float(trade.initMarginChange) > 0
+                and isset(float(trade.initMarginChange))
+            ):
                 # Also note: there is _something_ off with our math because we aren't getting exactly 30% or 25% or 3% or 5% etc,
                 #            but it's close enough for what we're trying to show at this point.
 
@@ -730,16 +759,42 @@ class IBKRCmdlineApp:
 
                 logger.info(
                     "[{}] PREVIEW MARGIN REQUIREMENT INIT: {:.2f} %",
-                    contract.localSymbol,
+                    desc,
                     margPctInit,
                 )
 
                 # "MAIN" for "MAINTENANCE" to match the length of "INIT" above for alignment.
                 logger.info(
                     "[{}] PREVIEW MARGIN REQUIREMENT MAIN: {:.2f} % (IBKR is loaning {:.2f} %)",
-                    contract.localSymbol,
+                    desc,
                     margPctMaint,
                     100 - margPctMaint,
+                )
+
+                logger.info(
+                    "[{}] PREVIEW INIT MARGIN PER {}: ${:,.2f}",
+                    desc,
+                    nameOfThing,
+                    float(trade.initMarginChange) / order.totalQuantity,
+                )
+
+            # "MAIN" for "MAINTENANCE" to match the length of "INIT" above for alignment.
+            if isset(trade.minCommission):
+                # options and stocks have a range of commissions
+                logger.info(
+                    "[{}] PREVIEW COMMISSION PER {}: ${:.4f} to ${:.4f}",
+                    desc,
+                    nameOfThing,
+                    (trade.minCommission) / order.totalQuantity,
+                    (trade.maxCommission) / order.totalQuantity,
+                )
+            elif isset(trade.commission):
+                # futures contracts and index options contracts have fixed priced commissions so
+                # they don't provide a min/max range, it's just one guaranteed value.
+                logger.info(
+                    "[{}] PREVIEW COMMISSION PER CONTRACT: ${:.4f}",
+                    desc,
+                    (trade.commission) / order.totalQuantity,
                 )
 
             # (if trade isn't valid, trade is an empty list, so only print valid objects...)
@@ -749,13 +804,13 @@ class IBKRCmdlineApp:
                 if excess < 0:
                     logger.warning(
                         "[{}] TRADE NOT VIABLE. MISSING EQUITY: ${:,.2f}",
-                        contract.localSymbol,
+                        desc,
                         excess,
                     )
 
             return False
 
-        logger.info("[{}] Ordering {} via {}", contract.localSymbol, contract, order)
+        logger.info("[{}] Ordering {} via {}", desc, contract, order)
         trade = self.ib.placeOrder(contract, order)
 
         # TODO: add optional agent-like feature HERE to modify order in steps for buys (+price, -qty)
@@ -766,7 +821,7 @@ class IBKRCmdlineApp:
             "[{} :: {} :: {}] Placed: {}",
             trade.orderStatus.orderId,
             trade.orderStatus.status,
-            contract.localSymbol,
+            name,
             pp.pformat(trade),
         )
 
