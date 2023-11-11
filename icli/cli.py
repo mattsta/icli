@@ -497,9 +497,26 @@ class IBKRCmdlineApp:
 
         # TODO: this doesn't work for futures symbols. Probably need to read the contract type
         #       to re-apply or internal formatting? futs: /; CFD: CFD; crypto: C; ...
-        return self.quotesPositional[int(lookup[1:])][1].contract.localSymbol.replace(
-            " ", ""
-        )
+        # TODO: fix this lookup if the number doesn't exist. (e.g. deleting :40 when quote 40 isn't valid
+        #       results in looking up ":"[1:] which is just empty and it breaks.
+        #       Question though: what do we return when a quote doesn't exist? Does the code using this method accept None as a reply?
+
+        # extract out the number only here... (_ASSUMING_ we were called correct with ':33' etc and not just '33')
+        lookupId = lookup[1:]
+
+        if not lookupId:
+            return None
+
+        try:
+            lookupInt = int(lookupId)
+            quote = self.quotesPositional[lookupInt]
+            ticker = quote[1]
+        except:
+            # either the input wasn't ':number' or the index doesn't exist...
+            return None
+
+        # now we passed the integer extraction and the quote lookup, so return the found symbol for the lookup id
+        return ticker.contract.localSymbol.replace(" ", ""), ticker.contract
 
     async def placeOrderForContract(
         self,
