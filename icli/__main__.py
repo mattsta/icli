@@ -10,6 +10,11 @@ import sys
 from dotenv import dotenv_values
 import os
 
+# Use more efficient coroutine logic if available
+# https://docs.python.org/3.12/library/asyncio-task.html#asyncio.eager_task_factory
+if sys.version_info >= (3, 12):
+    asyncio.get_event_loop().set_task_factory(asyncio.eager_task_factory)
+
 CONFIG_DEFAULT = dict(
     ICLI_IBKR_HOST="127.0.0.1", ICLI_IBKR_PORT=4001, ICLI_REFRESH=3.33
 )
