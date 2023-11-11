@@ -886,7 +886,8 @@ class IBKRCmdlineApp:
         assert mul > 0
 
         # total spend amount divided by price of thing to buy == how many things to buy
-        qty = amount / (limitPrice * mul)
+        # (rounding to fix IBKR error for fractional qty: "TotalQuantity field cannot contain more than 8 decimals")
+        qty = round(amount / (limitPrice * mul), 8)
         assert qty > 0
 
         if not isinstance(contract, Crypto):
