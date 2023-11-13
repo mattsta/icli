@@ -614,12 +614,12 @@ class IBKRCmdlineApp:
             # if this is a new quote just requested, we may need to wait
             # for the system to populate it...
             loopFor = 10
-            while not (currentQuote := self.currentQuote(quoteKey)):
+            while not (currentQuote := self.currentQuote(quoteKey, show=True)):
                 logger.warning(
                     "[{} :: {}] Waiting for quote to populate...", quoteKey, loopFor
                 )
                 try:
-                    await asyncio.sleep(0.133)
+                    await asyncio.sleep(0.033)
                 except:
                     logger.warning("Cancelled waiting for quote...")
                     return
@@ -630,7 +630,7 @@ class IBKRCmdlineApp:
                     logger.error("Never received valid quote prices: {}", currentQuote)
                     return
 
-            bid, ask, multiplier = currentQuote
+            bid, ask = currentQuote
 
             # TODO: need customizable aggressiveness levels
             #   - midpoint (default)
@@ -649,8 +649,17 @@ class IBKRCmdlineApp:
             #  SHORT means allow LOWER prices for selling (worse entries the lower it goes)).
             # We expect the market NBBO to be our actual bounds here, but we're adjusting the
             # overall price for quicker fills.
+
+            if bid == -1:
+                logger.warning(
+                    "[{}] WARNING: No bid price, so just using ASK directly for buying!",
+                    quoteSymbol,
+                )
+                bid = ask
+
             if isinstance(contract, Option):
-                # Options retain "regular" midpoint behavior because spreads can be wide.
+                # Options retain "regular" midpoint behavior because spreads can be wide and hopefully
+                # quotes are fairly slow/stable.
                 mid = round(((bid + ask) / 2), 2)
 
                 # if no bid (nan), just play off the ask.
@@ -658,7 +667,11 @@ class IBKRCmdlineApp:
                     mid = round(ask / 2, 2)
             else:
                 # equity, futures, etc get the wider margins
-                mid = round(((bid + ask) / 2) * (1.01 if isLong else 0.99), 2)
+                # NOTE: this looks backwards because for us to ACQUIRE a psoition we must be BETTER than the market
+                #       on limit prices, so here we have BUY LOW and SELL HIGH just to get the position at first.
+                # TODO: these offsets need to be more adaptable to recent ATR-like conditions per symbol,
+                #       but the goal here is immediate fills at market-adjusted prices anyway.
+                mid = round(((bid + ask) / 2) * (1.005 if isLong else 0.995), 2)
 
             price = comply(contract, mid)
 
@@ -844,8 +857,8 @@ class IBKRCmdlineApp:
         """
 
         currentPrice = trade.order.lmtPrice
-        currentQty = trade.orderStatus.remaining
-        totalQty = currentQty + trade.orderStatus.filled
+        remainingQty = trade.orderStatus.remaining
+        totalQty = remainingQty + trade.orderStatus.filled
         avgFillPrice = trade.orderStatus.avgFillPrice
 
         # If contract has multiplier (like 100 underlying per option),
@@ -859,10 +872,14 @@ class IBKRCmdlineApp:
 
         # use average price IF fills have happened, else use current limit price
         return (
-            currentQty * currentPrice * mul,
+            # Remaining amount to spend
+            remainingQty * currentPrice * mul,
+            # Total current spend
             totalQty * (avgFillPrice or currentPrice) * mul,
+            # current order price limit
             currentPrice,
-            currentQty,
+            # current order remaining amount
+            remainingQty,
         )
 
     def quantityForAmount(
@@ -1036,27 +1053,43 @@ class IBKRCmdlineApp:
         # else, break out by order size, sorted from smallest to largest exit prices
         return sorted(ts, key=lambda x: abs(x[1]))
 
-    def currentQuote(self, sym) -> Optional[tuple[float, float]]:
-        q = self.quoteState[sym.upper()]
-        ago = (self.now - (q.time or self.now)).as_interval()
+    def currentQuote(self, sym, show=True) -> Optional[tuple[float, float]]:
+        # tiny hack to fix things like ESZ3 -> ES for futures lookups.
+        # TODO: this should also probably be cleaned up because we only quote the MAIN continuous contracts
+        #       (as defined by our "next futures roll date" automatic determination on startup),
+        #       so if you want a futures calendary spread on like ESZ3 to ESZ4 you just can't do it yet.
+        sym = sym.upper()
+        symOrig = sym
+        if len(sym) < 10 and sym[-1].isdigit():
+            sym = sym[:-2]
 
+        # this looks weird but it helps with some contracts not matching the "name-duration" pattern like
+        # /GBP turning itself into 6BZ3
+        q = self.quoteState.get(sym, self.quoteState.get(symOrig))
         assert q.contract
-        show = [
-            f"{q.contract.symbol}: bid {q.bid:,.2f} x {q.bidSize}",
-            f"ask {q.ask:,.2f} x {q.askSize}",
-            f"mid {(q.bid + q.ask) / 2:,.2f}",
-            f"last {q.last:,.2f} x {q.lastSize}",
-            f"ago {str(ago)}",
-        ]
-        logger.info("    ".join(show))
+
+        # only optionally print the quote because printing technically requires extra time
+        # for all the formatting and display output
+        if show:
+            ago = (self.now - (q.time or self.now)).as_duration()
+
+            show = [
+                f"{q.contract.symbol}: bid {q.bid:,.2f} x {q.bidSize}",
+                f"ask {q.ask:,.2f} x {q.askSize}",
+                f"mid {(q.bid + q.ask) / 2:,.2f}",
+                f"last {q.last:,.2f} x {q.lastSize}",
+                f"ago {str(ago)}",
+            ]
+            logger.info("    ".join(show))
 
         # if no quote yet (or no prices available), return nothing...
         if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
             return None
 
-        # 'contract.multiplier' is a string and can also be an empty string sometimes,
-        # so if it is empty, default to 1
-        return (q.bid, q.ask, float(q.contract.multiplier or 1))
+        # Note: the q.contract.multiplier isn't valid because the contract is not fully qualified, so only return
+        # bid/ask here and don't return any multiplier for the symbol.
+        # (the q.contract.multiplier value is not always valid because the contract-in-quote is not fully qualified)
+        return q.bid, q.ask
 
     def updatePosition(self, pos):
         self.position[pos.contract.symbol] = pos

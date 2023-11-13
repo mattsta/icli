@@ -989,44 +989,54 @@ class IOpOrder(IOp):
                 continue
 
             # get current qty/value of trade both remaining and already executed
+            # TODO: fix these names. these names are bad. "currentQty" is actually "order remaining quantity"
             (
-                remainingAmount,
-                totalAmount,
-                currentPrice,
-                currentQty,
+                remainingAmount,  # PRICE * Q
+                totalAmount,  # PRICE * Q
+                currentPrice,  # SYMBOL PRICE
+                currentQty,  # REMAINING QUANTITY
             ) = self.state.amountForTrade(trade)
 
             # get current quote for order
-            bidask = self.state.currentQuote(quoteKey)
-            if bidask:
+            bid, ask = self.state.currentQuote(quoteKey)
+            if bid and ask:
                 logger.info("Adjusting price for more aggressive fills...")
-                bid, ask, multiplier = bidask
 
                 # TODO: these need to be more aware of opening-vs-closing so they DO NOT
-                #       REDUCE QUANTITY when closing, because closing means close.
+                #       REDUCE QUANTITY when closing, because closing means remove ALL current holding for symbol.
                 if isLong:
                     # if is buy, chase the ask with a market buffer
+                    # TODO: if this is futures, don't use a 1% limit margin, needs to be much smaller (like less than 5-10 points NQ or decrement by ATR levels...)
+                    # TODO: create a function to just take "price + offset" so we can more easily adjust this for different symbol types (stocks 1%, futures 1.5x ATR, options: follow current midpoint)
                     newPrice = round((((currentPrice + ask) / 2) * 1.01), 2)
                     newPrice = comply(trade.contract, newPrice)
+
+                    # TODO: fix this logic. It's currently replacing the UNFILLED QUANTITY
+                    #       with the current FILLED QUANTITY so the order just stops working...
 
                     # reduce qty to remain in expected total spend constraint
                     # FOR NOW, DISABLE DYNAMIC QUANITY REASSESMENT UNTIL WE ADD
                     #          OPENING / CLOSING BIAS TO THESE (OPENS can adjust qty, CLOSE can't)
                     if False:
-                        newQty = totalAmount / newPrice
+                        if False:
+                            newQty = totalAmount / newPrice
 
-                        # only crypto supports fractional values over the API,
-                        # so all non-crypto contracts get floor'd
-                        if not isinstance(trade.contract, Crypto):
-                            newQty = math.floor(newQty)
-                    else:
-                        newQty = currentQty
+                            # only crypto supports fractional values over the API,
+                            # so all non-crypto contracts get floor'd
+                            if not isinstance(trade.contract, Crypto):
+                                newQty = math.floor(newQty)
+                        else:
+                            # this is wrong because "CurrentQty" is "Current Remaining" but this is also
+                            # the amount for the TOTAL ORDER, so if we replace it each time, the order
+                            # fills smaller than the total we wanted.
+                            newQty = currentQty
                 else:
                     # else if is sell, chase the bid with a market buffer
                     newPrice = round((((currentPrice + bid) / 2) / 1.01), 2)
                     newPrice = comply(contract, newPrice)
 
-                    newQty = currentQty  # don't change quantities on shorts / sells
+                    # TODO: this is also probably broken
+                    # newQty = currentQty  # don't change quantities on shorts / sells
                     # TODO: this needs to be aware of CLOSING instead of OPEN SHORT.
                     # i.e. on OPENING orders we can grow/shrink qty, but on CLOSING
                     # we DO NOT want to shrink or grow our qty.
@@ -1035,32 +1045,42 @@ class IOpOrder(IOp):
                     "Price changing from {} to {} ({}) for spending ${:,.2f}",
                     currentPrice,
                     newPrice,
-                    (newPrice - currentPrice),
+                    round((newPrice - currentPrice), 4),
                     totalAmount,
                 )
-                logger.info(
-                    "Qty changing from {} to {} ({})",
-                    currentQty,
-                    newQty,
-                    (newQty - currentQty),
-                )
-                if newQty <= 0:
-                    logger.error(
-                        "Not submitting order because calculated quantity to zero?"
+
+                # we aren't changing quantities anymore (for now)
+                if False:
+                    logger.info(
+                        "Qty changing from {} to {} ({})",
+                        currentQty,
+                        newQty,
+                        (newQty - currentQty),
                     )
+
+                    if newQty <= 0:
+                        logger.error(
+                            "Not submitting order because calculated quantity to zero?"
+                        )
+                        return False
+
+                    if newQty > 0:
+                        order.totalQuantity = newQty
+                    else:
+                        logger.error(
+                            "Quantity was set to {} so not changing it...", newQty
+                        )
+
+                if currentPrice == newPrice:
+                    logger.error("Not submitting order because no price change?")
                     return False
 
                 logger.info("Submitting order update...")
                 order.lmtPrice = newPrice
 
-                if newQty > 0:
-                    order.totalQuantity = newQty
-                else:
-                    logger.error("Quantity was set to {} so not changing it...", newQty)
-
                 self.ib.placeOrder(contract, order)
 
-            waitDuration = 3
+            waitDuration = 0.75
             logger.info(
                 "[{} :: {}] Waiting for {} seconds to check for new executions...",
                 trade.orderStatus.orderId,
