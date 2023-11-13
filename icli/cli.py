@@ -505,7 +505,7 @@ class IBKRCmdlineApp:
         lookupId = lookup[1:]
 
         if not lookupId:
-            return None
+            return None, None
 
         try:
             lookupInt = int(lookupId)
@@ -513,10 +513,11 @@ class IBKRCmdlineApp:
             ticker = quote[1]
         except:
             # either the input wasn't ':number' or the index doesn't exist...
-            return None
+            return None, None
 
         # now we passed the integer extraction and the quote lookup, so return the found symbol for the lookup id
-        return ticker.contract.localSymbol.replace(" ", ""), ticker.contract
+        name = (ticker.contract.localSymbol or ticker.contract.symbol).replace(" ", "")
+        return name, ticker.contract
 
     async def placeOrderForContract(
         self,

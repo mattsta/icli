@@ -619,10 +619,15 @@ class IOpDepth(IOp):
     async def run(self):
         try:
             if self.sym.startswith(":"):
-                self.sym = self.state.quoteResolve(self.sym)
+                self.sym, contract = self.state.quoteResolve(self.sym)
                 assert self.sym
+            else:
+                contract = contractForName(self.sym)
 
-            (contract,) = await self.state.qualify(contractForName(self.sym))
+            # we always need to qualify here because even quoteResolved contracts aren't pre-resolved
+            await self.state.qualify(contract)
+
+            assert contract.localSymbol
         except:
             logger.error("No contract found for: {}", self.sym)
             return
