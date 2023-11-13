@@ -131,6 +131,14 @@ def contractForName(sym, exchange="SMART", currency="USD"):
             )
         else:
             # else, is regular future
+
+            # our symbol lookup table is the unqualified contract name like "ES" but
+            # when trading, the month and year gets added like "ESZ3", so if we have
+            # a symbol ending in a digit here, remove the "expiration/year" designation
+            # from the string to lookup the actual name.
+            if sym[-1].isdigit():
+                sym = sym[:-2]
+
             fxchg = FUTS_EXCHANGE[sym]
             contract = Future(
                 currency=currency,
