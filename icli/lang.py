@@ -13,6 +13,7 @@ import sys
 from collections import Counter, defaultdict
 
 import mutil.dispatch
+import mutil.expand
 import numpy as np
 
 import pandas as pd
@@ -80,6 +81,15 @@ ALGOMAP = dict(
     MOO="MOO",
     MOC="MOC",
 )
+
+
+def expand_symbols(symbols):
+    # pre-process input strings so we can use symbols like SPXW231103{P,C}04345000
+    useSymbols = set()
+    for sym in set(symbols):
+        useSymbols |= set(mutil.expand.expand_string_curly_braces(sym))
+
+    return useSymbols
 
 
 def lookupKey(contract):
@@ -2503,7 +2513,7 @@ class IOpQuotesAdd(IOp):
     """Add live quotes to display."""
 
     def argmap(self):
-        return [DArg("*symbols")]
+        return [DArg("*symbols", convert=lambda x: expand_symbols(x))]
 
     async def run(self):
         if not self.symbols:
@@ -2606,21 +2616,34 @@ class IOpQuotesRemove(IOp):
     """Remove live quotes from display."""
 
     def argmap(self):
-        return [DArg("*symbols")]
+        return [DArg("*symbols", convert=lambda x: expand_symbols(x))]
 
     async def run(self):
-        for sym in self.symbols:
+        # we 'reverse sort' here to accomodate deleting multiple quote-by-index positions
+        # where we always want to delete from HIGHEST INDEX to LOWEST INDEX because when we
+        # delete from HIGH to LOW we delete in a "safe order" (if we delete from LOW to HIGH every
+        # current delete changes the index of later deletes so unexpected things get removed)
+        # Also, we just de-duplicate the symbol requests into a set in case there are duplicate requests
+        # (because it would look weird doing "remove :29 :29 :29 :29" just to consume the same position
+        #  as it gets removed over and over again?).
+        for sym in sorted(set(self.symbols), reverse=True):
             sym = sym.upper()
             if len(sym) > 30:
                 # this is a combo request, so we need to evaluate, resolve, then key it
                 orderReq = self.state.ol.parse(sym)
                 contract = await self.state.contractForOrderRequest(orderReq)
-            else:
-                if sym.startswith(":"):
-                    sym = self.state.quoteResolve(sym)
+            elif sym.startswith(":"):
+                resolved, contract = self.state.quoteResolve(sym)
+                if not resolved:
+                    logger.warning(
+                        "[{}] No matching symbol index found? No quote to remove!",
+                        sym,
+                    )
+                    continue
 
-                # else, just a regular one-symbol lookup
-                # logger.warning("QCs are: {}", pp.pformat(self.state.quoteContracts))
+                # symbol is now the replaced actual symbol and not the integer-indexed reference
+                sym = resolved
+            else:
                 contract = self.state.quoteContracts.get(sym)
 
             if contract:
@@ -2631,7 +2654,8 @@ class IOpQuotesRemove(IOp):
                     del self.state.quoteContracts[symkey]
                     del self.state.quoteState[symkey]
                     logger.info(
-                        "Removed: {} ({})",
+                        "[{}] Removed: {} ({})",
+                        sym,
                         contract.localSymbol or contract.symbol,
                         symkey,
                     )
