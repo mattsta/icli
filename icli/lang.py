@@ -2487,51 +2487,107 @@ class IOpExecutions(IOp):
         if use:
             df = pd.concat({name: frame for name, frame in use}, axis=1)
 
-            # Remove all-zero and all-empty columns and all-None...
-            df = df.loc[:, df.any(axis=0)]
-
             # Goodbye multiindex...
             df.columns = df.columns.droplevel(0)
 
             # Remove duplicate columns...
             df = df.loc[:, ~df.columns.duplicated()]
 
-            # these may have been removed if no options exist,
-            # or these may not exist for buy-only transactions (PNL, etc).
-            for x in ["strike", "right", "date", "realizedPNL"]:
-                df[x] = 0
+            # convert to Eastern time and drop date (since these reports only show up for one day, it's all duplicate details)
+            df["time"] = df["time"].apply(pd.Timestamp).dt.tz_convert("US/Eastern")
+            df["timestamp"] = df["time"]
+
+            df["time"] = df["time"].dt.strftime("%H:%M:%S")
 
             df["c_each"] = df.commission / df.shares
+            df["total"] = round(df.shares * df.avgPrice, 2)
 
-            df.loc["med"] = df[["c_each", "shares", "price", "avgPrice"]].median()
-            df.loc["mean"] = df[["c_each", "shares", "price", "avgPrice"]].mean()
-            df.loc["sum"] = df[
-                ["shares", "price", "avgPrice", "commission", "realizedPNL"]
+            # Note: 'realizedPNL' for the closing transactions *already* includes commissions for both the buy and sell executions,
+            #       so *don't* subtract commissions again anywhere.
+            df["dayProfit"] = df.realizedPNL.cumsum()
+
+            dfByTrade = df.groupby("orderId symbol side".split()).agg(
+                dict(
+                    time=[("start", "min"), ("finish", "max")],
+                    price=["mean"],
+                    shares=["sum"],
+                    total=["sum"],
+                    commission=["sum"],
+                )
+            )
+
+            dfByTimeProfit = df.copy()
+
+            needsPrices = "shares total commission".split()
+            dfByTrade[needsPrices] = dfByTrade[needsPrices].map(fmtPrice)
+
+            # this currently has a false pandas warning about "concatenation with empty or all-NA entries is deprecated"
+            # but nothing is empty or NA in these columns. Their logic for checking their warning condition is just broken.
+            # (or their "FutureWarning" error message is so bad we can't actually see what the problem is)
+            df.loc["sum"] = df[["shares", "price", "commission", "total"]].sum()
+            df.loc["sum-buy"] = df[["shares", "price", "commission", "total"]][
+                df.side == "BOT"
             ].sum()
+            df.loc["sum-sell"] = df[["shares", "price", "commission", "total"]][
+                df.side == "SLD"
+            ].sum()
+            df.loc["profit", "total"] = (
+                df.loc["sum-sell"]["total"] - df.loc["sum-buy"]["total"]
+            )
+            df.loc["profit", "price"] = (
+                df.loc["sum-sell"]["price"] - df.loc["sum-buy"]["price"]
+            )
+            df.loc["med"] = df[["c_each", "shares", "price"]].median()
+            df.loc["mean"] = df[["c_each", "shares", "price"]].mean()
 
-            df["diff"] = df.price.diff()
-
-            needsPrices = "c_each shares price avgPrice commission realizedPNL".split()
+            needsPrices = "c_each shares price avgPrice commission realizedPNL total dayProfit".split()
             df[needsPrices] = df[needsPrices].map(fmtPrice)
 
             # convert contract IDs to integers (and fill in any missing
             # contract ids with placeholders so they don't get turned to
             # strings with the global .fillna("") below).
             df.conId = df.conId.fillna(-1).astype(int)
+
+            # new pandas strict typing doesn't allow numeric columns to become "" strings, so now just
+            # convert ALL columns to a generic object type
+            df = df.astype(object)
+
+            # display anything NaN as empty strings so it doesn't clutter the interface
             df.fillna("", inplace=True)
 
             df.rename(columns={"lastTradeDateOrContractMonth": "date"}, inplace=True)
             # ignoring: "execId" (long string for execution recall) and "permId" (???)
 
+            # removed: lastLiquidity avgPrice
             df = df[
                 (
-                    """ secType conId symbol strike right date exchange localSymbol tradingClass time
-             side  shares  price    orderId  cumQty  avgPrice
-             lastLiquidity commission c_each realizedPNL diff""".split()
+                    """ secType conId symbol strike right date exchange tradingClass time orderId  localSymbol 
+             side  shares  cumQty price    total realizedPNL
+             commission c_each dayProfit""".split()
                 )
             ]
 
+            dfByTimeProfit.set_index("timestamp", inplace=True)
+
+            dfByTimeProfit["profit"] = dfByTimeProfit.where(
+                dfByTimeProfit.realizedPNL > 0
+            )["realizedPNL"]
+
+            dfByTimeProfit["loss"] = dfByTimeProfit.where(
+                dfByTimeProfit.realizedPNL < 0
+            )["realizedPNL"]
+
+            profitByHour = dfByTimeProfit.resample("30Min").agg(
+                dict(realizedPNL="sum", orderId="count", profit="count", loss="count")
+            )
+
+            # TODO: format realizedPNL and dayProfit as prices for profitByHour
+            profitByHour.rename(columns=dict(orderId="executions"), inplace=True)
+            profitByHour["dayProfit"] = profitByHour.realizedPNL.cumsum()
+
             printFrame(df, "Execution Summary")
+            printFrame(profitByHour, "Profit by Half Hour")
+            printFrame(dfByTrade, "Execution Summary by Complete Order")
 
 
 @dataclass
