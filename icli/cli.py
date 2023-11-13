@@ -1670,7 +1670,7 @@ class IBKRCmdlineApp:
 
                     # Also generate a nice split to reconstruct...
                     sym, y, m, d, pc, price = re.match(
-                        "(\w+)\s*(\d\d)(\d\d)(\d\d)([PC])(\d\d\d\d\d\d\d\d)", rowName
+                        r"(\w+)\s*(\d\d)(\d\d)(\d\d)([PC])(\d\d\d\d\d\d\d\d)", rowName
                     ).groups()
                     rowNice = f"{sym:<6} {y}-{m}-{d} {pc} {int(price) / 1000:>8,.2f}"
 
