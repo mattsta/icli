@@ -677,6 +677,25 @@ class IOpDepth(IOp):
                 # - Re-index the frame by current sorted positions so the concat joins correctly.
                 #   - 'drop=True' means don't add a new column with the previous index value
 
+                def decimal_formatter(x):
+                    # float(x) to enforce at least one decimal place into existence if this was an integer
+                    str_x = str(float(x))
+                    parts = str_x.split(".")
+
+                    assert (
+                        len(parts) == 2
+                    ), "Why don't you have a decimal number here? What else could this be?"
+
+                    after_decimal_str = parts[1]
+                    decimal_size = len(after_decimal_str)
+
+                    # always print even number of decimals if we reach here
+                    # (i.e. don't print $123.0 next to $123.25 or $1.234 next to $1.2345)
+                    if decimal_size % 2 != 0:
+                        decimal_size += 1
+
+                    return f"{x:,.{decimal_size}f}"
+
                 # condition dataframe reorganization on the input list existing.
                 # for some smaller symbols, bids or asks may not get returned
                 # by the flaky ibkr depth APIs
@@ -690,8 +709,8 @@ class IOpDepth(IOp):
                         .reset_index(drop=True)
                     )
 
-                    # format floats as currency strings with proper cent padding
-                    fixedBids["price"] = fixedBids["price"].apply(lambda x: f"{x:,.2f}")
+                    # format floats as currency strings with proper cent padding.
+                    fixedBids["price"] = fixedBids["price"].apply(decimal_formatter)
                     fixedBids["marketMaker"] = sorted(fixedBids["marketMaker"])
 
                 else:
@@ -707,7 +726,7 @@ class IOpDepth(IOp):
                         .reset_index(drop=True)
                     )
 
-                    fixedAsks["price"] = fixedAsks["price"].apply(lambda x: f"{x:,.2f}")
+                    fixedAsks["price"] = fixedAsks["price"].apply(decimal_formatter)
                     fixedAsks["marketMaker"] = sorted(fixedAsks["marketMaker"])
                 else:
                     fixedAsks = pd.DataFrame()
@@ -723,7 +742,8 @@ class IOpDepth(IOp):
                 #       as blank because the cols have been coerced to
                 #       specific data types via 'convert_dtypes()')
                 both = pd.concat(fmtJoined, axis=1)
-                both.fillna("", inplace=True)
+                both = both.fillna(-1)
+
                 printFrame(
                     both,
                     f"{contract.symbol} :: {contract.localSymbol} Grouped by Price",
