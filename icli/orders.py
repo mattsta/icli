@@ -1,19 +1,22 @@
 """ Common order types with reusable parameter configurations."""
+from dataclasses import dataclass, field
+
 from ib_insync import (
-    Order,
-    TagValue,
     Contract,
+    Order,
     OrderCondition,
+    TagValue,
     # NOTE: DO NOT add LimitOrder, MarketOrder, StopLimitOrder, etc because those are
     #       non-dataclass subclasses of the Order dataclass and we can't dataclass.replace() on
     #       any other order classes except the primary Order() superclass!
 )
-from dataclasses import dataclass, field
 
 from typing import *
 
 import enum
-from enum import Enum, auto
+from enum import auto, Enum
+
+from loguru import logger
 
 # Note: all functions should have params in the same order!
 
@@ -133,6 +136,10 @@ class IOrder:
 
     def order(self, orderType: str) -> Order:
         """Return a specific Order object by name."""
+
+        # Note: these map from IBKR ALGO NAMES to our Order implementation.
+        # If you want to not use IBKR ALGO NAMES everywhere, create a different mapping from
+        # your nice names to these full IBKR ALGO NAMES then translate externally before reaching here.
         omap = {
             # Basic
             "LMT": self.limit,
@@ -141,9 +148,13 @@ class IOrder:
             # One Algo
             "MIDPRICE": self.midprice,
             # Common Adaptives
+            # ADAPTIVE SLOW
             "LMT + ADAPTIVE + SLOW": self.adaptiveSlowLmt,
+            # ADAPTIVE FAST
             "LMT + ADAPTIVE + FAST": self.adaptiveFastLmt,
+            # MARKET SLOW
             "MKT + ADAPTIVE + SLOW": self.adaptiveSlowMkt,
+            # MARKET FAST
             "MKT + ADAPTIVE + FAST": self.adaptiveFastMkt,
             # Multi-Leg Orders
             "REL + MKT": self.comboPrimaryPegMkt,
@@ -154,7 +165,14 @@ class IOrder:
             "MOC": self.moc,
         }
 
-        return omap[orderType]()
+        if orderMethod := omap.get(orderType):
+            return orderMethod()
+
+        # logger guard in case people are sending bad names so we can't actually generate an order...
+        logger.error(
+            "[{}] Order type not found! You must pass in an implemented IBKR ALGO NAME here!",
+            orderType,
+        )
 
     def adjustForCashQuantity(self, o):
         """Check if we need to use cash instead of direct quantity.
@@ -211,6 +229,7 @@ class IOrder:
 
     def adaptiveFastLmt(self) -> Order:
         # Note: adaptive can't be GTC!
+        # Also means this doesn't work PM/AH
         o = Order(
             orderType="LMT",
             action=self.action,
@@ -226,6 +245,7 @@ class IOrder:
 
     def adaptiveSlowLmt(self) -> Order:
         # Note: adaptive can't be GTC!
+        # Also means this doesn't work PM/AH
         o = Order(
             orderType="LMT",
             action=self.action,
