@@ -66,6 +66,12 @@ def comply(contract: Union[Contract, str], price: float) -> float:
         logger.info("[/{}] ROUNDED: {}", contract.symbol, rounded)
         return rounded
 
+    if isinstance(contract, (Crypto, Forex)):
+        logger.info("[{}] ROUNDING REQUEST: {}", contract.symbol, price)
+        rounded = rounder.round(contract.symbol, price)
+        logger.info("[{}] ROUNDED: {}", contract.symbol, rounded)
+        return rounded
+
     if isinstance(contract, Option):
         # hack for SPX or other index options needing specific increments
         # (IBKR API for contract details is slow and busted, so we either need to have a
