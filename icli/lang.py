@@ -906,6 +906,7 @@ class IOpOrder(IOp):
         ]
 
     async def run(self) -> bool:
+        contract = None
         if " " in self.symbol:
             # is spread, so do bag
             isSpread = True
@@ -918,10 +919,13 @@ class IOpOrder(IOp):
             # if ordering current positional quote, do the lookup.
             # TODO: make centralized lookup helper function
             if self.symbol.startswith(":"):
-                self.symbol = self.state.quoteResolve(self.symbol)
-                assert self.symbol
-
-            contract = contractForName(self.symbol)
+                orig = self.symbol
+                self.symbol, contract = self.state.quoteResolve(self.symbol)
+                if not self.symbol:
+                    logger.error("[{}] Failed to find symbol by position index!", orig)
+                    return None
+            else:
+                contract = contractForName(self.symbol)
 
         if contract is None:
             logger.error("Not submitting order because contract can't be formatted!")
