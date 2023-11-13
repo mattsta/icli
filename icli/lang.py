@@ -1293,6 +1293,12 @@ class IOpOrderFast(IOp):
         # which is the 'useExpIdx', then we want the requested expire away, which is 'self.expirationAway'
         # distance from the currently found expiration date, so we get a slice of the expirationAway length,
         # then we take the last element which is our actually requested expiration away date.
+        if not sstrikes:
+            logger.error(
+                "[{}] No strikes found? Does this symbol have options?", self.symbol
+            )
+            return None
+
         useExp = sstrikes[useExpIdx : useExpIdx + 1 + self.expirationAway][-1]
 
         assert useExp in strikes
@@ -1301,7 +1307,7 @@ class IOpOrderFast(IOp):
 
         logger.info(
             "[{} :: {}] Using expiration {} (days away: {}) chain: {}",
-            self.symbol,
+            initSym,
             self.direction,
             useExp,
             int(useExp) - int(expirationFmt),
@@ -1528,7 +1534,9 @@ class IOpOrderFast(IOp):
                     strike = useChain[idx]
 
                     logger.info(
-                        "Checking strike vs. boundary: {} v {}", strike, boundaryPrice
+                        "Checking strike vs. boundary: ${:,.3f} v ${:,.3f}",
+                        strike,
+                        boundaryPrice,
                     )
 
                     # only place orders up to our maximum theoretical price
