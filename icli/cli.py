@@ -206,7 +206,11 @@ logger.level("ARGS", no=40, color="<blue>")
 
 def readableHTML(html):
     """Return contents of 'html' with tags stripped and in a _reasonably_
-    readable plain text format"""
+    readable plain text format.
+
+    This is used for printing "IBKR Realtime Status Updates/News" from the API.
+    The API sends news updates as HTML, so we convert it to text for terminal display.
+    """
 
     return re.sub(
         r"(\n[\s]*)+", "\n", bs4.BeautifulSoup(html, features="html.parser").get_text()
@@ -359,6 +363,8 @@ class IBKRCmdlineApp:
 
         # Note: this is the ONLY place we use self.ib.qualifyContractsAsync().
         # All other usage should use self.qualify() so the cache is maintained.
+
+        # TODO: why aren't we checking the cache here first? Seems like we should!
         got = await self.ib.qualifyContractsAsync(*contracts)
 
         # iterate resolved contracts and save them all
@@ -379,7 +385,8 @@ class IBKRCmdlineApp:
 
         Looks up position by symbol name (allowing globs) and returns either provided quantity or total quantity.
         If no input quantity, return total position size.
-        If input quantity larger than position size, returned size is capped to max position size."""
+        If input quantity larger than position size, returned size is capped to max position size.
+        """
         portitems = self.ib.portfolio()
         # logger.debug("Current Portfolio is: {}", portitems)
 
@@ -570,6 +577,9 @@ class IBKRCmdlineApp:
 
         # need to replace underlying if is "fake settled underlying"
         quotesym = sym  # self.symbolNormalizeIndexWeeklyOptions(sym)
+        # TODO: check if symbol already exists as a value from
+        # while not (currentQuote := self.currentQuote(quoteKey))
+        # to avoid the extra/noop add lookup here.
         await self.dispatch.runop("add", f'"{quotesym}"', self.opstate)
 
         if not contract.conId:
@@ -618,6 +628,7 @@ class IBKRCmdlineApp:
 
         # Negative 'qty' is a dollar amount to buy instead of share/contract
         # quantity, so we fetch a live quote to determine the initial quantity.
+        # TODO: fix the parser so we just can have $12_000 for dollar quantity versus numbers for actual unit quantities?
         if qty < 0:
             # we treat negative quantities as dollar amounts (because
             # we convert 'qty' to float, so we can't pass through $3000, so
