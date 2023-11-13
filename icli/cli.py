@@ -2190,13 +2190,16 @@ class IBKRCmdlineApp:
                     break
                 except (
                     ConnectionRefusedError,
+                    ConnectionResetError,
                     asyncio.exceptions.TimeoutError,
                     asyncio.exceptions.CancelledError,
-                ):
+                ) as e:
                     # Don't print exception for just a connection error
-                    logger.error("Failed to connect to IB Gateway, trying again...")
+                    logger.error(
+                        "[{}] Failed to connect to IB Gateway, trying again...", e
+                    )
                 except:
-                    # Do print exception for any errors not related to connection handling.
+                    # Do print exception for any unhandled or unexpected errors while connecting.
                     logger.exception("why?")
 
                 try:
