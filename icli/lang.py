@@ -1117,6 +1117,8 @@ class IOpOrder(IOp):
                 )
                 break
 
+        # now just print current holdings so we have a clean view of what we just transacted
+        await self.runoplive("positions", [])
         return True
 
 
