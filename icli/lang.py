@@ -1199,6 +1199,15 @@ class IOpOrderFast(IOp):
         if True:
             # skip ATR for now
 
+            initSym = self.symbol
+
+            # see if we're using an alias and, if so, resolve it and attach it locally
+            if initSym.startswith(":"):
+                self.symbol, contract = self.state.quoteResolve(self.symbol)
+                if not self.symbol:
+                    logger.error("[{}] Symbol not found for mapping?", initSym)
+                    return None
+
             # async run all URL fetches and data updates at once
             strikes = await self.runoplive(
                 "chains",
