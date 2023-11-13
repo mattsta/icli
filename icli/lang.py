@@ -2917,22 +2917,40 @@ class IOpOptionChain(IOp):
 
         # Index cache by symbol AND current date because strikes can change
         # every day even for the same expiration if there's high volatility.
-        now = pendulum.now().in_tz("US/Eastern")
+        now = pendulum.now("US/Eastern")
         got = {}
+
+        IS_PREVIEW = self.symbols[-1] == "PREVIEW"
         for symbol in self.symbols:
             # if asking for weeklies, need to correct symbol for underlying quote...
-            if symbol.upper() == "SPXW":
+            if symbol == "SPXW":
                 symbol = "SPX"
+
+            # our own symbol hack for printing more detailed output here
+            if symbol == "PREVIEW":
+                continue
+
+            if symbol.startswith(":"):
+                symbol, _ = self.state.quoteResolve(symbol)
+                assert symbol
 
             cacheKey = ("chains", symbol, now.date())
             # logger.info("Looking up {}", cacheKey)
+
+            # if found in cache, don't lookup again!
             if found := self.cache.get(cacheKey):
-                logger.info(
-                    "[{}] Already cached: {}", symbol, pp.pformat(sorted(found.items()))
-                )
+                # don't print cached chains by default because this pollutes `Fast` output,
+                # but if the last symbol is "preview" then do show it...
+                if IS_PREVIEW:
+                    logger.info(
+                        "[{}] Already cached: {}",
+                        symbol,
+                        pp.pformat(sorted(found.items())),
+                    )
                 got[symbol] = found
                 continue
 
+            # resolve for option chains lookup
             contractExact = contractForName(symbol)
 
             # if we want to request ALL chains, only provide underlying
@@ -3024,6 +3042,8 @@ class IOpOptionChain(IOp):
             # arbitrary order, but we want them sorted for bisecting
             # and just nice viewing.
             for k, v in strikes.items():
+                assert k
+                assert v
                 # also reduce to a set first to drop all the duplicate
                 # call/put strikes.
                 strikes[k] = sorted(set(v))
