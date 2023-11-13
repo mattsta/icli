@@ -565,31 +565,32 @@ class IBKRCmdlineApp:
                 )
                 return None
 
+        # REL and LMT/MKT/MOO/MOC orders can be outside RTH
+        outsideRth = True
+        multiplier = float(contract.multiplier or 1)
+
         if isinstance(contract, (Option, Bag)) or contract.tradingClass == "COMB":
             # Purpose: don't trigger warning about "RTH option has no effect" with options...
-            # TODO: check if RTH includes extended late 4:15 ending options SPY / SPX / QQQ / IWM / etc?
-            if contract.localSymbol[0:3] in {"SPX", "VIX"}:
-                # SPX and VIX options now trade 23/5 but anything not 0930-1600 (maybe even to 1615?) is
+            if contract.localSymbol[0:3] not in {"SPX", "VIX"}:
+                # Currently only SPX and VIX options trade outside RTH, but other things don't,
+                # so turn the flag off so the IBKR Order system doesn't generate a warning
                 # considered "outside RTH"
-                outsideRth = True
-            else:
                 outsideRth = False
-        else:
-            # Algos can only operate RTH:
-            if " " in orderType or (
-                orderType
-                in {"MIDPRICE", "MKT + ADAPTIVE + FAST", "LMT + ADAPTIVE + FAST"}
-            ):
-                outsideRth = False
-            else:
-                # REL and LMT/MKT/MOO/MOC orders can be outside RTH
-                outsideRth = True
 
-        # TODO: cleanup, also verify how we want to run FAST or EVICT outside RTH?
+        # Note: don't make this an 'else if' to the previous check because this needs to also run again
+        # for all option types.
         if " " in orderType or (
             orderType in {"MIDPRICE", "MKT + ADAPTIVE + FAST", "LMT + ADAPTIVE + FAST"}
         ):
+            # TODO: cleanup, also verify how we want to run FAST or EVICT outside RTH?
+            # Algos can only operate RTH:
             outsideRth = False
+
+        if not outsideRth:
+            logger.warning(
+                "[{}] ALGO NOT SUPPORTED FOR ALL HOURS. ORDER RESTRICTED TO RTH ONLY!",
+                orderType,
+            )
 
         if isinstance(contract, Crypto) and isLong:
             # Crypto can only use IOC or Minutes for tif BUY
