@@ -1179,17 +1179,33 @@ class IBKRCmdlineApp:
 
         if v.tag in STATUS_FIELDS_PROCESS:
             try:
-                if v.tag == "BuyingPower":
-                    # regular 25% margin for boring symbols
-                    self.accountStatus["BuyingPower4"] = float(v.value)
+                match v.tag:
+                    case "BuyingPower":
+                        # regular 25% margin for boring symbols
+                        self.accountStatus["BuyingPower4"] = float(v.value)
 
-                    # 30% margin for "exciting" symbols"
-                    self.accountStatus["BuyingPower3"] = float(v.value) / 1.3333333333
+                        # 30% margin for "exciting" symbols"
+                        self.accountStatus["BuyingPower3"] = (
+                            float(v.value) / 1.3333333333
+                        )
 
-                    # 50% margin for overnight or "really exciting" symbols
-                    self.accountStatus["BuyingPower2"] = float(v.value) / 2
-                else:
-                    self.accountStatus[v.tag] = float(v.value)
+                        # 50% margin for overnight or "really exciting" symbols
+                        self.accountStatus["BuyingPower2"] = float(v.value) / 2
+                    case "NetLiquidation":
+                        nl = float(v.value)
+                        self.accountStatus[v.tag] = nl
+                        upl = self.accountStatus.get("UnrealizedPnL", 0)
+                        rpl = self.accountStatus.get("RealizedPnL", 0)
+
+                        # Also generate some synthetic data about percentage gains we made.
+                        # Is this accurate enough? Should we be doing the math differently or basing it off AvailableFunds or BuyingPower instead???
+                        # We subtract the PnL values from the account NetLiquidation because the PnL contribution is *already* accounted for
+                        # in the NetLiquididation value.
+                        # (the updates are *here* because this runs on every NetLiq val update instead of ONLY on P&L updates)
+                        self.accountStatus["RealizedPnL%"] = (rpl / (nl - rpl)) * 100
+                        self.accountStatus["UnrealizedPnL%"] = (upl / (nl - upl)) * 100
+                    case _:
+                        self.accountStatus[v.tag] = float(v.value)
             except:
                 # don't care, just keep going
                 pass
@@ -1199,7 +1215,11 @@ class IBKRCmdlineApp:
         they are independent PnL events. shrug.
 
         Also note: we merge these into our summary dict instead of maintaining
-        an indepdent PnL structure."""
+        an indepdent PnL structure.
+
+        Also note: thse don't always get cleared automatically after a day resets,
+        so if your client is open for multiple days, sometimes the previous PnL values
+        still show up."""
 
         # TODO: keep moving average of daily PNL and trigger sounds/events
         #       if it spikes higher/lower.
@@ -1209,11 +1229,16 @@ class IBKRCmdlineApp:
         self.summary["DailyPnL"] = v.dailyPnL
 
         try:
-            self.accountStatus["UnrealizedPnL"] = float(v.unrealizedPnL)
-            self.accountStatus["RealizedPnL"] = float(v.realizedPnL)
+            rpl = float(v.realizedPnL)
+            upl = float(v.unrealizedPnL)
+
+            self.accountStatus["UnrealizedPnL"] = upl
+            self.accountStatus["RealizedPnL"] = rpl
             self.accountStatus["DailyPnL"] = float(v.dailyPnL)
         except:
             # don't care, just keep going
+            # (maybe some of these keys don't exist yet, but they will get populated quickly as
+            #  the post-connect-async-data-population finishes sending us data for all the fields)
             pass
 
     def updatePNLSingle(self, v):
