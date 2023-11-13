@@ -11,6 +11,8 @@ import locale
 import math
 import os
 
+import json
+
 import pathlib
 import re
 import sys
@@ -40,6 +42,7 @@ import icli.orders as orders
 from icli.futsexchanges import FUTS_EXCHANGE
 
 from . import agent
+from .tinyalgo import ATRLive
 
 locale.setlocale(locale.LC_ALL, "")
 
@@ -83,8 +86,14 @@ import tradeapis.rounder as rounder
 from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
 
-
+# global client ID for your IBKR gateway connection (must be unique per client per gateway)
 ICLI_CLIENT_ID = int(os.getenv("ICLI_CLIENT_ID", 0))
+
+# environment 1 true; 0 false; flag for determining if EVERY QUOTE (4 Hz per symbol) is saved to a file
+# for later backtest usage or debugging (note: this uses the default python 'json' module which sometimes
+# outputs non-JSON compliant NaN values, so you may need to filter those out if read back using a different
+# json parser)
+ICLI_DUMP_QUOTES = bool(int(os.getenv("ICLI_DUMP_QUOTES", 0)))
 
 # Configure logger where the ib_insync live service logs get written.
 # Note: if you have weird problems you don't think are being exposed
@@ -309,6 +318,14 @@ class IBKRCmdlineApp:
     pnlSingle: dict[str, PnLSingle] = field(default_factory=dict)
     exiting: bool = False
     ol: buylang.OLang = field(default_factory=buylang.OLang)
+
+    # calculate live ATR based on quote updates
+    # (the .25 is because quotes update at 250 ms intervals, so we normalize "events per second" by update frequency)
+    atrs: dict[str, ATRLive] = field(
+        default_factory=lambda: defaultdict(
+            lambda: ATRLive(int(90 / 0.25), int(45 / 0.25))
+        )
+    )
 
     # hold EMA per current symbol with various lookback periods
     ema: dict[str, dict[int, float]] = field(
@@ -1198,7 +1215,52 @@ class IBKRCmdlineApp:
             del self.pnlSingle[trade.contract.conId]
 
     def tickersUpdate(self, tickr):
-        logger.info("Ticker update: {}", tickr)
+        """This runs on EVERY quote update which happens 4 times per second per subsubscribed symbol.
+
+        We don't technically need this to receive ticker updates since tickers are "live updated" in their
+        own classes for reading, but we _do_ use this to calculate live metadata, reporting, or quote-based
+        algo triggers.
+
+        This method should always be clean and fast because it runs up to 100+ times per second depending on how
+        many tickers you are subscribed to in your client.
+
+        Also note: because this is an ib_insync event handler, any errors or exceptions in this method are NOT
+                   reported to the main program. You should attach @logger.catch to this method if you think it
+                   isn't working correctly because then you can see the errors/exceptions (if any).
+        """
+        # logger.info("Ticker update: {}", tickr)
+
+        for ticker in tickr:
+            name = ticker.contract.localSymbol or ticker.contract.symbol
+
+            # this is a synthetic memory-having ATR where we just feed it price data and
+            # it calculates a dynamic H/L/C for the actual ATR based on recent price history.
+            if ticker.bid > 0 and ticker.ask > 0:
+                self.atrs[name].update((ticker.bid + ticker.ask) / 2)
+
+        # TODO: we could also run volume crossover calculations too...
+
+        # TODO: we should also do some algo checks here based on the live quote price updates...
+
+        if ICLI_DUMP_QUOTES:
+            with open(
+                f"tickers-{datetime.datetime.now().date()}-{ICLI_CLIENT_ID}.json", "a"
+            ) as tj:
+                for ticker in tickr:
+                    tj.write(
+                        json.dumps(
+                            dict(
+                                symbol=name,
+                                time=str(ticker.time),
+                                bid=ticker.bid,
+                                bidSize=ticker.bidSize,
+                                ask=ticker.ask,
+                                askSize=ticker.askSize,
+                                volume=ticker.volume,
+                            )
+                        )
+                    )
+                    tj.write("\n")
 
     def updateSummary(self, v):
         """Each row is populated after connection then continually
@@ -1695,6 +1757,13 @@ class IBKRCmdlineApp:
                 ],
             )
 
+            # somewhat circuitous logic to format NaNs and values properly at the same string padding offsets
+            atr = np.nan
+            if atrr := self.atrs.get(ls):
+                atr = self.atrs[ls].atr.current
+
+            atr = f"{atr:>5.2f}"
+
             roundto = 2
             # symbol exceptions for things we want bigger (GBP is a future and not a Forex...)
             # TODO: fix for 3-decimal futures too.
@@ -1729,9 +1798,27 @@ class IBKRCmdlineApp:
             else:
                 trend = "="
 
-            return (
-                f"{ls:<9}: {fmtPricePad(e100)} ({fmtPricePad(e100diff, padding=6)}) {trend} {fmtPricePad(e300)} ({fmtPricePad(e300diff, padding=6)}) {fmtPricePad(usePrice)}  ({pctUndHigh} {amtUndHigh}) ({pctUpLow} {amtUpLow}) ({pctUpClose} {amtUpClose}) {fmtPricePad(c.high)}   {fmtPricePad(c.low)} <aaa bg='purple'>{fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}</aaa>  {fmtPricePad(c.open)} {fmtPricePad(c.close)}    ({str(ago)})"
-                + ("     HALTED!" if c.halted > 0 else "")
+            return " ".join(
+                [
+                    f"{ls:<9}",
+                    f"{fmtPricePad(e100)}",
+                    f"({fmtPricePad(e100diff, padding=6)})",
+                    f"{trend}",
+                    f"{fmtPricePad(e300)}",
+                    f"({fmtPricePad(e300diff, padding=6)})",
+                    f"{fmtPricePad(usePrice)}",
+                    f"({pctUndHigh} {amtUndHigh})",
+                    f"({pctUpLow} {amtUpLow})",
+                    f"({pctUpClose} {amtUpClose})",
+                    f"{fmtPricePad(c.high)}",
+                    f"{fmtPricePad(c.low)}",
+                    f"<aaa bg='purple'>{fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}</aaa>",
+                    f"({atr})",
+                    f"{fmtPricePad(c.open)}",
+                    f"{fmtPricePad(c.close)}",
+                    f"({str(ago)})",
+                    "     HALTED!" if c.halted > 0 else "",
+                ]
             )
 
         try:
@@ -1970,7 +2057,12 @@ class IBKRCmdlineApp:
         # the objects "live updated" in the background, so everytime
         # we read them on a refresh, the values are still valid.
         # self.ib.pnlSingleEvent += self.updatePNLSingle
-        # self.ib.pendingTickersEvent += self.tickersUpdate
+
+        # we calculate some live statistics here, and this gets called potentially
+        # 5 Hz to 10 Hz because quotes are updated every 250 ms.
+        # This event handler also includes a utility for writing the quotes to disk
+        # for later backtest handling.
+        self.ib.pendingTickersEvent += self.tickersUpdate
 
         # openOrderEvent is noisy and randomly just re-submits
         # already static order details as new events.
