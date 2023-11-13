@@ -1464,7 +1464,7 @@ class IBKRCmdlineApp:
                 # logger.info("[{}] Updating EMA with price: {}", ls, usePrice)
                 updateEMA(ls, usePrice)
 
-            ago = (self.now - (c.time or self.now)).as_interval()
+            ago = (self.now - (c.time or self.now)).as_duration()
             try:
                 percentUnderHigh = (
                     ((usePrice - c.high) / c.high) * 100 if usePrice <= c.high else 0

@@ -2983,13 +2983,14 @@ class IOpOptionChain(IOp):
 
                 # TODO: use FORWARD_MONTHS=1 when this week has two months and
                 #       friday is not the same month as the current month
+                # This fix is just "check if friday is same month, if not, use forward-months = 1"
                 FORWARD_MONTHS = 0
 
                 useDates = [
                     d.date()
-                    for d in pendulum.period(now, now.add(months=FORWARD_MONTHS)).range(
-                        "months"
-                    )
+                    for d in pendulum.interval(
+                        now, now.add(months=FORWARD_MONTHS)
+                    ).range("months")
                 ]
 
             # this request takes between 1 second and 60 seconds depending on ???

@@ -15,7 +15,7 @@ ib-insync = "^0.9.66"
 pandas = ">2.1.0"
 
 # easy time access
-pendulum = "^2.1.2"
+pendulum = {version = "^3.0.0b1", allow-prereleases = true}
 
 # running / logging
 prompt-toolkit = "^3.0.29"
