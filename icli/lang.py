@@ -1834,7 +1834,7 @@ class IOpOrderLimit(IOp):
                     "Symbol",
                     value=" ".join(
                         [
-                            self.state.quoteResolve(x) if x.startswith(":") else x
+                            self.state.quoteResolve(x)[0] if x.startswith(":") else x
                             for x in self.args
                         ]
                     ),
