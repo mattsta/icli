@@ -65,6 +65,11 @@ ORDER_TYPE_Q = Q(
 
 # Also map for user typing shorthand on command line order entry.
 # Values abbreviations are allowed for easier command typing support.
+# NOTE: THIS LIST IS USED TO TRIGGER ORDERS IN order.py:IOrder().order() so THESE NAMES MUST MATCH
+#       THE OFFICIAL IBKR ALGO NAME MAPPINGS THERE.
+# This is a TRANSLATION TABLE between our "nice" names like 'AF' and the IBKR ALGO NAMES USED FOR ORDER PLACING.
+# NOTE: DO NOT SEND IOrder.order() requests using 'AF' because it must be LOOKED UP HERE FIRST.
+# TODO: on startup, we should assert each of these algo names match an actual implemented algo order method in IOrder().order()
 ALGOMAP = dict(
     LMT="LMT",
     LIM="LMT",
@@ -72,11 +77,11 @@ ALGOMAP = dict(
     AF="LMT + ADAPTIVE + FAST",
     AS="LMT + ADAPTIVE + SLOW",
     MID="MIDPRICE",
-    MP="MIDPRICE",
+    MIDPRICE="MIDPRICE",
     REL="REL",
     AFM="MKT + ADAPTIVE + FAST",
-    ASM="MKT + ADAPTIVE + SLOW",
     AMF="MKT + ADAPTIVE + FAST",
+    ASM="MKT + ADAPTIVE + SLOW",
     AMS="MKT + ADAPTIVE + SLOW",
     MOO="MOO",
     MOC="MOC",
