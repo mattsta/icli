@@ -2856,7 +2856,10 @@ class IOpOptionChainRange(IOp):
             currentPrice,
         )
 
-        today = str(pendulum.now("US/Eastern").date()).replace("-", "")
+        # TODO: for same-day expiry, we should be checking if the time of 'now' is >= (16, 15) and then use the next chain date instead.
+        # Currently, if you request 'range' for daily options at like 5pm, it still gives you the same-day already expired options.
+        now = pendulum.now("US/Eastern")
+        today = str(now.date()).replace("-", "")
         generated = []
 
         # we need to sort by the date values since the IBKR API returns dates in a random order...
