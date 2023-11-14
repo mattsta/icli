@@ -1989,8 +1989,20 @@ class IBKRCmdlineApp:
 
                 spxbreakers = f"7%: {spxc7} ({spxcd7}; {undX(spxcd7, spxc7):.2f}%)   13%: {spxc13}  ({spxcd13}; {undX(spxcd13, spxc13):.2f}%)  20%: {spxc20} ({spxcd20}; {undX(spxcd20, spxc20):.2f}%)"
 
+            # TODO: we may want to iterate these to exclude "Inactive" orders like:
+            # [x.log[-1].status == "Inactive" for x in self.ib.openTrades()]
+            ordcount = len(self.ib.openTrades())
+            openorders = f"open orders: {ordcount:,}"
+
+            positioncount = len(self.ib.portfolio())
+            openpositions = f"positions: {positioncount:,}"
+
+            executioncount = len(self.ib.fills())
+            todayexecutions = f"executions: {executioncount:,}"
+
             return HTML(
-                f"""{self.now}{onc} [{self.updates:,}]                {spxbreakers}\n"""
+                # all these spaces look weird, but they (kinda) match the underlying column-based formatting offsets
+                f"""{self.now}{onc} [{self.updates:,}]                {spxbreakers}                     {openorders}    {openpositions}    {todayexecutions}\n"""
                 + "\n".join(
                     [
                         f"{qp:>2}) " + formatTicker(quote)
