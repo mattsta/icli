@@ -4,6 +4,7 @@ from typing import *
 import bisect
 import datetime
 import enum
+import calendar
 
 import fnmatch
 import math
@@ -416,6 +417,31 @@ class IOpAlert(IOp):
             self.state.alert = False
         else:
             logger.info("Alert state: {}", self.state.alert)
+
+
+@dataclass
+class IOpCalendar(IOp):
+    """Just show a calendar!"""
+
+    def argmap(self):
+        return [
+            DArg(
+                "*year",
+                desc="Year for your calendar to show (if not provided, just use current year)",
+            )
+        ]
+
+    async def run(self):
+        try:
+            year = int(self.year[0])
+        except:
+            year = pendulum.now().year
+
+        # MURICA
+        # (also lol for this outdated python API where you have to globally set the calendar start
+        #  date for your entire environment!)
+        calendar.setfirstweekday(calendar.SUNDAY)
+        logger.info("[{}] Calendar:\n{}", year, calendar.calendar(year, 1, 1, 6, 3))
 
 
 @dataclass
@@ -3227,6 +3253,7 @@ OP_MAP = {
         "cash": IOpCash,
         "alias": IOpAlias,
         "alert": IOpAlert,
+        "calendar": IOpCalendar,
     },
     "Schedule Management": {
         "sched-add": IOpScheduleEvent,
