@@ -639,6 +639,7 @@ class IOpDepth(IOp):
                 assert self.sym
             else:
                 contract = contractForName(self.sym)
+                await self.state.qualify(contract)
 
             assert contract.localSymbol
         except:
