@@ -2008,7 +2008,13 @@ class IBKRCmdlineApp:
                 spxc20 = round(spxc / 1.20, 2)
                 spxcd20 = round(spxl - spxc20, 2)
 
-                spxbreakers = f"7%: {spxc7} ({spxcd7}; {undX(spxcd7, spxc7):.2f}%)   13%: {spxc13}  ({spxcd13}; {undX(spxcd13, spxc13):.2f}%)  20%: {spxc20} ({spxcd20}; {undX(spxcd20, spxc20):.2f}%)"
+                spxbreakers = "   ".join(
+                    [
+                        f"7%: {spxc7:,.2f} ({spxcd7:,.2f}; {undX(spxcd7, spxc7):.2f}%)",
+                        f"13%: {spxc13:,.2f} ({spxcd13:,.2f}; {undX(spxcd13, spxc13):.2f}%)",
+                        f"20%: {spxc20:,.2f} ({spxcd20:,.2f}; {undX(spxcd20, spxc20):.2f}%)",
+                    ]
+                )
 
             # TODO: we may want to iterate these to exclude "Inactive" orders like:
             # [x.log[-1].status == "Inactive" for x in self.ib.openTrades()]
