@@ -833,25 +833,19 @@ class IBKRCmdlineApp:
                 )
 
             if multiplier > 1:
-                logger.info(
-                    "[{}] PREVIEW LEVERAGE ({:,} MULTIPLIER PER CONTRACT): $1 MOVE is LEVERAGED TO ${:,.2f} (assuming delta=1)",
-                    desc,
-                    multiplier,
-                    multiplier * order.totalQuantity,
-                )
+                # don't print floats if not necessary
+                if int(multiplier) == multiplier:
+                    multiplier = int(multiplier)
 
-                logger.info(
-                    "[{}] PREVIEW LEVERAGE ({:,} MULTIPLIER PER CONTRACT): $3 MOVE is LEVERAGED TO ${:,.2f} (assuming delta=1)",
-                    desc,
-                    multiplier,
-                    3 * multiplier * order.totalQuantity,
-                )
-                logger.info(
-                    "[{}] PREVIEW LEVERAGE ({:,} MULTIPLIER PER CONTRACT): $5 MOVE is LEVERAGED TO ${:,.2f} (assuming delta=1)",
-                    desc,
-                    multiplier,
-                    5 * multiplier * order.totalQuantity,
-                )
+                for amt in (0.25, 1, 3, 5):
+                    logger.info(
+                        "[{}] PREVIEW LEVERAGE ({} x {}): ${:,.2f} CONTRACT MOVE is LEVERAGED TO ${:,.2f}",
+                        desc,
+                        order.totalQuantity,
+                        multiplier,
+                        amt,
+                        amt * multiplier * order.totalQuantity,
+                    )
 
             # "MAIN" for "MAINTENANCE" to match the length of "INIT" above for alignment.
             if isset(trade.minCommission):
