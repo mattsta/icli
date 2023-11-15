@@ -3256,9 +3256,14 @@ OP_MAP = {
         "calendar": IOpCalendar,
     },
     "Schedule Management": {
+        # full "named" versions of the commands
         "sched-add": IOpScheduleEvent,
         "sched-list": IOpScheduleEventList,
         "sched-cancel": IOpScheduleEventCancel,
+        # also allow short versions of the commands
+        "sadd": IOpScheduleEvent,
+        "slist": IOpScheduleEventList,
+        "scancel": IOpScheduleEventCancel,
     },
     "Quote Management": {
         "qsave": IOpQuoteSave,
