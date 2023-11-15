@@ -2562,7 +2562,7 @@ class IOpExecutions(IOp):
             # removed: lastLiquidity avgPrice
             df = df[
                 (
-                    """ secType conId symbol strike right date exchange tradingClass time orderId  localSymbol 
+                    """secType conId strike right date exchange symbol tradingClass localSymbol time orderId
              side  shares  cumQty price    total realizedPNL
              commission c_each dayProfit""".split()
                 )
