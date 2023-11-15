@@ -832,6 +832,27 @@ class IBKRCmdlineApp:
                     float(trade.initMarginChange) / order.totalQuantity,
                 )
 
+            if multiplier > 1:
+                logger.info(
+                    "[{}] PREVIEW LEVERAGE ({:,} MULTIPLIER PER CONTRACT): $1 MOVE is LEVERAGED TO ${:,.2f} (assuming delta=1)",
+                    desc,
+                    multiplier,
+                    multiplier * order.totalQuantity,
+                )
+
+                logger.info(
+                    "[{}] PREVIEW LEVERAGE ({:,} MULTIPLIER PER CONTRACT): $3 MOVE is LEVERAGED TO ${:,.2f} (assuming delta=1)",
+                    desc,
+                    multiplier,
+                    3 * multiplier * order.totalQuantity,
+                )
+                logger.info(
+                    "[{}] PREVIEW LEVERAGE ({:,} MULTIPLIER PER CONTRACT): $5 MOVE is LEVERAGED TO ${:,.2f} (assuming delta=1)",
+                    desc,
+                    multiplier,
+                    5 * multiplier * order.totalQuantity,
+                )
+
             # "MAIN" for "MAINTENANCE" to match the length of "INIT" above for alignment.
             if isset(trade.minCommission):
                 # options and stocks have a range of commissions
