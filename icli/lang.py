@@ -733,7 +733,7 @@ class IOpDepth(IOp):
                     fixedBids["marketMaker"] = sorted(fixedBids["marketMaker"])
 
                 else:
-                    fixedBids = pd.DataFrame()
+                    fixedBids = pd.DataFrame([dict(size=0)])
 
                 if t.domAsks:
                     fixedAsks = (
@@ -748,7 +748,7 @@ class IOpDepth(IOp):
                     fixedAsks["price"] = fixedAsks["price"].apply(decimal_formatter)
                     fixedAsks["marketMaker"] = sorted(fixedAsks["marketMaker"])
                 else:
-                    fixedAsks = pd.DataFrame()
+                    fixedAsks = pd.DataFrame([dict(size=0)])
 
                 fixedBids.loc["sum", "size"] = fixedBids["size"].sum()
                 fixedAsks.loc["sum", "size"] = fixedAsks["size"].sum()
