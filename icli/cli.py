@@ -313,7 +313,6 @@ class IBKRCmdlineApp:
 
     # State caches
     quoteState: dict[str, Ticker] = field(default_factory=dict)
-    quoteContracts: dict[str, Contract] = field(default_factory=dict)
     depthState: dict[Contract, Ticker] = field(default_factory=dict)
     summary: dict[str, float] = field(default_factory=dict)
     position: dict[str, float] = field(default_factory=dict)
@@ -361,20 +360,32 @@ class IBKRCmdlineApp:
         We also cache the results for ease of re-use and for mapping
         contractIds back to names later."""
 
-        # Note: this is the ONLY place we use self.ib.qualifyContractsAsync().
-        # All other usage should use self.qualify() so the cache is maintained.
+        # Group contracts into cached and uncached so we can look up uncached contracts
+        # all at once but still iterate them in expected order of results.
+        cached_contracts = {}
+        uncached_contracts = []
 
-        # TODO: why aren't we checking the cache here first? Seems like we should!
-        got = await self.ib.qualifyContractsAsync(*contracts)
+        for contract in contracts:
+            if cached_contract := self.conIdCache.get(contract.conId):  # type: ignore
+                cached_contracts[contract.conId] = cached_contract
+            else:
+                uncached_contracts.append(contract)
 
-        # iterate resolved contracts and save them all
-        for contract in got:
-            # Populate the id to contract cache!
-            if contract.conId not in self.conIdCache:
+        # For uncached, fetch them from external system
+        if uncached_contracts:
+            got = await self.ib.qualifyContractsAsync(*uncached_contracts)
+
+            # iterate resolved contracts and save them all
+            for contract in got:
                 # default 30 day expiration...
+                # (contracts are just IBKR metadata and should be static? if there's a problem, just delete your cache!)
                 self.conIdCache.set(contract.conId, contract, expire=86400 * 30)  # type: ignore
+                cached_contracts[contract.conId] = contract
 
-        return got
+        # Return in the same order as the input
+        result = [cached_contracts[contract.conId] for contract in contracts]
+
+        return result
 
     def contractsForPosition(
         self, sym, qty: Optional[float] = None
@@ -1082,19 +1093,11 @@ class IBKRCmdlineApp:
         return sorted(ts, key=lambda x: abs(x[1]))
 
     def currentQuote(self, sym, show=True) -> Optional[tuple[float, float]]:
-        # tiny hack to fix things like ESZ3 -> ES for futures lookups.
-        # TODO: this should also probably be cleaned up because we only quote the MAIN continuous contracts
-        #       (as defined by our "next futures roll date" automatic determination on startup),
-        #       so if you want a futures calendary spread on like ESZ3 to ESZ4 you just can't do it yet.
+        # TODO: maybe we should refactor this to only accept qualified contracts as input (instead of string symbol names) to avoid naming confusion?
         sym = sym.upper()
-        symOrig = sym
-        if len(sym) < 10 and sym[-1].isdigit():
-            sym = sym[:-2]
 
-        # this looks weird but it helps with some contracts not matching the "name-duration" pattern like
-        # /GBP turning itself into 6BZ3
-        q = self.quoteState.get(sym, self.quoteState.get(symOrig))
-        assert q.contract
+        q = self.quoteState.get(sym)
+        assert q and q.contract, f"Why doesn't {sym} exist in the quote state?"
 
         # only optionally print the quote because printing technically requires extra time
         # for all the formatting and display output
@@ -1102,7 +1105,7 @@ class IBKRCmdlineApp:
             ago = (self.now - (q.time or self.now)).as_duration()
 
             show = [
-                f"{q.contract.symbol}: bid {q.bid:,.2f} x {q.bidSize}",
+                f"{q.contract.localSymbol or q.contract.symbol}: bid {q.bid:,.2f} x {q.bidSize}",
                 f"ask {q.ask:,.2f} x {q.askSize}",
                 f"mid {(q.bid + q.ask) / 2:,.2f}",
                 f"last {q.last:,.2f} x {q.lastSize}",
@@ -1114,9 +1117,6 @@ class IBKRCmdlineApp:
         if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
             return None
 
-        # Note: the q.contract.multiplier isn't valid because the contract is not fully qualified, so only return
-        # bid/ask here and don't return any multiplier for the symbol.
-        # (the q.contract.multiplier value is not always valid because the contract-in-quote is not fully qualified)
         return q.bid, q.ask
 
     def updatePosition(self, pos):
@@ -1443,7 +1443,7 @@ class IBKRCmdlineApp:
             # as the shown price because sometimes we were getting price lags when midpoints
             # shifted faster than buying or selling, so we were looking at outdated "prices"
             # for some decisions.
-            ls = c.contract.localSymbol or c.contract.symbol
+            ls = c.contract.localSymbol.replace(" ", "") or c.contract.symbol
 
             if c.bid > 0 and c.bid == c.bid and c.ask > 0 and c.ask == c.ask:
                 if isinstance(c.contract, Future):
@@ -1546,7 +1546,7 @@ class IBKRCmdlineApp:
                 a_s = f"{c.askSize // 1000:>5}k"
 
             # use different print logic if this is an option contract or spread
-            bigboi = (len(c.contract.localSymbol) > 10) or c.contract.comboLegs
+            bigboi = (isinstance(c.contract, Option)) or c.contract.comboLegs
 
             if bigboi:
                 # Could use this too, but it only updates every couple seconds instead
@@ -2041,6 +2041,70 @@ class IBKRCmdlineApp:
 
         return "live"
 
+    def addQuoteFromContract(self, contract):
+        """Add live quote by providing a resolved contract"""
+        # logger.info("Adding quotes for: {} :: {}", ordReq, contract)
+
+        # just verify this contract is already qualified (will be a cache hit most likely)
+        assert (
+            contract.conId
+        ), f"Sorry, we only accept qualified contracts for adding quotes, but we got: {contract}"
+
+        tickFields = tickFieldsForContract(contract)
+
+        # remove spaces from OCC-like symbols for consistent key reference
+        symkey = lookupKey(contract)
+
+        # don't double-subscribe to symbols! If something is already in our quote state, we have an active subscription!
+        if symkey not in self.quoteState:
+            self.quoteState[symkey] = self.ib.reqMktData(contract, tickFields)
+
+            # This is a nice debug helper just showing the quote key name to the attached contract subscription:
+            # logger.info("[{}]: {}", symkey, contract)
+
+        return symkey
+
+    async def addQuotes(self, symbols):
+        """Add quotes by a common symbol name"""
+        if not symbols:
+            return
+
+        ors: list[buylang.OrderRequest] = []
+        for sym in symbols:
+            sym = sym.upper()
+            # don't attempt to double subscribe
+            # TODO: this only checks the named entry, so we need to verify we aren't double subscribing /ES /ESZ3 etc
+            if sym in self.quoteState:
+                continue
+
+            orderReq = self.ol.parse(sym)
+            ors.append(orderReq)
+
+        # technically not necessary for quotes, but we want the contract
+        # to have the full '.localSymbol' designation for printing later.
+        cs: list[Contract] = await asyncio.gather(
+            *[self.contractForOrderRequest(o) for o in ors]
+        )
+
+        # logger.info("Resolved contracts: {}", cs)
+
+        # the 'contractForOrderRequest' qualifies contracts before it returns, so
+        # all generated contracts already have their fields populated correctly here.
+
+        qs = set()
+        for ordReq, contract in zip(ors, cs):
+            if not contract:
+                logger.error("Failed to find live contract for: {}", ordReq)
+                continue
+
+            symkey = self.addQuoteFromContract(contract)
+            qs.add(symkey)
+
+        # return array of quote lookup keys
+        # (because things like spreads have weird keys, we construct parts the caller
+        #  can then use to index into the quoteState[] dict directly later)
+        return qs
+
     async def dorepl(self):
         # Setup...
 
@@ -2101,35 +2165,26 @@ class IBKRCmdlineApp:
         async def requestMarketData():
             logger.info("Requesting market data...")
 
-            # resubscribe to active quotes
-            # remove all quotes and re-subscribe to the current quote state
-            logger.info("[quotes] Restoring quote state...")
-            self.quoteState.clear()
-
-            await self.dispatch.runop("qrestore", "global", self.opstate)
-            logger.info("[quotes] All quotes subscribed!")
-
             # We used to think this needed to be called before each new market data request, but
             # apparently it works fine now only set once up front?
             # Tell IBKR API to return "last known good quote" if outside
             # of regular market hours instead of giving us bad data.
             self.ib.reqMarketDataType(2)
 
+            # resubscribe to active quotes
+            # remove all quotes and re-subscribe to the current quote state
+            logger.info("[quotes] Restoring quote state...")
+            self.quoteState.clear()
+
+            # run restore and local contracts qualification concurrently
+            await asyncio.gather(
+                self.dispatch.runop("qrestore", "global", self.opstate),
+                self.qualify(*contracts),
+            )
+            logger.info("[quotes] All global quotes resubscribed!")
+
             for contract in contracts:
-                # Additional details can be requested:
-                # https://ib-insync.readthedocs.io/api.html#ib_insync.ib.IB.reqMktData
-                # https://interactivebrokers.github.io/tws-api/tick_types.html
-                # By default, only common fields are populated (so things like 13/26/52 week
-                # highs and lows aren't created unless requested via tick set 165, etc)
-                # Also can subscribe to live news feed per symbol with tick 292 (news result
-                # returned via tickNewsEvent callback, we think)
-
-                tickFields = tickFieldsForContract(contract)
-                self.quoteState[contract.symbol] = self.ib.reqMktData(
-                    contract, tickFields
-                )
-
-                self.quoteContracts[contract.symbol] = contract
+                self.addQuoteFromContract(contract)
 
         async def reconnect():
             # don't reconnect if an exit is requested

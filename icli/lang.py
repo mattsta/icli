@@ -97,31 +97,6 @@ def expand_symbols(symbols):
     return useSymbols
 
 
-def lookupKey(contract):
-    """Given a contract, return something we can use as a lookup key.
-
-    Needs some tricks here because spreads don't have a built-in
-    one dimensional representation."""
-
-    # exclude COMBO/BAG orders from local symbol replacement because
-    # those show the underlying symbol as localSymbol and it doesn't
-    # look like a spread/bag/combo.
-    if contract.localSymbol and not contract.tradingClass == "COMB":
-        return contract.localSymbol.replace(" ", "")
-
-    # else, if a regular symbol but DOESN'T have a .localSymbol (means
-    # we added the quote from a contract without first qualifying it,
-    # which works, it's just missing extra details)
-    if contract.symbol and not contract.comboLegs:
-        return contract.symbol
-
-    # else, is spread so need to make something new...
-    return tuple(
-        x.tuple()
-        for x in sorted(contract.comboLegs, key=lambda x: (x.ratio, x.action, x.conId))
-    )
-
-
 @dataclass
 class IOp(mutil.dispatch.Op):
     """Common base class for all operations.
@@ -272,8 +247,8 @@ class IOpPositionEvict(IOp):
 
     Note: the symbol name accepts '*' for wildcards!
 
-    Also note: for futures, the actual symbol is the month expiration like "MESU2" and not just "MES",
-               so to evict futures you want to evict MES* and not just MES or /MES.
+    Also note: for futures, the actual symbol has the month expiration attached like "MESU2", so the portfolio
+               symbol is not just "MES". Evicting futures reliably uses evict MES* and not MES or /MES.
     """
 
     def argmap(self):
@@ -639,9 +614,6 @@ class IOpDepth(IOp):
             else:
                 contract = contractForName(self.sym)
 
-            # we always need to qualify here because even quoteResolved contracts aren't pre-resolved
-            await self.state.qualify(contract)
-
             assert contract.localSymbol
         except:
             logger.error("No contract found for: {}", self.sym)
@@ -651,6 +623,7 @@ class IOpDepth(IOp):
 
         self.depthState = {}
         useSmart = True
+
         self.depthState[contract] = self.ib.reqMktDepth(
             contract, numRows=40, isSmartDepth=useSmart
         )
@@ -2600,48 +2573,7 @@ class IOpQuotesAdd(IOp):
         return [DArg("*symbols", convert=lambda x: expand_symbols(x))]
 
     async def run(self):
-        if not self.symbols:
-            return
-
-        ors: list[buylang.OrderRequest] = []
-        for sym in self.symbols:
-            # don't double subscribe
-            if sym.upper() in self.state.quoteState:
-                continue
-
-            orderReq = self.state.ol.parse(sym)
-            ors.append(orderReq)  # contractForName(sym))
-
-        # technically not necessary for quotes, but we want the contract
-        # to have the full '.localSymbol' designation for printing later.
-        # await self.state.qualify(*cs)
-        cs: list[Contract] = await asyncio.gather(
-            *[self.state.contractForOrderRequest(o) for o in ors]
-        )
-
-        qs = set()
-        for ordReq, contract in zip(ors, cs):
-            if not contract:
-                logger.error("Failed to find live contract for: {}", ordReq)
-                continue
-
-            # logger.info("Adding quotes for: {} :: {}", ordReq, contract)
-            tickFields = tickFieldsForContract(contract)
-
-            # remove spaces from OCC-like symbols for key reference
-            symkey = lookupKey(contract)
-
-            self.state.quoteState[symkey] = self.ib.reqMktData(contract, tickFields)
-            self.state.quoteContracts[symkey] = contract
-
-            qs.add(symkey)
-
-        # return array of quote lookup keys
-        # (because things like spreads have weird keys we construct here the caller
-        #  can then use to index into the quoteState[] dict directly later)
-        return qs
-
-    # TODO: save current quote state to global restore state
+        return await self.state.addQuotes(self.symbols)
 
 
 @dataclass
@@ -2654,6 +2586,8 @@ class IOpQuotesAddFromOrderId(IOp):
     async def run(self):
         trades = self.ib.openTrades()
 
+        # TODO: clean-up this logic; it should live more like addQuotes() in cli and not here because it
+        #       is subscribing to quotes we should be tracking in the cli state and not breaking abstractions here.
         if not self.orderIds:
             addTrades = trades
         else:
@@ -2692,7 +2626,6 @@ class IOpQuotesAddFromOrderId(IOp):
             self.state.quoteState[symkey] = self.ib.reqMktData(
                 useTrade.contract, tickFields
             )
-            self.state.quoteContracts[symkey] = useTrade.contract
 
 
 @dataclass
@@ -2728,14 +2661,18 @@ class IOpQuotesRemove(IOp):
                 # symbol is now the replaced actual symbol and not the integer-indexed reference
                 sym = resolved
             else:
-                contract = self.state.quoteContracts.get(sym)
+                found = self.state.quoteState.get(sym)
+                if found:
+                    contract = found.contract
+                else:
+                    logger.warning("[{}] Symbol not found as an active quote?", sym)
+                    continue
 
             if contract:
                 try:
                     self.ib.cancelMktData(contract)
 
                     symkey = lookupKey(contract)
-                    del self.state.quoteContracts[symkey]
                     del self.state.quoteState[symkey]
                     logger.info(
                         "[{}] Removed: {} ({})",
@@ -3119,7 +3056,7 @@ class IOpQuoteRemove(IOp):
         symbols = self.cache.get(cacheKey)
         if not symbols:
             nocache = True
-            symbols = self.state.quoteContracts.keys()
+            symbols = self.state.quoteState.keys()
             logger.error(
                 "[{}] No quote group found so using live quote list...", self.group
             )

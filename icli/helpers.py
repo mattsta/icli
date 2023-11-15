@@ -50,6 +50,46 @@ FU_CONFIG = {**FU_DEFAULT, **dotenv_values(".env.icli"), **os.environ}  # type: 
 
 FUT_EXP = FU_CONFIG["ICLI_FUT_EXP"]
 
+FUTS_MONTH_MAPPING = {
+    "F": "01",  # January
+    "G": "02",  # February
+    "H": "03",  # March
+    "J": "04",  # April
+    "K": "05",  # May
+    "M": "06",  # June
+    "N": "07",  # July
+    "Q": "08",  # August
+    "U": "09",  # September
+    "V": "10",  # October
+    "X": "11",  # November
+    "Z": "12",  # December
+}
+
+
+def convert_futures_code(code: str):
+    """Convert a futures-date-format into IBKR date format.
+
+    So input like 'Z3' becomes 202312.
+    """
+
+    assert (
+        len(code) == 2 and code[-1].isdigit()
+    ), f"Futures codes are two characters like F3 for January 2023, but we got: {code}"
+
+    # Mapping for month codes as per future contracts
+    try:
+        month_code = FUTS_MONTH_MAPPING[code[0].upper()]
+    except KeyError:
+        raise ValueError("Invalid month code in futures contract")
+
+    # our math accounts for any numbers PREVIOUS to this year are for the NEXT decade,
+    # while numbers FOWARD from here are for the current decade.
+    current_year = datetime.datetime.now().year
+    year_decade_start = current_year - current_year % 10
+    year = year_decade_start + int(code[1:])
+
+    return str(year) + month_code
+
 
 def comply(contract: Union[Contract, str], price: float) -> float:
     """Conform a calculated price to an IBKR-acceptable price increment.
@@ -136,7 +176,10 @@ def contractForName(sym, exchange="SMART", currency="USD"):
             # when trading, the month and year gets added like "ESZ3", so if we have
             # a symbol ending in a digit here, remove the "expiration/year" designation
             # from the string to lookup the actual name.
+            endsWithDigit = False
             if sym[-1].isdigit():
+                fullsym = sym
+                endsWithDigit = True
                 sym = sym[:-2]
 
             fxchg = FUTS_EXCHANGE[sym]
@@ -145,7 +188,11 @@ def contractForName(sym, exchange="SMART", currency="USD"):
                 symbol=fxchg.symbol,
                 exchange=fxchg.exchange,
                 multiplier=fxchg.multiplier,
-                lastTradeDateOrContractMonth=FUT_EXP,
+                # if it looks like our symbol ends in a futures date code, convert the futures
+                # date code to IBKR date format. else, use our default continuous next-expiry futures calculation.
+                lastTradeDateOrContractMonth=convert_futures_code(fullsym[-2:])
+                if endsWithDigit
+                else FUT_EXP,
             )
     elif len(sym) > 15:
         # looks like: COIN210430C00320000
@@ -416,3 +463,30 @@ class CB:
             ).ask_async()
 
         return questionary.text(self.msg, **kwargs).ask_async()
+
+
+def lookupKey(contract):
+    """Given a contract, return something we can use as a lookup key.
+
+    Needs some tricks here because spreads don't have a built-in
+    one dimensional representation."""
+
+    # exclude COMBO/BAG orders from local symbol replacement because
+    # those show the underlying symbol as localSymbol and it doesn't
+    # look like a spread/bag/combo.
+    # logger.debug("Generating symbol for contract: {}", contract)
+
+    if contract.localSymbol and not contract.tradingClass == "COMB":
+        return contract.localSymbol.replace(" ", "")
+
+    # else, if a regular symbol but DOESN'T have a .localSymbol (means
+    # we added the quote from a contract without first qualifying it,
+    # which works, it's just missing extra details)
+    if contract.symbol and not contract.comboLegs:
+        return contract.symbol
+
+    # else, is spread so need to make something new...
+    return tuple(
+        x.tuple()
+        for x in sorted(contract.comboLegs, key=lambda x: (x.ratio, x.action, x.conId))
+    )
