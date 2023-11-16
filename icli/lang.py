@@ -2512,7 +2512,9 @@ class IOpExecutions(IOp):
             #       so *don't* subtract commissions again anywhere.
             df["dayProfit"] = df.realizedPNL.cumsum()
 
-            dfByTrade = df.groupby("orderId symbol side".split()).agg(
+            df["RPNL_each"] = df.realizedPNL / df.shares
+
+            dfByTrade = df.groupby("orderId localSymbol side".split()).agg(
                 dict(
                     time=[("start", "min"), ("finish", "max")],
                     price=["mean"],
@@ -2522,9 +2524,14 @@ class IOpExecutions(IOp):
                 )
             )
 
+            # TODO: we need to account for multiples here in the per-row dollar sum, but we
+            #       don't seem to have access to a clean multiplier in this view. Maybe we just need
+            #       to cache them all by name and look them up.
+            # dfByTrade[("total", "sum")] = dfByTrade[("total", "sum")].apply(lambda row: ...)
+
             dfByTimeProfit = df.copy()
 
-            needsPrices = "shares total commission".split()
+            needsPrices = "price shares total commission".split()
             dfByTrade[needsPrices] = dfByTrade[needsPrices].map(fmtPrice)
 
             # this currently has a false pandas warning about "concatenation with empty or all-NA entries is deprecated"
@@ -2546,7 +2553,7 @@ class IOpExecutions(IOp):
             df.loc["med"] = df[["c_each", "shares", "price"]].median()
             df.loc["mean"] = df[["c_each", "shares", "price"]].mean()
 
-            needsPrices = "c_each shares price avgPrice commission realizedPNL total dayProfit".split()
+            needsPrices = "c_each shares price avgPrice commission realizedPNL RPNL_each total dayProfit".split()
             df[needsPrices] = df[needsPrices].map(fmtPrice)
 
             # convert contract IDs to integers (and fill in any missing
@@ -2568,7 +2575,7 @@ class IOpExecutions(IOp):
             df = df[
                 (
                     """secType conId strike right date exchange symbol tradingClass localSymbol time orderId
-             side  shares  cumQty price    total realizedPNL
+             side  shares  cumQty price    total realizedPNL RPNL_each
              commission c_each dayProfit""".split()
                 )
             ]
@@ -2591,9 +2598,15 @@ class IOpExecutions(IOp):
             profitByHour.rename(columns=dict(orderId="executions"), inplace=True)
             profitByHour["dayProfit"] = profitByHour.realizedPNL.cumsum()
 
+            needsPrices = "realizedPNL dayProfit".split()
+            profitByHour[needsPrices] = profitByHour[needsPrices].map(fmtPrice)
+
             printFrame(df, "Execution Summary")
             printFrame(profitByHour, "Profit by Half Hour")
-            printFrame(dfByTrade, "Execution Summary by Complete Order")
+            printFrame(
+                dfByTrade.sort_values(by=[("time", "start")]),
+                "Execution Summary by Complete Order",
+            )
 
 
 @dataclass
