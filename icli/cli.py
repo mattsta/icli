@@ -893,6 +893,13 @@ class IBKRCmdlineApp:
             return False
 
         logger.info("[{}] Ordering {} via {}", desc, contract, order)
+
+        # Enforce a market exchange for the trade to be present if one didn't exist.
+        # (somehow this started causing errors because 'exchange' wasn't populated, but we don't think
+        #  our code changed, so maybe their API used to default to SMART but doesn't anymore?)
+        if not contract.exchange:
+            contract.exchange = "SMART"
+
         trade = self.ib.placeOrder(contract, order)
 
         # TODO: add optional agent-like feature HERE to modify order in steps for buys (+price, -qty)
