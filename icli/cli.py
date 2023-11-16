@@ -398,6 +398,8 @@ class IBKRCmdlineApp:
         # Return in the same order as the input
         result = [cached_contracts[contract.conId] for contract in contracts]
 
+        # logger.info("Returning contracts: {}", result)
+
         return result
 
     def contractsForPosition(
@@ -776,7 +778,11 @@ class IBKRCmdlineApp:
                 tif,
             )
             order = orders.IOrder(
-                side, qty, price, outsiderth=outsideRth, tif=tif  # type: ignore
+                side,
+                qty,
+                price,
+                outsiderth=outsideRth,
+                tif=tif,
             ).order(orderType)
         except:
             logger.exception("ORDER GENERATION FAILED. CANNOT PLACE ORDER!")
@@ -1933,15 +1939,21 @@ class IBKRCmdlineApp:
 
                 # We want to sort futures first, and sort MES, MNQ, etc first.
                 # (also Indexes and Index ETFs first too)
-                # This double symbol check is so we don't accidentially sort index ETF options
-                # inside the ETF section.
+                # This double symbol check is so we don't accidentially sort market ETF options
+                # inside the regular equity section.
                 if c.secType in {"FUT", "IND"} or (
                     (c.symbol == c.localSymbol)
                     and (
                         c.symbol
                         in {
                             "SPY",
+                            "UPRO",
+                            "SPXL",
+                            "SOXL",
+                            "SOXS",
                             "QQQ",
+                            "TQQQ",
+                            "SQQQ",
                             "IWM",
                             "DIA",
                         }
@@ -2104,6 +2116,9 @@ class IBKRCmdlineApp:
             # logger.info("[{}]: {}", symkey, contract)
 
         return symkey
+
+    def quoteExists(self, contract):
+        return lookupKey(contract) in self.quoteState
 
     async def addQuotes(self, symbols):
         """Add quotes by a common symbol name"""
@@ -2515,13 +2530,20 @@ class IBKRCmdlineApp:
                 if collective:
                     runnables.append(runCollective(collective.copy()))
 
-                with Timer("All commands"):
-                    for run in runnables:
-                        try:
-                            # run either a SINGLE command or a COLLECTIVE GROUP as we previously created
-                            await run
-                        except:
-                            logger.exception("[{}] Runnable failed?", run)
+                if runnables:
+                    if len(runnables) == 1:
+                        # if only one command, don't run with an extra Timer() report like we do below
+                        # with multiple commands (individual commands always report their individual timing)
+                        await runnables[0]
+                    else:
+                        # only show the "All commands" timer if we have multiple commands to run
+                        with Timer("All commands"):
+                            for run in runnables:
+                                try:
+                                    # run either a SINGLE command or a COLLECTIVE GROUP as we previously created
+                                    await run
+                                except:
+                                    logger.exception("[{}] Runnable failed?", run)
 
             except KeyboardInterrupt:
                 # Control-C pressed. Try again.

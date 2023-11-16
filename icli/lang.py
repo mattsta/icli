@@ -183,7 +183,7 @@ class IOpQQuote(IOp):
 
                 # if any iv/hv are still nan, don't stop yet.
                 if np.isnan(ivhv).any() and totalTry < 10:
-                    logger.warning("Still missing fields...")
+                    logger.warning("Waiting for data to arrive...")
                     totalTry += 1
                 else:
                     if totalTry >= 10:
@@ -280,14 +280,16 @@ class IOpPositionEvict(IOp):
 
         for contract, qty, price in contracts:
             if self.delta:
-                # if asking for a delta eviction, check current quote...
-                quotesym = contract.localSymbol.replace(" ", "")
-
                 # verify quote is loaded...
-                await self.runoplive(
-                    "add",
-                    f'"{quotesym}"',
-                )
+                if not self.state.quoteExists(contract):
+                    logger.info("Quote didn't exist, adding now...")
+                    await self.runoplive(
+                        "add",
+                        f'"{quotesym}"',
+                    )
+
+                # if asking for a delta eviction, check current quote...
+                quotesym = lookupKey(contract)
 
                 # check delta...
                 while not (
@@ -886,6 +888,8 @@ class IOpOrder(IOp):
         # allow symbol on command line, optionally
         # BUY IWM TOTAL 50000 ALGO LIMIT/LIM/LMT AF AS REL MP AMF AMS MOO MOC
         # TODO: find a way to make this aware of margin requirements for futures, currencies, etc
+        # TODO: improve the dispatch system to allow someting like named arguments so we don't need to inject our own positional name prefixes here.
+        #       Would also easily allow us to maybe have xor args where we want to switch between "total cost" and "total quantity" as inputs.
         return [
             DArg("symbol", convert=lambda x: x.upper()),
             DArg("bs", verify=lambda x: x.lower() in {"b", "s", "buy", "sell"}),
@@ -2989,6 +2993,8 @@ class IOpOptionChain(IOp):
                     symbol,
                     contractExact.lastTradeDateOrContractMonth,
                 )
+
+                # TODO: replace with reqSecDefOptParams()?
                 chainsExact = await self.ib.reqContractDetailsAsync(contractExact)
 
                 # logger.info("Full result: {}", chainsExact)
