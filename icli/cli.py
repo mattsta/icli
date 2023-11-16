@@ -98,11 +98,43 @@ ICLI_DUMP_QUOTES = bool(int(os.getenv("ICLI_DUMP_QUOTES", 0)))
 # Configure logger where the ib_insync live service logs get written.
 # Note: if you have weird problems you don't think are being exposed
 # in the CLI, check this log file for what ib_insync is actually doing.
+LOGDIR = pathlib.Path(os.getenv("ICLI_LOGDIR", "runlogs"))
+LOGDIR.mkdir(exist_ok=True)
+LOG_FILE_TEMPLATE = str(
+    LOGDIR / f"icli-id={ICLI_CLIENT_ID}-{pendulum.now('US/Eastern')}-"
+)
 logging.basicConfig(
     level=logging.INFO,
-    filename=f"icli-id={ICLI_CLIENT_ID}-{pendulum.now('US/Eastern')}.log",
+    filename=LOG_FILE_TEMPLATE + "ibkr.log",
     format="%(asctime)s %(message)s",
 )
+
+
+def asink(x):
+    # don't use print_formatted_text() (aliased to print()) because it doesn't
+    # respect the patch_stdout() context manager we've wrapped this entire
+    # runtime around. If we don't have patch_stdout() guarantees, the interface
+    # rips apart with prompt and bottom_toolbar problems during async logging.
+    original_print(x, end="")
+
+
+logger.remove()
+logger.add(asink, colorize=True)
+
+# new log level to disable color bolding on INFO default
+logger.level("FRAME", no=25)
+logger.level("ARGS", no=40, color="<blue>")
+
+# Also configure loguru logger to log all activity to its own log file for historical lookback.
+# also, these are TRACE because we log _user input_ to the TRACE facility, but we don't print
+# it to the console (since the user already typed it in the console)
+logger.add(sink=LOG_FILE_TEMPLATE + "icli.log", level="TRACE", colorize=False)
+logger.add(
+    sink=LOG_FILE_TEMPLATE + "icli-color.log",
+    level="TRACE",
+    colorize=True,
+)
+
 
 import prettyprinter as pp
 
@@ -188,22 +220,6 @@ LIVE_ACCOUNT_STATUS = [
 STATUS_FIELDS_PROCESS = set(LIVE_ACCOUNT_STATUS) | {"BuyingPower"}
 
 
-def asink(x):
-    # don't use print_formatted_text() (aliased to print()) because it doesn't
-    # respect the patch_stdout() context manager we've wrapped this entire
-    # runtime around. If we don't have patch_stdout() guarantees, the interface
-    # rips apart with prompt and bottom_toolbar problems during async logging.
-    original_print(x, end="")
-
-
-logger.remove()
-logger.add(asink, colorize=True)
-
-# new log level to disable color bolding on INFO default
-logger.level("FRAME", no=25)
-logger.level("ARGS", no=40, color="<blue>")
-
-
 def readableHTML(html):
     """Return contents of 'html' with tags stripped and in a _reasonably_
     readable plain text format.
@@ -219,9 +235,6 @@ def readableHTML(html):
 
 import asyncio
 import os
-
-# logger.remove()
-# logger.add(asink, colorize=True)
 
 # Create prompt object.
 from prompt_toolkit import PromptSession
@@ -2385,6 +2398,9 @@ class IBKRCmdlineApp:
                     complete_while_typing=True,
                     search_ignore_case=True,
                 )
+
+                # log user input to our active logfile(s)
+                logger.trace("{}> {}", self.levelName(), text1)
 
                 # Attempt to run the command(s) submitted into the prompt.
                 #
