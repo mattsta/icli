@@ -96,6 +96,11 @@ ALGOMAP = dict(
     MOC="MOC",
 )
 
+# This is a little redundant since it's also configured in cli.py.
+# We could potentially just move this to helpers.py to fix the import problem and have
+# a single source of truth for the number here.
+ICLI_CLIENT_ID = int(os.getenv("ICLI_CLIENT_ID", 0))
+
 
 def expand_symbols(symbols):
     # pre-process input strings so we can use symbols like SPXW231103{P,C}04345000
@@ -2307,6 +2312,17 @@ class IOpOrders(IOp):
         return []
 
     async def run(self):
+        # TODO: make new view for these:
+        # ords = await self.ib.reqCompletedOrdersAsync(apiOnly=True)
+
+        # We can technically see orders from ALL clients, but it also RE-BINDS orders by canceling
+        # them then re-placing them if we run this... so it's not great:
+        # also using reqAllOpenOrdersAsync() only gives you a snapshot of the orders at request time,
+        # while 'openTrades()' is always kept updated from the gateway notifications.
+
+        # ords = await self.ib.reqAllOpenOrdersAsync()
+        # logger.info("Got orders:\n{}", pp.pformat(ords))
+
         ords = self.ib.openTrades()
 
         # Note: we extract custom fields here because the default is
@@ -2348,7 +2364,7 @@ class IOpOrders(IOp):
             # make["oca"] = o.order.ocaGroup
             # make["gat"] = o.order.goodAfterTime
             # make["gtd"] = o.order.goodTillDate
-            # make["status"] = o.orderStatus.status
+            make["clientId"] = int(o.orderStatus.clientId)
             make["rem"] = o.orderStatus.remaining
             make["filled"] = o.order.totalQuantity - o.orderStatus.remaining
             make["4-8"] = o.order.outsideRth
@@ -2428,7 +2444,7 @@ class IOpOrders(IOp):
         # fmt: off
         df = pd.DataFrame(
                 data=populate,
-                columns=["id", "action", "sym", 'PC', 'date', 'strike',
+                columns=["id", "clientId", "action", "sym", 'PC', 'date', 'strike',
                     "xchange", "orderType",
                     "qty", "cashQty", "filled", "rem", "lmt", "aux", "trail", "tif",
                     "4-8", "lreturn", "lcost", "occ", "legs", "log"],
@@ -2436,33 +2452,34 @@ class IOpOrders(IOp):
 
         # fmt: on
         if df.empty:
-            logger.info("No orders!")
-        else:
-            df.sort_values(
-                by=["date", "sym", "action", "PC", "strike"],
-                ascending=True,
-                inplace=True,
-            )
+            logger.info("No open orders exist for client id {}!", ICLI_CLIENT_ID)
+            return
 
-            df = df.set_index("id")
-            fmtcols = ["lreturn", "lcost"]
+        df.sort_values(
+            by=["date", "sym", "action", "PC", "strike"],
+            ascending=True,
+            inplace=True,
+        )
 
-            # logger.info("Types are: {}", df.info())
+        df = df.set_index("id")
+        fmtcols = ["lreturn", "lcost"]
 
-            # pre-create the Total row to avoid a pandas warning...
-            df.loc["Total"] = 0.0
+        # logger.info("Types are: {}", df.info())
 
-            df.loc["Total"] = df[fmtcols].sum(axis=0)
-            df = df.fillna("")
-            df.loc[:, fmtcols] = df[fmtcols].map(
-                lambda x: f"{x:,.2f}" if isinstance(x, float) else x
-            )
+        # pre-create the Total row to avoid a pandas warning...
+        df.loc["Total"] = 0.0
 
-            toint = ["qty", "filled", "rem"]
-            df[toint] = df[toint].map(lambda x: f"{x:,.0f}" if x else "")
-            df[["4-8"]] = df[["4-8"]].map(lambda x: True if x else "")
+        df.loc["Total"] = df[fmtcols].sum(axis=0)
+        df = df.fillna("")
+        df.loc[:, fmtcols] = df[fmtcols].map(
+            lambda x: f"{x:,.2f}" if isinstance(x, float) else x
+        )
 
-            printFrame(df)
+        toint = ["qty", "filled", "rem", "clientId"]
+        df[toint] = df[toint].map(lambda x: f"{x:,.0f}" if x else "")
+        df[["4-8"]] = df[["4-8"]].map(lambda x: True if x else "")
+
+        printFrame(df)
 
 
 @dataclass
