@@ -2055,7 +2055,7 @@ class IBKRCmdlineApp:
 
             return HTML(
                 # all these spaces look weird, but they (kinda) match the underlying column-based formatting offsets
-                f"""{self.now}{onc} [{self.updates:,}]                {spxbreakers}                     {openorders}    {openpositions}    {todayexecutions}\n"""
+                f"""[{ICLI_CLIENT_ID}] {self.now}{onc} [{self.updates:,}]                {spxbreakers}                     {openorders}    {openpositions}    {todayexecutions}\n"""
                 + "\n".join(
                     [
                         f"{qp:>2}) " + formatTicker(quote)
