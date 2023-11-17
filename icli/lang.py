@@ -61,6 +61,10 @@ ORDER_TYPE_Q = Q(
         Choice("Adaptive Slow Market", "MKT + ADAPTIVE + SLOW"),
         Choice("Market on Open (MOO)", "MOO"),
         Choice("Market on Close (MOC)", "MOC"),
+        Choice("Market to Limit", "MTL"),
+        Choice("Market with Protection (Futures)", "MKT PRT"),
+        Choice("Stop with Protection (Futures)", "STOP PRT"),
+        Choice("Peg to Midpoint", "PEG MID"),
     ],
 )
 
@@ -79,6 +83,10 @@ ALGOMAP = dict(
     AS="LMT + ADAPTIVE + SLOW",
     MID="MIDPRICE",
     MIDPRICE="MIDPRICE",
+    MTL="MTL",  # MARKET-TO-LIMIT (execute at top-of-book, but don't sweep, just set a limit for remainder)
+    PRTMKT="MKT PRT",  # MARKET-PROTECT (futs only), triggers immediately
+    PRTSTOP="STOP PRT",  # STOP WITH PROTECTION (futs only), triggers when price hits
+    PEGMID="PEG MID",  # Floating midpoint peg, must be directed IBKRATS or IBUSOPT
     REL="REL",
     AFM="MKT + ADAPTIVE + FAST",
     AMF="MKT + ADAPTIVE + FAST",
@@ -1948,6 +1956,23 @@ class IOpOrderLimit(IOp):
         if contract is None:
             logger.error("Not submitting order because contract can't be formatted!")
             return None
+
+        if orderType == "PEG MID":
+            if isinstance(contract, Option):
+                logger.warning(
+                    "[{}] Routing order to IBUSOPT for PEG MID",
+                    contract.localSymbol or contract.symbol,
+                )
+                contract.exchange = "IBUSOPT"
+            elif isinstance(contract, Stock):
+                logger.warning(
+                    "[{}] Routing order to IBKRATS for PEG MID",
+                    contract.localSymbol or contract.symbol,
+                )
+                contract.exchange = "IBKRATS"
+            else:
+                logger.error("Peg-to-Midpoint is only valid for Stocks and Options!")
+                return None
 
         if not isButterflyClose:
             # butterfly spread is already qualified when created above

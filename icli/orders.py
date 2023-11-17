@@ -85,6 +85,11 @@ class IOrder:
     transmit: bool = True
     parentId: Optional[int] = None
 
+    # seconds to wait for a private execution before forwarding
+    # to the public market via SMART router
+    # (used for directed orders to IBKRATS or IBUSOPT)
+    postToAts: int = 0
+
     # stock sweeps
     sweeptofill: bool = False  # stocks and warrants only
 
@@ -156,6 +161,11 @@ class IOrder:
             "MKT + ADAPTIVE + SLOW": self.adaptiveSlowMkt,
             # MARKET FAST
             "MKT + ADAPTIVE + FAST": self.adaptiveFastMkt,
+            # More Fancy
+            "MKT PRT": self.marketWithProtection,
+            "MTL": self.marketToLimit,
+            "STOP PRT": self.stopWithProtection,
+            "PEG MID": self.pegToMidpoint,
             # Multi-Leg Orders
             "REL + MKT": self.comboPrimaryPegMkt,
             "REL + LMT": self.comboPrimaryPegLmt,
@@ -199,6 +209,11 @@ class IOrder:
         if override:
             common.update(override)
 
+        # optionally also provide a number of seconds for the order to rest in the dark pool
+        # before being routed to SMART independently.
+        if self.postToAts:
+            common["postToAts"] = self.postToAts
+
         return common
 
     def midprice(self) -> Order:
@@ -211,6 +226,77 @@ class IOrder:
             lmtPrice=self.lmt,  # API docs say "optional" but API errors out unless price given. shrug.
             orderType="MIDPRICE",
             **self.commonArgs(dict(tif="DAY")),
+        )
+
+        self.adjustForCashQuantity(o)
+        return o
+
+    def marketWithProtection(self) -> Order:
+        """Market-with-Protection is for futures where it executes at market, but if not fully filled, replaces remaining quantity with an auto-selected limit offset.
+
+        (Futures only)"""
+        o = Order(
+            action=self.action,
+            totalQuantity=self.qty,
+            orderType="MKT PRT",
+            **self.commonArgs(),
+        )
+
+        self.adjustForCashQuantity(o)
+        return o
+
+    def marketToLimit(self) -> Order:
+        """Market-to-Limit executes at market for top-of-book quantity then submits any remainder as a limit order at the already-executed price."""
+        o = Order(
+            action=self.action,
+            totalQuantity=self.qty,
+            orderType="MTL",
+            **self.commonArgs(),
+        )
+
+        self.adjustForCashQuantity(o)
+        return o
+
+    def stopWithProtection(self) -> Order:
+        """Stop-with-Protection is a stop order to submit a Market-with-Protection order when (or if) the stop price is breached.
+
+        (Futures only)"""
+
+        o = Order(
+            action=self.action,
+            totalQuantity=self.qty,
+            orderType="STOP PRT",
+            auxPrice=self.aux,  # the stop price for when to trigger the market-with-protection order
+            **self.commonArgs(),
+        )
+
+        self.adjustForCashQuantity(o)
+        return o
+
+    def pegToMidpoint(self) -> Order:
+        """Peg-to-Midpoint is a quasi-synthetic floating order type for IBKRATS or IBUSOPT.
+
+        Orders must be directly routed to an exchange.
+        The exchange is the '.exchange' attribute of the *contract* (which we don't control here).
+
+        If you route to IBKRATS for stocks or IBUSOPT for options the midpoint can float up and down,
+        but on other lit exchanges the midpoint will only float towards the execution side (up for buys, down for sells).
+
+        https://www.interactivebrokers.com/en/index.php?f=1058
+        """
+        o = Order(
+            action=self.action,
+            totalQuantity=self.qty,
+            orderType="PEG MID",
+            auxPrice=0,  # no offset from midpoint, use use bid/ask midpoint directly
+            lmtPrice=self.lmt,
+            # these orders must be routed as HELD since they go to the IBKR dark pool and not a lit market directly.
+            # (the docs don't note if IBUSOPT orders are notHeld too, but it seems like they should be?)
+            # https://interactivebrokers.github.io/tws-api/ibkrats.html
+            # https://www.interactivebrokers.com/en/index.php?f=4485
+            # https://www.interactivebrokers.com/en/trading/orders/reroute-to-smart.php
+            notHeld=True,
+            **self.commonArgs(),
         )
 
         self.adjustForCashQuantity(o)
