@@ -64,7 +64,7 @@ ORDER_TYPE_Q = Q(
         Choice("Market to Limit", "MTL"),
         Choice("Market with Protection (Futures)", "MKT PRT"),
         Choice("Stop with Protection (Futures)", "STOP PRT"),
-        Choice("Peg to Midpoint", "PEG MID"),
+        Choice("Peg to Midpoint (IBKR Dark Pool Routing)", "PEG MID"),
     ],
 )
 
@@ -1961,23 +1961,6 @@ class IOpOrderLimit(IOp):
         if contract is None:
             logger.error("Not submitting order because contract can't be formatted!")
             return None
-
-        if orderType == "PEG MID":
-            if isinstance(contract, Option):
-                logger.warning(
-                    "[{}] Routing order to IBUSOPT for PEG MID",
-                    contract.localSymbol or contract.symbol,
-                )
-                contract.exchange = "IBUSOPT"
-            elif isinstance(contract, Stock):
-                logger.warning(
-                    "[{}] Routing order to IBKRATS for PEG MID",
-                    contract.localSymbol or contract.symbol,
-                )
-                contract.exchange = "IBKRATS"
-            else:
-                logger.error("Peg-to-Midpoint is only valid for Stocks and Options!")
-                return None
 
         if not isButterflyClose:
             # butterfly spread is already qualified when created above

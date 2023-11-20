@@ -789,6 +789,23 @@ class IBKRCmdlineApp:
             logger.exception("ORDER GENERATION FAILED. CANNOT PLACE ORDER!")
             return
 
+        if order.orderType == "PEG MID":
+            if isinstance(contract, Option):
+                logger.warning(
+                    "[{}] Routing order to IBUSOPT for PEG MID",
+                    contract.localSymbol or contract.symbol,
+                )
+                contract.exchange = "IBUSOPT"
+            elif isinstance(contract, Stock):
+                logger.warning(
+                    "[{}] Routing order to IBKRATS for PEG MID",
+                    contract.localSymbol or contract.symbol,
+                )
+                contract.exchange = "IBKRATS"
+            else:
+                logger.error("Peg-to-Midpoint is only valid for Stocks and Options!")
+                return None
+
         name = contract.localSymbol.replace(" ", "")
         desc = f"{name} :: QTY {order.totalQuantity:,}"
         if preview:
