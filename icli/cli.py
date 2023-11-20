@@ -1634,7 +1634,11 @@ class IBKRCmdlineApp:
                 a_s = f"{c.askSize // 1000:>5}k"
 
             # use different print logic if this is an option contract or spread
-            bigboi = (isinstance(c.contract, Option)) or c.contract.comboLegs
+            bigboi = (
+                isinstance(c.contract, Option)
+                or isinstance(c.contract, FuturesOption)
+                or c.contract.comboLegs
+            )
 
             if bigboi:
                 # Could use this too, but it only updates every couple seconds instead
@@ -1765,13 +1769,24 @@ class IBKRCmdlineApp:
                         ]
                     )
                 else:
-                    rowName = f"{c.contract.localSymbol or c.contract.symbol:<9}:"
+                    rowName = f"{c.contract.localSymbol or c.contract.symbol:<21}:"
 
-                    # Also generate a nice split to reconstruct...
-                    sym, y, m, d, pc, price = re.match(
-                        r"(\w+)\s*(\d\d)(\d\d)(\d\d)([PC])(\d\d\d\d\d\d\d\d)", rowName
-                    ).groups()
-                    rowNice = f"{sym:<6} {y}-{m}-{d} {pc} {int(price) / 1000:>8,.2f}"
+                    try:
+                        contract = c.contract
+                        if isinstance(contract, (Option, FuturesOption)):
+                            # has data like:
+                            # FuturesOption(conId=653770578, symbol='RTY', lastTradeDateOrContractMonth='20231117', strike=1775.0, right='P', multiplier='50', exchange='CME', currency='USD', localSymbol='R3EX3 P1775', tradingClass='R3E')
+                            ltdocm = contract.lastTradeDateOrContractMonth
+                            y = int(ltdocm[2:4])
+                            m = int(ltdocm[4:6])
+                            d = int(ltdocm[6:8])
+                            pc = contract.right
+                            price = contract.strike
+                            sym = rowName
+                            rowNice = f"{sym} {y}-{m}-{d} {pc} {price:>8,.2f}"
+                    except:
+                        # else, we can't parse it for some reason, so juse use the name...
+                        rowNice = rowName
 
                     # TODO: should this be fancier and decay cleaner?
                     #       we could do more accurate countdowns to actual expiration time instead of just "days"
