@@ -149,7 +149,7 @@ MONEY_COLORS = seaborn.color_palette("RdYlGn", n_colors=COLOR_COUNT, desat=1).as
 # only keep lowest 25 and highest 25 elements since middle values are less distinct
 MONEY_COLORS = MONEY_COLORS[:25] + MONEY_COLORS[-25:]
 
-# display order we want: RTY, ES / SPX, NQ / COMP, YM, Index ETFs
+# display order we want: RTY / RUT, ES / SPX, NQ / COMP, YM, Index ETFs
 FUT_ORD = dict(
     MES=-9,
     ES=-9,
@@ -157,6 +157,7 @@ FUT_ORD = dict(
     SPX=-9,
     NANOS=-9,
     RTY=-10,
+    RUT=-10,
     M2K=-10,
     IWM=-6,
     NDX=-8,
