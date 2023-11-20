@@ -357,7 +357,7 @@ class IBKRCmdlineApp:
         )
     )
 
-    # Cache all contractIds to names
+    # Cache all contractIds and names to their fully qualified contract object values
     conIdCache: Mapping[int, Contract] = field(
         default_factory=lambda: diskcache.Cache("./cache-contracts")
     )
@@ -391,9 +391,23 @@ class IBKRCmdlineApp:
 
             # iterate resolved contracts and save them all
             for contract in got:
-                # default 30 day expiration...
-                # (contracts are just IBKR metadata and should be static? if there's a problem, just delete your cache!)
-                self.conIdCache.set(contract.conId, contract, expire=86400 * 30)  # type: ignore
+                # Only cache actually qualified contracts (names with typos still "qualify" but just don't have their fields populated)
+                if contract.conId:
+                    # default 30 day expiration...
+                    # (contracts are just IBKR metadata and should be static? if there's a problem, just delete your cache!)
+                    # DO NOT cache the trade exchange for the contract because it only applies during trade execution and shouldn't
+                    # be assumed to be reused.
+                    originalExchange = contract.exchange
+                    contract.exchange = None
+
+                    # cache by id
+                    self.conIdCache.set(contract.conId, contract, expire=86400 * 30)  # type: ignore
+
+                    # also cache the same thing by the most well defined symbol we have
+                    self.conIdCache.set((contract.localSymbol, contract.symbol), contract, expire=86400 * 30)  # type: ignore
+
+                    contract.exchange = originalExchange
+
                 cached_contracts[contract.conId] = contract
 
         # Return in the same order as the input
@@ -915,14 +929,18 @@ class IBKRCmdlineApp:
                         excess,
                     )
                 else:
+                    # show rough estimate of how much we're spending.
+                    # for equity instruments with margin, we use the margin buy requirement as the cost estimate.
+                    # for non-equity (options) without margin, we use the absolute value of the buying power drawdown for the purchase.
                     logger.info(
                         "[{}] PREVIEW TRADE PERCENTAGE OF AVAILABLE FUNDS: {:,.2f} %",
                         desc,
                         100
                         * (
                             float(trade.initMarginAfter)
-                            / self.accountStatus["AvailableFunds"]
-                        ),
+                            or abs(float(trade.equityWithLoanChange))
+                        )
+                        / self.accountStatus["AvailableFunds"],
                     )
 
             return False
