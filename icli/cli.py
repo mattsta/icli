@@ -849,9 +849,10 @@ class IBKRCmdlineApp:
                 ) * 100
 
                 logger.info(
-                    "[{}] PREVIEW MARGIN REQUIREMENT INIT: {:.2f} %",
+                    "[{}] PREVIEW MARGIN REQUIREMENT INIT: {:.2f} % (${:,.2f})",
                     desc,
                     margPctInit,
+                    float(trade.initMarginChange),
                 )
 
                 # "MAIN" for "MAINTENANCE" to match the length of "INIT" above for alignment.
@@ -874,9 +875,9 @@ class IBKRCmdlineApp:
                 if int(multiplier) == multiplier:
                     multiplier = int(multiplier)
 
-                for amt in (0.25, 1, 3, 5):
+                for amt in (0.20, 0.75, 1, 3, 5):
                     logger.info(
-                        "[{}] PREVIEW LEVERAGE ({} x {}): ${:,.2f} CONTRACT MOVE is LEVERAGED TO ${:,.2f}",
+                        "[{}] PREVIEW LEVERAGE ({} x {}): ${:,.2f} CONTRACT MOVE LEVERAGE is ${:,.2f}",
                         desc,
                         order.totalQuantity,
                         multiplier,
@@ -912,6 +913,16 @@ class IBKRCmdlineApp:
                         "[{}] TRADE NOT VIABLE. MISSING EQUITY: ${:,.2f}",
                         desc,
                         excess,
+                    )
+                else:
+                    logger.info(
+                        "[{}] PREVIEW TRADE PERCENTAGE OF AVAILABLE FUNDS: {:,.2f} %",
+                        desc,
+                        100
+                        * (
+                            float(trade.initMarginAfter)
+                            / self.accountStatus["AvailableFunds"]
+                        ),
                     )
 
             return False
