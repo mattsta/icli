@@ -1777,9 +1777,9 @@ class IBKRCmdlineApp:
                             # has data like:
                             # FuturesOption(conId=653770578, symbol='RTY', lastTradeDateOrContractMonth='20231117', strike=1775.0, right='P', multiplier='50', exchange='CME', currency='USD', localSymbol='R3EX3 P1775', tradingClass='R3E')
                             ltdocm = contract.lastTradeDateOrContractMonth
-                            y = int(ltdocm[2:4])
-                            m = int(ltdocm[4:6])
-                            d = int(ltdocm[6:8])
+                            y = ltdocm[2:4]
+                            m = ltdocm[4:6]
+                            d = ltdocm[6:8]
                             pc = contract.right
                             price = contract.strike
                             sym = rowName
