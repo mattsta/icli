@@ -2323,6 +2323,9 @@ class IOpOrders(IOp):
         #       which don't print nicely on their own.
         populate = []
 
+        # save the logs from each order externally so we can print them outside of the summary table
+        logs = []
+
         # Fields: https://interactivebrokers.github.io/tws-api/classIBApi_1_1Order.html
         # Note: no sort here because we sort the dataframe before showing
         for o in ords:
@@ -2331,14 +2334,21 @@ class IOpOrders(IOp):
                 continue
 
             make = {}
-            make["id"] = o.order.orderId
-            make["sym"] = o.contract.symbol
-            parseContractOptionFields(o.contract, make)
-            make["occ"] = (
-                o.contract.localSymbol.replace(" ", "")
-                if len(o.contract.localSymbol) > 15
-                else ""
-            )
+            log = {}
+
+            def populateSymbolDetails(target):
+                target["id"] = o.order.orderId
+                target["sym"] = o.contract.symbol
+                parseContractOptionFields(o.contract, target)
+                target["occ"] = (
+                    o.contract.localSymbol.replace(" ", "")
+                    if len(o.contract.localSymbol) > 15
+                    else ""
+                )
+
+            populateSymbolDetails(make)
+            populateSymbolDetails(log)
+
             make["xchange"] = o.contract.exchange
             make["action"] = o.order.action
             make["orderType"] = o.order.orderType
@@ -2422,25 +2432,18 @@ class IOpOrders(IOp):
                 else:
                     make["lcost"] = int(o.order.totalQuantity) * float(o.order.lmtPrice)
 
-            # Convert UTC timestamps to ET / Exchange Time
-            # (TradeLogEntry.time is already a python datetime object)
-            make["log"] = [
-                (
-                    pendulum.instance(l.time).in_tz("US/Eastern"),
-                    l.status,
-                    l.message,
-                )
-                for l in o.log
-            ]
+            log["logs"] = o.log
 
             populate.append(make)
+            logs.append(log)
         # fmt: off
+
         df = pd.DataFrame(
                 data=populate,
                 columns=["id", "clientId", "action", "sym", 'PC', 'date', 'strike',
                     "xchange", "orderType",
                     "qty", "cashQty", "filled", "rem", "lmt", "aux", "trail", "tif",
-                    "4-8", "lreturn", "lcost", "occ", "legs", "log"],
+                    "4-8", "lreturn", "lcost", "occ", "legs"],
                 )
 
         # fmt: on
@@ -2473,6 +2476,22 @@ class IOpOrders(IOp):
         df[["4-8"]] = df[["4-8"]].map(lambda x: True if x else "")
 
         printFrame(df)
+
+        # now print the status logs for each current order...
+
+        for log in logs:
+            logger.info("[{} :: {} :: {}] EVENT LOG", log["id"], log["sym"], log["occ"])
+
+            for l in log["logs"]:
+                logger.info(
+                    "[{} :: {} :: {}] {}: {} — {}",
+                    log["id"],
+                    log["sym"],
+                    log["occ"],
+                    pendulum.instance(l.time).in_tz("US/Eastern"),
+                    l.status,
+                    l.message,
+                )
 
 
 @dataclass
