@@ -2104,6 +2104,7 @@ class IOpPositions(IOp):
                 "marketPrice",
                 "averageCost",
                 "marketValue",
+                "closeOrderValue",
                 "strike",
             ]
             simpleCols = [
@@ -2114,7 +2115,9 @@ class IOpPositions(IOp):
                 "totalCost",
             ]
 
-            df.loc[:, detailCols] = df[detailCols].map(lambda x: fmtPrice(x))
+            df.loc[:, detailCols] = df[detailCols].map(
+                lambda x: fmtPrice(x) if isinstance(x, (int, float)) else x
+            )
             df.loc[:, simpleCols] = df[simpleCols].map(lambda x: f"{x:,.2f}")
 
             # show fractional shares only if they exist
@@ -2177,10 +2180,15 @@ class IOpPositions(IOp):
             close = self.state.orderPriceForContract(o.contract, o.position)
 
             # if it's a list of tuples, break them by newlines for display
+            multiplier = float(o.contract.multiplier or 1)
             if isinstance(close, list):
                 closingSide = " ".join([str(x) for x in close])
+                make["closeOrderValue"] = " ".join(
+                    [size * price * multiplier for size, price in close]
+                )
             else:
                 closingSide = close
+                make["closeOrderValue"] = close * o.position * multiplier
 
             make["closeOrder"] = closingSide
             make["marketValue"] = o.marketValue
@@ -2225,6 +2233,7 @@ class IOpPositions(IOp):
                 make["marketPrice"] *= -1
 
             populate.append(make)
+
         # positions() just returns symbol names, share count, and cost basis.
         # portfolio() returns PnL details and current market prices/values
         df = pd.DataFrame(
@@ -2240,6 +2249,7 @@ class IOpPositions(IOp):
                 "averageCost",
                 "marketPrice",
                 "closeOrder",
+                "closeOrderValue",
                 "marketValue",
                 "totalCost",
                 "unrealizedPNL",
