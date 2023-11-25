@@ -678,7 +678,7 @@ class IOpDepth(IOp):
             # loop for up to a second until bids or asks are populated
             for j in range(0, 100):
                 if not (t.domBids or t.domAsks):
-                    await asyncio.sleep(0.001)
+                    await asyncio.sleep(0)
 
             if not (t.domBids or t.domAsks):
                 logger.warning(
@@ -790,7 +790,11 @@ class IOpDepth(IOp):
             #       the values inside t.domTicks
 
             if i < self.count - 1:
-                await asyncio.sleep(3)
+                try:
+                    await asyncio.sleep(3)
+                except:
+                    logger.warning("Stopped during sleep!")
+                    break
 
         self.ib.cancelMktDepth(contract, isSmartDepth=useSmart)
         del self.depthState[contract]
