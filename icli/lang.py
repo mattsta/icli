@@ -316,38 +316,46 @@ class IOpPositionEvict(IOp):
                 if abs(thebigd) < self.delta:
                     continue
 
-            await self.state.qualify(contract)
+            # we only need to qualify if the ID doesn't exist
+            if not contract.conId:
+                await self.state.qualify(contract)
 
-            # set price floor to 3% below current live price for
-            # the midprice order floor.
-            if qty < 0:
-                # if position IS SHORT, this is a BUY so we need a HIGHER CAP
-                limit = round(price * 1.03, 2)
+            # TODO: abstract the "buy" agent following to another coroutine and attach it here.
+            if True:
+                # set price floor to 0.25% below current live price for
+                # the midprice order floor for stocks.
+                # TODO: fix this... it's broken for low priced options. This should be more like a FAST EXIT and not just LIMIT AND CHILL.
+                # IN FACT, if we make it FAST, maybe we can start anchoring the price better to add padding/tolerance for fast fluxuating quote ranges
+                EQUITY_BOUNDS = 1.0025
+                OPTION_BOUNDS = 1.15
+                if qty < 0:
+                    # if position IS SHORT, this is a BUY so we need a HIGHER CAP
+                    limit = round(price * EQUITY_BOUNDS, 2)
 
-                if isinstance(contract, Option):
-                    # options have deeper exit floor criteria because their ranges can be wider.
-                    # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
-                    # the spread without immediately going to market, but ymmv.
-                    limit = round(price * 1.25, 2)
-            else:
-                # else, position IS LONG, this is a SELL, so we need a LOWER CAP
-                limit = round(price / 1.03, 2)
+                    if isinstance(contract, Option):
+                        # options have deeper exit floor criteria because their ranges can be wider.
+                        # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
+                        # the spread without immediately going to market, but ymmv.
+                        limit = round(price * OPTION_BOUNDS, 2)
+                else:
+                    # else, position IS LONG, this is a SELL, so we need a LOWER CAP
+                    limit = round(price / EQUITY_BOUNDS, 2)
 
-                if isinstance(contract, Option):
-                    # options have deeper exit floor criteria because their ranges can be wider.
-                    # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
-                    # the spread without immediately going to market, but ymmv.
-                    limit = round(price / 1.25, 2)
+                    if isinstance(contract, Option):
+                        # options have deeper exit floor criteria because their ranges can be wider.
+                        # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
+                        # the spread without immediately going to market, but ymmv.
+                        limit = round(price / OPTION_BOUNDS, 2)
 
             algo = "MIDPRICE"
 
             if len(contract.localSymbol) > 10 or isinstance(contract, Future):
-                algo = "LMT + ADAPTIVE + FAST"
+                algo = "AF"
                 limit = comply(contract, limit)
 
             # if limit price rounded down to zero, just do a market order
             if not limit:
-                algo = "MKT + ADAPTIVE + FAST"
+                algo = "AMF"  # "MKT + ADAPTIVE + FAST"
 
             logger.info(
                 "[{}] [{}] Submitting...",
