@@ -915,6 +915,21 @@ class IBKRCmdlineApp:
                     (trade.minCommission) / order.totalQuantity,
                     (trade.maxCommission) / order.totalQuantity,
                 )
+
+                if multiplier > 1:
+                    # (Basically: how much must the underlying change in price for you to pay off
+                    #             the commission for this order (note: probably 2x this to cover
+                    #             both sides of the commission to exit.)
+                    tcmin = trade.minCommission / order.totalQuantity / multiplier
+                    tcmax = trade.maxCommission / order.totalQuantity / multiplier
+                    logger.info(
+                        "[{}] PREVIEW COMMISSION PER UNDERLYING: ${:.4f} to ${:.4f} (2x: ${:.4f} to ${:.4f})",
+                        desc,
+                        tcmin,
+                        tcmax,
+                        2 * tcmin,
+                        2 * tcmax,
+                    )
             elif isset(trade.commission):
                 # futures contracts and index options contracts have fixed priced commissions so
                 # they don't provide a min/max range, it's just one guaranteed value.
@@ -923,6 +938,15 @@ class IBKRCmdlineApp:
                     desc,
                     (trade.commission) / order.totalQuantity,
                 )
+
+                tc = trade.commission / order.totalQuantity / multiplier
+                if multiplier > 1:
+                    logger.info(
+                        "[{}] PREVIEW COMMISSION PER UNDERLYING: ${:.4f} (2x: ${:.4f})",
+                        desc,
+                        tc,
+                        2 * tc,
+                    )
 
             # (if trade isn't valid, trade is an empty list, so only print valid objects...)
             if trade:
