@@ -37,6 +37,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 # from prompt_toolkit import print_formatted_text as print
 from prompt_toolkit.formatted_text import HTML
 
+import icli.calc
 import icli.orders as orders
 
 from icli.futsexchanges import FUTS_EXCHANGE
@@ -319,6 +320,9 @@ class IBKRCmdlineApp:
 
     # Events!
     scheduler: dict[str, Any] = field(default_factory=dict)
+
+    # use a single calculator instance so we only need to parse the grammar once
+    calc: icli.calc.Calculator = field(default_factory=icli.calc.Calculator)
 
     # generic cache for data usage (strikes, etc)
     cache: Mapping[Any, Any] = field(

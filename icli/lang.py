@@ -460,6 +460,22 @@ class IOpCalendar(IOp):
 
 
 @dataclass
+class IOpCalculator(IOp):
+    """Just show a calculator!"""
+
+    def argmap(self):
+        return [DArg("*parts", desc="Calculator input")]
+
+    async def run(self):
+        cmd = " ".join(self.parts)
+
+        try:
+            logger.info("[{}]: {:,.4f}", cmd, self.state.calc.calc(cmd))
+        except Exception as e:
+            logger.warning("[{}]: calculation error: {}!", cmd, e)
+
+
+@dataclass
 class IOpScheduleEvent(IOp):
     """Schedule a command to execute at a specific date+time in the future."""
 
@@ -3332,6 +3348,7 @@ OP_MAP = {
         "alias": IOpAlias,
         "alert": IOpAlert,
         "calendar": IOpCalendar,
+        "calculator": IOpCalculator,
     },
     "Schedule Management": {
         # full "named" versions of the commands
