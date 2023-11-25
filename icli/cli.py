@@ -415,7 +415,9 @@ class IBKRCmdlineApp:
                 cached_contracts[contract.conId] = contract
 
         # Return in the same order as the input
-        result = [cached_contracts[contract.conId] for contract in contracts]
+        result = [
+            cached_contracts.get(contract.conId, contract) for contract in contracts
+        ]
 
         # logger.info("Returning contracts: {}", result)
 
