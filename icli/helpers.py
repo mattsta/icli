@@ -306,9 +306,9 @@ def parseContractOptionFields(contract, d):
     else:
         # populate columns for non-contracts/warrants too so the final
         # column-order generator still works.
-        d["PC"] = None
-        d["strike"] = None
         d["date"] = None
+        d["strike"] = None
+        d["PC"] = None
 
 
 def sortLocalSymbol(s):

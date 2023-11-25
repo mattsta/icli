@@ -1,5 +1,6 @@
 .env.icli
 
+runlogs/
 dist/
 cache*/
 icli/hist/
