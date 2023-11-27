@@ -1185,7 +1185,12 @@ class IOpOrder(IOp):
                 break
 
         # now just print current holdings so we have a clean view of what we just transacted
-        await self.runoplive("positions", [])
+        # (but schedule it for a next run so so the event loop has a chance to update holdings first)
+        async def delayShowPositions():
+            await asyncio.sleep(0.666)
+            await self.runoplive("positions", [])
+
+        asyncio.create_task(delayShowPositions())
         return True
 
 
