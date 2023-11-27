@@ -363,19 +363,37 @@ class IOpPositionEvict(IOp):
                 (contract.localSymbol, qty, price, limit),
             )
 
+            if False:
+                # instead of tirggering buy op here, abstract buy op logic to call directly just parameterized.
+                # POSITION IS SHORT, SO CANCEL WITH A BUY
+                # this is a bit of a hack because currently the "buy" automation takes money and not share/contract counts.
+                # TODO: fix the buy command to allow MONEY or QTY and also fix the layout so it's not "buy SYM buy/sell t TOTAL a ALGO"
+                #       Maybe more like: get $30,000 using MID for AAPL preview
+                #                        get 5 using PRTMKT for /RTY preview ???????
+                amt = round(abs(qty) * price, 2) * 2
+                if qty < 0:
+                    await self.runoplive("buy", f"{quotesym} buy t {amt} a MID")
+                else:
+                    # else, POSITION IS LONG, SO CANCEL WITH A SELL
+                    await self.runoplive("buy", f"{quotesym} sell t {amt} a MID")
+
             # using MIDPRICE for equity-like things and ADAPTIVE for option-like things.
             # TODO: review this and see if maybe it should be hooked up to just price tracking algo?
 
             # TODO: when trades complete, have trade event send "trade done" event to listeners for
             #       next chained action (e.g. EVICT SPXW* -1 0.78 ... THEN BUY MORE ... FAST SPX P {price} 0)
-            trade = await self.state.placeOrderForContract(
+
+            # look algo up in the algo map. We must send IBKR ALGO NAMES to the order placement and not our shorthand names.
+            useAlgoFromMapLookup = ALGOMAP[algo]
+
+            ordertrade = await self.state.placeOrderForContract(
                 contract.localSymbol,  # TODO: may be unnecessary since 'contract' has symbols too...
                 # True==BUY if currently short so _BUY_ TO CLOSE, False==SELL if currently long so _SELL_ TO CLOSE
                 qty < 0,
                 contract,
                 qty=abs(qty),
                 price=limit,
-                orderType=algo,
+                orderType=useAlgoFromMapLookup,
             )
 
 
