@@ -10,10 +10,26 @@ getcontext().prec = 10  # set precision for Decimal
 grammar = """
     start: expr
     ?expr: operation
-         | NUMBER -> number
+         | SIGNED_NUMBER -> number
     operation: "(" FUNC expr+ ")"
     FUNC: "+" | "-" | "*" | "/" | "gains" | "grow" | "o"
-    %import common.NUMBER
+
+# Use custom 'DIGIT' so we can have underscores as place holders in our numbers
+# (this means we need to -rebuild the entire number/float/int hierarchy here too)
+DIGIT: "0".."9" | "_"
+HEXDIGIT: "a".."f"|"A".."F"|DIGIT
+
+INT: DIGIT+
+SIGNED_INT: ["+"|"-"] INT
+DECIMAL: INT "." INT? | "." INT
+
+_EXP: ("e"|"E") SIGNED_INT
+FLOAT: INT _EXP | DECIMAL _EXP?
+SIGNED_FLOAT: ["+"|"-"] FLOAT
+
+NUMBER: FLOAT | INT
+SIGNED_NUMBER: ["+"|"-"] NUMBER
+
     %import common.WS
     %ignore WS
 """
@@ -32,7 +48,7 @@ class CalculatorTransformer(Transformer):
 
     def number(self, value):
         """ur a number lol"""
-        return Decimal(value[0])
+        return Decimal(value[0].replace("_", ""))
 
     def operation(self, exprs):
         """Map from grammar symbol to running method"""
