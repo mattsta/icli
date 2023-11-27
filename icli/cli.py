@@ -1783,10 +1783,11 @@ class IBKRCmdlineApp:
                     # B  1 AAPL212121C000...
                     # S  2 ....
                     rns = []
-                    for x in c.contract.comboLegs:
+                    for idx, x in enumerate(c.contract.comboLegs):
                         contract = self.conIdCache[x.conId]
+                        padding = "    " if idx > 0 else ""
                         rns.append(
-                            f"{x.action[0]} {x.ratio:2} {contract.localSymbol or contract.symbol}"
+                            f"{padding}{x.action[0]} {x.ratio:2} {contract.localSymbol or contract.symbol}"
                         )
 
                     rowName = "\n".join(rns)
@@ -2166,6 +2167,9 @@ class IBKRCmdlineApp:
         result = dict()
         extraArgs = dict(bottom_toolbar=self.bottomToolbar, refresh_interval=0.750)
         for t in terms:
+            if not t:
+                continue
+
             got = await t.ask(**extraArgs)
 
             # if user canceled, give up
@@ -2191,9 +2195,14 @@ class IBKRCmdlineApp:
         # logger.info("Adding quotes for: {} :: {}", ordReq, contract)
 
         # just verify this contract is already qualified (will be a cache hit most likely)
-        assert (
-            contract.conId
-        ), f"Sorry, we only accept qualified contracts for adding quotes, but we got: {contract}"
+        if isinstance(contract, Bag):
+            assert all(
+                [x.conId for x in contract.comboLegs]
+            ), f"Sorry, your bag doesn't have qualified contracts inside of it? Got: {contract}"
+        else:
+            assert (
+                contract.conId
+            ), f"Sorry, we only accept qualified contracts for adding quotes, but we got: {contract}"
 
         tickFields = tickFieldsForContract(contract)
 

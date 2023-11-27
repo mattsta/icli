@@ -690,6 +690,10 @@ class IOpDepth(IOp):
         self.depthState = {}
         useSmart = True
 
+        if isinstance(contract, Bag):
+            logger.error("Market depth does not support spreads!")
+            return
+
         self.depthState[contract] = self.ib.reqMktDepth(
             contract, numRows=40, isSmartDepth=useSmart
         )
@@ -2821,14 +2825,34 @@ class IOpOrderSpread(IOp):
         return [DArg("legdesc"), DArg("*preview")]
 
     async def run(self):
+        bag = None
+
+        logger.info(
+            "Reminder: selling spreads for a net credit requires a negative price here."
+        )
+
+        # if we're using a quote as entrypoint, look it up first...
+        if self.legdesc.startswith(":"):
+            desc = self.legdesc
+            # this logic is manually here instead of reusing the cli.py abstraction because
+            # the contract here is a bag which has different properties...
+            lookupInt = int(self.legdesc[1:])
+            try:
+                name, ticker = self.state.quotesPositional[lookupInt]
+                bag = ticker.contract
+            except:
+                logger.error("No matching quote index for {}", self.legdesc)
+                return
+
         promptPosition = [
-            Q("Symbol", value=self.legdesc),
+            # Only ask for the symbol if we're not providing a symbol ourself
+            Q("Symbol", value=self.legdesc) if not bag else None,
             Q("Price"),
             Q("Quantity"),
             ORDER_TYPE_Q,
         ]
 
-        if self.legdesc:
+        if not bag and self.legdesc:
             await self.runoplive(
                 "add",
                 f'"{self.legdesc}"',
@@ -2837,14 +2861,16 @@ class IOpOrderSpread(IOp):
         got = await self.state.qask(promptPosition)
 
         try:
-            req = got["Symbol"]
-            orderReq = self.state.ol.parse(req)
+            if not bag:
+                req = got["Symbol"]
+                desc = req
+                orderReq = self.state.ol.parse(req)
 
-            # re-add quote if changed or new (no impact if already added)
-            await self.runoplive(
-                "add",
-                f'"{req}"',
-            )
+                # re-add quote if changed or new (no impact if already added)
+                await self.runoplive(
+                    "add",
+                    f'"{req}"',
+                )
 
             qty = int(got["Quantity"])
             price = float(got["Price"])
@@ -2853,22 +2879,37 @@ class IOpOrderSpread(IOp):
             # credit/debit is addressed by negative or positive prices.
             # (i.e. you can't "short" a spread and I guess closing the spread is
             #       just an "inverse BUY" in their API's view)
-            order = orders.IOrder("BUY", qty, price, outsiderth=False).order(orderType)
-        except:
-            logger.warning("Order canceled due to incomplete fields")
+            # also TIF limits due to algos only operating RTH... (TODO: this also needs to just check for SPX/VIX options for outside=True)
+            order = orders.IOrder(
+                "BUY",
+                qty,
+                price,
+                outsiderth=True if orderType in {"LMT", "MKT"} else False,
+            ).order(orderType)
+        except Exception as e:
+            logger.warning("Order canceled due to incomplete fields: {}", e)
             return None
 
-        bag = await self.state.bagForSpread(orderReq)
-
-        trade = await self.ib.whatIfOrderAsync(bag, order)
-        logger.info("Impact: {}", pp.pformat(trade))
+        # only calculate a bag from the order request if this isn't :N index request symbol
+        if not bag:
+            bag = await self.state.bagForSpread(orderReq)
 
         if self.preview:
-            logger.warning("ONLY PREVIEW. NO TRADE PLACED.")
+            logger.info(
+                "[{}] PREVIEW REQUEST {} via {}",
+                desc,
+                pp.pformat(bag),
+                pp.pformat(order),
+            )
+            trade = await self.ib.whatIfOrderAsync(bag, order)
+            logger.info("[{}] TRADE PREVIEW: {}", desc, pp.pformat(trade))
+            logger.warning("[{}] ONLY PREVIEW. NO TRADE PLACED.", desc)
+            # TODO: add more preview calculations around commissions, etc like we do with the regular single order previews.
+            # TOTO: also maybe move this entire execution logic into cli.py next to the regular single-contract order processing?
             return
 
         trade = self.ib.placeOrder(bag, order)
-        logger.info("Trade: {}", pp.pformat(trade))
+        logger.info("TRADE EXECUTED: {}", pp.pformat(trade))
 
 
 @dataclass

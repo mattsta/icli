@@ -346,6 +346,8 @@ def tradeOrderCmp(o):
     useKey = o.contract.localSymbol.split()
     useDate = -1
 
+    # logger.info("Using to sort: {}", o)
+
     if useKey:
         useName = useKey[0]
         if len(useKey) == 2:
@@ -355,7 +357,9 @@ def tradeOrderCmp(o):
             # four digit years, so to compare, strip the leading '20' from LTDOCM
             useDate = o.contract.lastTradeDateOrContractMonth[2:]
 
-    return (useDate, useSym, useName)
+    # logger.info("Generated sort key: {}", (useDate, useSym, useName))
+
+    return (str(useDate), str(useSym), str(useName))
 
 
 def boundsByPercentDifference(mid: float, percent: float) -> tuple[float, float]:
