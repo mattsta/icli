@@ -2426,66 +2426,83 @@ class IOpOrders(IOp):
             make["rem"] = o.orderStatus.remaining
             make["filled"] = o.order.totalQuantity - o.orderStatus.remaining
             make["4-8"] = o.order.outsideRth
-            if o.order.action == "SELL":
-                if o.contract.secType == "OPT":
-                    make["lreturn"] = (
-                        int(o.order.totalQuantity) * float(o.order.lmtPrice) * 100
-                    )
-                else:
-                    make["lreturn"] = int(o.order.totalQuantity) * float(
-                        o.order.lmtPrice
-                    )
-            elif o.order.action == "BUY":
-                if o.contract.secType == "OPT":
-                    make["lcost"] = (
-                        int(o.orderStatus.remaining) * float(o.order.lmtPrice) * 100
-                    )
-                elif o.contract.secType == "BAG":
-                    # is spread, so we need to print more details than just one strike...
-                    myLegs: list[str] = []
 
-                    make["lcost"] = (
-                        int(o.order.totalQuantity) * float(o.order.lmtPrice) * 100
-                    )
+            # with a bag, we need to calculate a custom pq because each leg can contribute a different amount
+            totalMultiplier = 0
+            if o.contract.secType == "BAG":
+                # is spread, so we need to print more details than just one strike...
+                myLegs: list[str] = []
 
-                    for x in o.contract.comboLegs:
-                        cachedName = self.state.conIdCache.get(x.conId)
+                for x in o.contract.comboLegs:
+                    xcontract = self.state.conIdCache.get(x.conId)
 
-                        # if ID -> Name not in the cache, create it
-                        if not cachedName:
-                            await self.state.qualify(Contract(conId=x.conId))
+                    # if ID -> Name not in the cache, create it
+                    if not xcontract:
+                        xcontract = await self.state.qualify(Contract(conId=x.conId))
 
-                        # now the name will be in the cache!
-                        lsym = self.state.conIdCache[x.conId].localSymbol
-                        lsymsym, lsymrest = lsym.split()
-                        myLegs.append(
-                            (
-                                x.action[0],  # 0
-                                x.ratio,  # 1
-                                # Don't need symbol because row has symbol...
-                                # lsymsym,
-                                lsymrest[-9],  # 2
-                                str(pendulum.parse("20" + lsymrest[:6]).date()),  # 3
-                                round(int(lsymrest[-8:]) / 1000, 2),  # 4
-                                lsym.replace(" ", ""),  # 5
-                            )
+                    totalMultiplier += float(xcontract.multiplier or 1)
+
+                    # now the name will be in the cache!
+                    lsym = self.state.conIdCache[x.conId].localSymbol
+                    lsymsym, lsymrest = lsym.split()
+                    myLegs.append(
+                        (
+                            x.action[0],  # 0
+                            x.ratio,  # 1
+                            # Don't need symbol because row has symbol...
+                            # lsymsym,
+                            lsymrest[-9],  # 2
+                            str(pendulum.parse("20" + lsymrest[:6]).date()),  # 3
+                            round(int(lsymrest[-8:]) / 1000, 2),  # 4
+                            lsym.replace(" ", ""),  # 5
                         )
-
-                    # if all P or C, make it top level
-                    if all(l[2] == myLegs[0][2] for l in myLegs):
-                        make["PC"] = myLegs[0][2]
-
-                    # if all same date, make it top level
-                    if all(l[3] == myLegs[0][3] for l in myLegs):
-                        make["date"] = myLegs[0][3]
-
-                    # if all same strike, make it top level
-                    if all(l[4] == myLegs[0][4] for l in myLegs):
-                        make["strike"] = myLegs[0][4]
-
-                    make["legs"] = myLegs
+                    )
                 else:
-                    make["lcost"] = int(o.order.totalQuantity) * float(o.order.lmtPrice)
+                    # normalize all multipliers in the bags by their total weight for the final credit/debit value calculation
+                    totalMultiplier /= len(o.contract.comboLegs)
+
+                # if all P or C, make it top level
+                if all(l[2] == myLegs[0][2] for l in myLegs):
+                    make["PC"] = myLegs[0][2]
+
+                # if all same date, make it top level
+                if all(l[3] == myLegs[0][3] for l in myLegs):
+                    make["date"] = myLegs[0][3]
+
+                # if all same strike, make it top level
+                if all(l[4] == myLegs[0][4] for l in myLegs):
+                    make["strike"] = myLegs[0][4]
+
+                make["legs"] = myLegs
+
+            # extract common fields for re-use below
+            multiplier = totalMultiplier or float(o.contract.multiplier or 1)
+            lmtPrice = float(o.order.lmtPrice or 0)
+            totalQuantity = float(o.order.totalQuantity)
+            pq = lmtPrice * totalQuantity * multiplier
+
+            # record whether this order value is a credit into or debit from the account
+            if o.order.action == "SELL":
+                # IBKR 'sell' prices are always positive and represents a credit back to the account when executed
+                assert (
+                    lmtPrice > 0
+                ), f"How is your order selling price negative? Order: {o.order}"
+
+                make["lreturn"] = pq
+            else:
+                # else, if not SELL, then it must be BUY
+                assert (
+                    o.order.action == "BUY"
+                ), f"How did you get a non-BUY AND non-SELL order action? Got: {o.order}"
+
+                # buying is a cost (debit) unless the buy has a negative limit price, then it's a credit.
+                # if buying for a negative price, record value of "negative purchase" as "lreturn" and not "lcost"
+                if lmtPrice < 0:
+                    # QUESTION/TEST: if we are going short, is the quantity zero AND the lmtPrice is negative, so this cancels out to negative again?
+                    make["lreturn"] = -pq
+                else:
+                    # else, limit price is > 0 so it's a debit/cost/charge to us
+                    make["lcost"] = pq
 
             log["logs"] = o.log
 

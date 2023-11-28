@@ -1505,15 +1505,17 @@ class IBKRCmdlineApp:
 
             return f"{n:>5}"
 
-        def updateEMA(sym, price):
-            # if no price, don't update.
-            if (price <= 0) or (price != price):
+        def updateEMA(sym, price, longOnly=True):
+            # if no price, don't update (but allow negative prices if this is a credit quote)
+            if (not price) or (longOnly and (price < 0)) or (price != price):
+                # logger.info("Skipping EMA update for: {} because {}", sym, price)
                 return
 
             # Normalize the EMAs s so they are in TIME and not "updates per ICLI_REFRESH interval"
             # 1 minute and 3 minute EMAs
 
             # these are in units of fractional seconds we need to normalize to our "bar update duration intervals"
+            # TODO: we could move this to the ticker updater instead? then it updates on every quote change and we have timestamps to use.
             refresh = self.toolbarUpdateInterval
 
             MIN_1 = 60 // refresh
@@ -1523,7 +1525,7 @@ class IBKRCmdlineApp:
                 prev = self.ema[sym][name]
 
                 # use previous price or initialize with current price
-                if (prev <= 0) or (prev != prev):
+                if (not prev) or (prev != prev):
                     prev = price
 
                 # fmt: off
@@ -1557,12 +1559,19 @@ class IBKRCmdlineApp:
             # instead" because these are for rather active equity symbols (we do use the current
             # quote midpoint as price for option pricing though due to faster quote-vs-trade movement)
 
+            if isinstance(c.contract, Bag):
+                # logger.info("Bag details: {}", pp.pformat(c))
+                # 'Bag' doesn't have a true localSymbol, so we need to assemble a surrogate... (We could cache this potentially if 'c' is always the same object)
+                # (for example a spread of SPXW options has a localSymbol of SPX and it breaks our logic tracking since 'SPX' isn't the spread itself)
+                ls = "|".join([str(leg.conId) for leg in c.contract.comboLegs])
+                # logger.info("Generated local symbol for bag: {}", ls)
+            else:
+                ls = c.contract.localSymbol.replace(" ", "") or c.contract.symbol
+
             # We switched from using "lastPrice" as the shown price to the current midpoint
             # as the shown price because sometimes we were getting price lags when midpoints
             # shifted faster than buying or selling, so we were looking at outdated "prices"
             # for some decisions.
-            ls = c.contract.localSymbol.replace(" ", "") or c.contract.symbol
-
             if c.bid > 0 and c.bid == c.bid and c.ask > 0 and c.ask == c.ask:
                 if isinstance(c.contract, Future):
                     usePrice = rounder.round(
@@ -1570,17 +1579,19 @@ class IBKRCmdlineApp:
                     )
                 else:
                     usePrice = round((c.bid + c.ask) / 2, 2)
+            elif (
+                isinstance(c.contract, Bag)
+                and (c.bid != 0 and c.ask != 0)
+                and (c.bid == c.bid)
+                and (c.ask == c.ask)
+            ):
+                # bags are allowed to have negative prices because they can be credit quotes
+                usePrice = round((c.bid + c.ask) / 2, 2)
             else:
+                # else, bid/ask is currently offline or broken or just not on the symbol, so use the last traded price.
                 usePrice = c.last if c.last == c.last else c.close
 
-            if (
-                (c.high == c.high and c.low == c.low)
-                or (c.bid > 0 and c.ask > 0)
-                or ("-" in ls)
-            ):
-                # only update EMA if this has price-like details (or "-" allows matching TICK/TRIN since they never had bid/ask populated)
-                # logger.info("[{}] Updating EMA with price: {}", ls, usePrice)
-                updateEMA(ls, usePrice)
+            updateEMA(ls, usePrice, not isinstance(c.contract, Bag))
 
             ago = (self.now - (c.time or self.now)).as_duration()
             try:
@@ -1664,11 +1675,7 @@ class IBKRCmdlineApp:
                 a_s = f"{c.askSize // 1000:>5}k"
 
             # use different print logic if this is an option contract or spread
-            bigboi = (
-                isinstance(c.contract, Option)
-                or isinstance(c.contract, FuturesOption)
-                or c.contract.comboLegs
-            )
+            bigboi = isinstance(c.contract, (Option, FuturesOption, Bag))
 
             if bigboi:
                 # Could use this too, but it only updates every couple seconds instead
@@ -1693,6 +1700,19 @@ class IBKRCmdlineApp:
                     #                         for SELLING, the price DOES NOT EXIST because no buyers.
                     mark = round((c.bid + c.ask) / 2, 2) if c.bid > 0 else 0
 
+                e100 = getEMA(ls, "1m")
+                e300 = getEMA(ls, "3m")
+                # logger.info("[{}] Got EMA for OPT: {} -> {}", ls, e100, e300)
+                e100diff = (mark - e100) if e100 else None
+
+                ediff = e100 - e300
+                if ediff > 0:
+                    trend = "&gt;"
+                elif ediff < 0:
+                    trend = "&lt;"
+                else:
+                    trend = "="
+
                 # For options, instead of using percent difference between
                 # prices, we use percent return over the low/close instead.
                 # e.g. if low is 0.05 and current is 0.50, we want to report
@@ -1701,18 +1721,12 @@ class IBKRCmdlineApp:
                 # Also note: we use 'mark' here because after hours, IBKR reports
                 # the previous day open price as the current price, which clearly
                 # isn't correct since it ignores the entire most recent day.
-                bighigh = (
-                    ((mark / c.high if c.high else 1) - 1) * 100
-                    if mark <= c.high
-                    else 0
-                )
+                bighigh = ((mark / c.high if c.high else 1) - 1) * 100
 
                 # only report low if current mark estimate is ABOVE the registered
                 # low for the day, else we report it as currently trading AT the low
                 # for the day instead of potentially BELOW the low for the day.
-                biglow = (
-                    ((mark / c.low if c.low else 1) - 1) * 100 if mark >= c.low else 0
-                )
+                biglow = ((mark / c.low if c.low else 1) - 1) * 100
 
                 bigclose = ((mark / c.close if c.close else 1) - 1) * 100
 
@@ -1790,12 +1804,30 @@ class IBKRCmdlineApp:
                             f"{padding}{x.action[0]} {x.ratio:2} {contract.localSymbol or contract.symbol}"
                         )
 
+                    if False:
+                        logger.info(
+                            "Contract and vals for combo: {}  -> {} -> {} -> {} -> {}",
+                            c.contract,
+                            ls,
+                            e100,
+                            e300,
+                            (usePrice, c.bid, c.ask, c.high, c.low),
+                        )
+
                     rowName = "\n".join(rns)
+
+                    # Some of the daily values seem to exist for spreads: high and low of day, but previous day close just reports the current price.
                     return " ".join(
                         [
                             rowName,
-                            f"{fmtPriceOpt(mark):>6} ± {fmtPriceOpt(c.ask - mark):<6}",
-                            f" {fmtPriceOpt(c.bid):>} x {b_s}   {fmtPriceOpt(c.ask):>} x {a_s} ",
+                            f"{fmtPriceOpt(e100):>6}",
+                            f"{trend}",
+                            f"{fmtPriceOpt(e300):>6}",
+                            f"   {fmtPriceOpt(mark):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
+                            f" ({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
+                            f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low):>6})",
+                            f" {fmtPriceOpt(c.bid):>6} x {b_s}   {fmtPriceOpt(c.ask):>6} x {a_s} ",
+                            f"  ({str(ago):>13})  ",
                             "HALTED!" if c.halted > 0 else "",
                         ]
                     )
@@ -1826,19 +1858,6 @@ class IBKRCmdlineApp:
                         - self.now
                     ).days
 
-                    e100 = getEMA(ls, "1m")
-                    e300 = getEMA(ls, "3m")
-                    # logger.info("[{}] Got EMA for OPT: {}", ls, e100)
-                    e100diff = (mark - e100) if e100 else None
-
-                    ediff = e100 - e300
-                    if ediff > 0:
-                        trend = "&gt;"
-                    elif ediff < 0:
-                        trend = "&lt;"
-                    else:
-                        trend = "="
-
                     # this may be too wide for some people? works for me.
                     # just keep shrinking your terminal font size until everything fits?
                     # currently works nicely via:
@@ -1859,7 +1878,6 @@ class IBKRCmdlineApp:
                             f"{trend}",
                             f"{fmtPriceOpt(e300):>6}",
                             f"{fmtPriceOpt(mark):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
-                            # f"{fmtPriceOpt(usePrice)}",
                             f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
                             f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low):>6})",
                             f"({pctBigClose} {amtBigClose} {fmtPriceOpt(c.close):>6})",
