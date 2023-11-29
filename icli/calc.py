@@ -127,8 +127,7 @@ class CalculatorTransformer(Transformer):
         a, b, *c = args
 
         # if no duration provided, just do a single percentage growth multiply
-        if not c:
-            c = 1
+        c = c[0] if c else 1
 
         return a * ((1 + (b / 100)) ** c)
 
