@@ -2655,7 +2655,9 @@ class IOpExecutions(IOp):
             #       to cache them all by name and look them up.
             # dfByTrade[("total", "sum")] = dfByTrade[("total", "sum")].apply(lambda row: ...)
 
-            dfByTimeProfit = df.copy()
+            dfByTimeProfit = df.copy().sort_values(
+                by=["time", "orderId", "secType", "side", "localSymbol"]
+            )
 
             needsPrices = "price shares total commission".split()
             dfByTrade[needsPrices] = dfByTrade[needsPrices].map(fmtPrice)
