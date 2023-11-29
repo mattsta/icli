@@ -2730,7 +2730,7 @@ class IOpExecutions(IOp):
             printFrame(df, "Execution Summary")
             printFrame(profitByHour, "Profit by Half Hour")
             printFrame(
-                dfByTrade.sort_values(by=[("time", "start")]),
+                dfByTrade.sort_values(by=[("time", "start"), "orderId", "localSymbol"]),
                 "Execution Summary by Complete Order",
             )
 
