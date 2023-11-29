@@ -280,6 +280,10 @@ class IOpPositionEvict(IOp):
                 verify=lambda x: 0 <= x <= 1,
                 desc="only evict matching contracts with current delta >= X (not used if symbol isn't an option). deltas are positive for all contracts in this case (so asking for 0.80 will evict calls with delta >= 0.80 and puts with delta <= -0.80)",
             ),
+            DArg(
+                "*algo",
+                desc="Optionally provide your own evict algo name to override the default choice",
+            ),
         ]
 
     async def run(self):
@@ -328,34 +332,55 @@ class IOpPositionEvict(IOp):
                 # IN FACT, if we make it FAST, maybe we can start anchoring the price better to add padding/tolerance for fast fluxuating quote ranges
                 EQUITY_BOUNDS = 1.0025
                 OPTION_BOUNDS = 1.15
+                OPTIONS_BOOST = 1.333
                 if qty < 0:
                     # if position IS SHORT, this is a BUY so we need a HIGHER CAP
                     limit = round(price * EQUITY_BOUNDS, 2)
 
-                    if isinstance(contract, Option):
+                    if isinstance(contract, (Option, FuturesOption)):
                         # options have deeper exit floor criteria because their ranges can be wider.
                         # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
                         # the spread without immediately going to market, but ymmv.
                         limit = round(price * OPTION_BOUNDS, 2)
+
+                        # if price is too small, it may be moving faster, so increase the limit slightly more
+                        # (this is still always bound by the market spread anyway; we're basically doing an
+                        #  excessively high effort market order but just trying to protect against catastrophic fills)
+                        if limit < 2:
+                            limit = round(limit * OPTIONS_BOOST, 2)
                 else:
                     # else, position IS LONG, this is a SELL, so we need a LOWER CAP
                     limit = round(price / EQUITY_BOUNDS, 2)
 
-                    if isinstance(contract, Option):
+                    if isinstance(contract, (Option, FuturesOption)):
                         # options have deeper exit floor criteria because their ranges can be wider.
                         # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
                         # the spread without immediately going to market, but ymmv.
                         limit = round(price / OPTION_BOUNDS, 2)
 
+                        # (see logic/rationale above)
+                        if limit < 2:
+                            limit = round(limit / OPTIONS_BOOST, 2)
+
             algo = "MIDPRICE"
 
-            if len(contract.localSymbol) > 10 or isinstance(contract, Future):
+            # Note: we can't evict spreads/Bags because those must be constructed as multi-leg orders and
+            #       our eviction logic has no way to discover what the user's intent would be.
+            # TODO: when opening a spread, we should record the positions as a spread so we can flip sides for easier closing.
+            if isinstance(contract, (Option, FuturesOption)):
                 algo = "AF"
+                limit = comply(contract, limit)
+            elif isinstance(contract, Future):
+                algo = "PRTMKT"
                 limit = comply(contract, limit)
 
             # if limit price rounded down to zero, just do a market order
             if not limit:
                 algo = "AMF"  # "MKT + ADAPTIVE + FAST"
+
+            # if user provided their own algo name, override all our defaults and use the user's algo choice instead
+            if self.algo:
+                algo = self.algo[0]
 
             logger.info(
                 "[{}] [{}] Submitting...",
