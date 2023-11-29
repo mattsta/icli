@@ -2255,6 +2255,12 @@ class IBKRCmdlineApp:
             orderReq = self.ol.parse(sym)
             ors.append(orderReq)
 
+            # if this is a multi-part spread order, also add quotes for each leg individually!
+            if orderReq.isSpread():
+                for oo in orderReq.orders:
+                    osym = oo.symbol
+                    ors.append(self.ol.parse(osym))
+
         # technically not necessary for quotes, but we want the contract
         # to have the full '.localSymbol' designation for printing later.
         cs: list[Contract] = await asyncio.gather(
