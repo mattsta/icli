@@ -632,11 +632,12 @@ class IBKRCmdlineApp:
         # TODO: check if symbol already exists as a value from
         # while not (currentQuote := self.currentQuote(quoteKey))
         # to avoid the extra/noop add lookup here.
-        await self.dispatch.runop("add", f'"{quotesym}"', self.opstate)
+        if not isinstance(contract, Bag):
+            await self.dispatch.runop("add", f'"{quotesym}"', self.opstate)
 
         if not contract.conId:
             # spead contracts don't have IDs, so only reject if NOT a spread here.
-            if contract.tradingClass != "COMB":
+            if not isinstance(contract, Bag):
                 logger.error(
                     "[{} :: {}] Not submitting order because contract not qualified!",
                     sym,
@@ -646,9 +647,13 @@ class IBKRCmdlineApp:
 
         # REL and LMT/MKT/MOO/MOC orders can be outside RTH
         outsideRth = True
-        multiplier = float(contract.multiplier or 1)
 
-        if isinstance(contract, (Option, Bag)) or contract.tradingClass == "COMB":
+        # hack for Bags not having multipliers at their top level. we should probably fix this better
+        multiplier = (
+            100 if isinstance(contract, Bag) else float(contract.multiplier or 1)
+        )
+
+        if isinstance(contract, Option):
             # Purpose: don't trigger warning about "RTH option has no effect" with options...
             if contract.localSymbol[0:3] not in {"SPX", "VIX"}:
                 # Currently only SPX and VIX options trade outside RTH, but other things don't,
