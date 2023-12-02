@@ -2678,9 +2678,9 @@ class IBKRCmdlineApp:
                     if not ccmd:
                         continue
 
-                    # custom usability hack: we can detect math ops and not need to prefix 'calc' to them manually
+                    # custom usability hack: we can detect math ops and not need to prefix 'math' to them manually
                     if ccmd[0] == "(":
-                        ccmd = f"calculator {ccmd}"
+                        ccmd = f"math {ccmd}"
 
                     # Check if this command is a background command then clean it up
                     isBackgroundCmd = ccmd[-1] == "&"

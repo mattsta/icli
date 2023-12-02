@@ -3465,7 +3465,7 @@ OP_MAP = {
         "alias": IOpAlias,
         "alert": IOpAlert,
         "calendar": IOpCalendar,
-        "calculator": IOpCalculator,
+        "math": IOpCalculator,
     },
     "Schedule Management": {
         # full "named" versions of the commands
