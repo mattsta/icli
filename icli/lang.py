@@ -3140,33 +3140,29 @@ class IOpOptionChain(IOp):
                 # if is option already, use exact date of option...
                 useDates = [pendulum.parse("20" + symbol[-15 : -15 + 6]).date()]
             else:
-                # PERFORMANCE HACK:
-                # Only request chains for two months out in an attempt to stop
-                # the IBKR API from rate limiting our requests.
-                # It doesn't really work though. For reliable strike and expiration
-                # data not taking potentially multiple minutes to return values,
-                # use external API like Tradier's market metdata APIs.
-                # Also note: requesting SPY/IWM/QQQ/DIA can cause the gateway
-                # to consume gigabytes of memory and lock up or crash because...
-                # IBKR is shit at handling data apparently.
-
-                # for now, don't request forward months because we are
-                # still only doing short term usage (at most 1-2 weeks out).
-                # Revisit end of month discovery and refactor to prefer tradier
-                # API fetching first since we can get those in 100ms instead of
-                # 6+ seconds for IBKR APIs sometimes.
-
-                # TODO: use FORWARD_MONTHS=1 when this week has two months and
-                #       friday is not the same month as the current month
-                # This fix is just "check if friday is same month, if not, use forward-months = 1"
-                FORWARD_MONTHS = 0
-
-                useDates = [
-                    d.date()
-                    for d in pendulum.interval(
-                        now, now.add(months=FORWARD_MONTHS)
-                    ).range("months")
-                ]
+                # We try to collect 3 days for our chains fetching:
+                #   - THIS month
+                #   - month of the Friday of this week
+                #   - If we are past the 15th of the month, also fetch NEXT month for next opex calculations.
+                #   - but, since this is a set, these will be reduced to either 1 or 2 total values
+                #     - the "check friday" technically isn't needed with the +20 day check, but it's logically
+                #       what is needed for the data we are trying to fetch too.
+                # Also this is a weird hack because IBKR has awful data feeds and these chain fetches take
+                # multiple minutes due to IBKR "pacing" rate limiting, while fetching chains from traider or
+                # polygon takes milliseconds for hundreds of chains.
+                # TODO: we should allow alternate chain lookup feeds or using a local cache populated from
+                #       external services.
+                now = pendulum.now()
+                useDates = set(
+                    [
+                        pendulum.date(d.year, d.month, 1)
+                        for d in [
+                            now,
+                            pendulum.parse("friday", strict=False),
+                            (now + datetime.timedelta(days=20)),
+                        ]
+                    ]
+                )
 
             # this request takes between 1 second and 60 seconds depending on ???
             # does IBKR rate limit this endpoint? sometimes the same request
