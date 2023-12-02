@@ -911,7 +911,7 @@ class IBKRCmdlineApp:
                     float(trade.initMarginChange) / order.totalQuantity,
                 )
 
-            if multiplier > 1:
+            if multiplier != 1 or isinstance(contract, Bag):
                 # don't print floats if not necessary
                 if int(multiplier) == multiplier:
                     multiplier = int(multiplier)
