@@ -873,6 +873,7 @@ class IBKRCmdlineApp:
                 not (trade.warningText)
                 and float(trade.initMarginChange) > 0
                 and isset(float(trade.initMarginChange))
+                and order.lmtPrice
             ):
                 # Also note: there is _something_ off with our math because we aren't getting exactly 30% or 25% or 3% or 5% etc,
                 #            but it's close enough for what we're trying to show at this point.
