@@ -2872,6 +2872,7 @@ class IOpQuotesRemove(IOp):
 
                     symkey = lookupKey(contract)
                     del self.state.quoteState[symkey]
+                    del self.state.ema[symkey]
                     logger.info(
                         "[{}] Removed: {} ({})",
                         sym,
