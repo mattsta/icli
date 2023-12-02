@@ -102,6 +102,46 @@ ALGOMAP = dict(
 ICLI_CLIENT_ID = int(os.getenv("ICLI_CLIENT_ID", 0))
 
 
+def find_nearest(lst, target):
+    """
+    Finds the nearest number in a sorted list to the given target.
+
+    If there is an exact match, that number is returned. Otherwise, it returns the number with the smallest
+    numerical difference from the target within the list.
+
+    Args:
+        lst (list): A sorted list of numbers.
+        target (int): The number for which to find the nearest value in the list.
+
+    Returns:
+        The nearest index to `target` in `lst`.
+
+    Bascially: using ONLY bisection causes rounding problems because if a query is just 0.0001 more than a value
+               in the array, then it picks the NEXT HIGHEST value, but we don't want that, we want the NEAREST value
+               which minimizes the difference between the input value and all values in the list.
+
+               So, instead of just "bisect and use" we do the bisect then compare the numerical difference between
+               the current element and the next element to decide whether to round down or up from the current value.
+    """
+
+    # Get the index where the value should be inserted (rounded down)
+    idx = bisect.bisect_left(lst, target) - 1
+
+    size = len(lst)
+
+    # If the difference to the current element is less than or equal to the difference to the next element
+    try:
+        # this is equivalent to MATCHING or ROUNDING DOWN
+        if idx >= 0 and abs(target - lst[idx]) <= abs(target - lst[idx + 1]):
+            return idx
+    except:
+        # if list[idx + 1] doesn't exist (beyond the list) just fall through and we'll return "size - 1" which is the maximum position.
+        pass
+
+    # If we need to round up, return the next index in the list (or the final element if we've reached beyond the end of the list)
+    return idx + 1 if idx < size - 1 else size - 1
+
+
 def expand_symbols(symbols):
     # pre-process input strings so we can use symbols like SPXW231103{P,C}04345000
     useSymbols = set()
@@ -1560,7 +1600,7 @@ class IOpOrderFast(IOp):
         # collect strikes near the current price in gaps as requested
         # until we reach the maximum price
         # (and walk _backwards_ if doing puts!)
-        firstStrikeIdx = bisect.bisect_left(useChain, currentPrice)
+        firstStrikeIdx = find_nearest(useChain, currentPrice)
 
         # because of sorting, the bisect selects an ITM strike for
         # initial puts, but we can back it down one to start at
@@ -2002,7 +2042,7 @@ class IOpOrderLimit(IOp):
                 strikes = strikes["20" + sym[-15 : -15 + 6]]
 
                 currentStrike = float(sym[-8:]) / 1000
-                pos = bisect.bisect_left(strikes, currentStrike)
+                pos = find_nearest(strikes, currentStrike)
                 # TODO: filter this better if we are at top of chain
                 (l2, l1, current, h1, h2) = strikes[pos - 2 : pos + 3]
 
