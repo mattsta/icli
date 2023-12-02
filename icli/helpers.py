@@ -1,6 +1,7 @@
 """ A refactor-base for splitting out common helpers between cli and lang """
 
 from dataclasses import dataclass, field
+import math
 
 import ib_insync  # just for UNSET_DOUBLE
 import numpy as np
@@ -102,7 +103,7 @@ def comply(contract: Union[Contract, str], price: float) -> float:
         # have different increments, to use an API to figure it out.
         # TODO: is "symbol" the root symbol like "ES" or the time symbol like ESU2?
         logger.info("[/{}] ROUNDING REQUEST: {}", contract.symbol, price)
-        rounded = rounder.round("/" + contract.symbol, price)
+        rounded = rounder.round("/" + contract.symbol, abs(price), price > 0)
         logger.info("[/{}] ROUNDED: {}", contract.symbol, rounded)
         return rounded
 
@@ -123,7 +124,7 @@ def comply(contract: Union[Contract, str], price: float) -> float:
 
         # "SPX trades in specific increments of $0.05 when premiums are less than $3 and $0.10 for premiums higher than or equal to $3."
         name = contract.localSymbol[:-15].rstrip()
-        return rounder.round(name, price)
+        return math.copysign(rounder.round(name, abs(price), price > 0), price)
 
     # another hack in case we're just doing quotes or something?
     if isinstance(contract, str):
@@ -131,7 +132,7 @@ def comply(contract: Union[Contract, str], price: float) -> float:
         if len(contract) > 10:
             contract = contract[:-15].rstrip()
 
-        return rounder.round(name, price)
+        return math.copysign(rounder.round(contract, abs(price), price > 0), price)
 
     # else, price doesn't match a condition so we remain unchanged
     return price
