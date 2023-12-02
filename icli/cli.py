@@ -331,6 +331,7 @@ class IBKRCmdlineApp:
 
     # State caches
     quoteState: dict[str, Ticker] = field(default_factory=dict)
+    contractIdsToQuoteKeysMappings: dict[int, str] = field(default_factory=dict)
     depthState: dict[Contract, Ticker] = field(default_factory=dict)
     summary: dict[str, float] = field(default_factory=dict)
     position: dict[str, float] = field(default_factory=dict)
@@ -408,7 +409,11 @@ class IBKRCmdlineApp:
                     self.conIdCache.set(contract.conId, contract, expire=86400 * 30)  # type: ignore
 
                     # also cache the same thing by the most well defined symbol we have
-                    self.conIdCache.set((contract.localSymbol, contract.symbol), contract, expire=86400 * 30)  # type: ignore
+                    self.conIdCache.set(
+                        (contract.localSymbol, contract.symbol),
+                        contract,
+                        expire=86400 * 30,
+                    )  # type: ignore
 
                     contract.exchange = originalExchange
 
@@ -1212,8 +1217,6 @@ class IBKRCmdlineApp:
 
     def currentQuote(self, sym, show=True) -> Optional[tuple[float, float]]:
         # TODO: maybe we should refactor this to only accept qualified contracts as input (instead of string symbol names) to avoid naming confusion?
-        sym = sym.upper()
-
         q = self.quoteState.get(sym)
         assert q and q.contract, f"Why doesn't {sym} exist in the quote state?"
 
@@ -1544,6 +1547,8 @@ class IBKRCmdlineApp:
         # Fields described at:
         # https://ib-insync.readthedocs.io/api.html#module-ib_insync.ticker
         def formatTicker(c):
+            ls = lookupKey(c.contract)
+
             # ibkr API keeps '.close' as the previous full market day close until the next
             # full market day, so for example over the weekend where there isn't a new "full
             # market day," the '.close' is always Thursday's close, while '.last' will be the last
@@ -1559,38 +1564,72 @@ class IBKRCmdlineApp:
             # instead" because these are for rather active equity symbols (we do use the current
             # quote midpoint as price for option pricing though due to faster quote-vs-trade movement)
 
-            if isinstance(c.contract, Bag):
-                # logger.info("Bag details: {}", pp.pformat(c))
-                # 'Bag' doesn't have a true localSymbol, so we need to assemble a surrogate... (We could cache this potentially if 'c' is always the same object)
-                # (for example a spread of SPXW options has a localSymbol of SPX and it breaks our logic tracking since 'SPX' isn't the spread itself)
-                ls = "|".join([str(leg.conId) for leg in c.contract.comboLegs])
-                # logger.info("Generated local symbol for bag: {}", ls)
-            else:
-                ls = c.contract.localSymbol.replace(" ", "") or c.contract.symbol
-
             # We switched from using "lastPrice" as the shown price to the current midpoint
             # as the shown price because sometimes we were getting price lags when midpoints
             # shifted faster than buying or selling, so we were looking at outdated "prices"
             # for some decisions.
-            if c.bid > 0 and c.bid == c.bid and c.ask > 0 and c.ask == c.ask:
+            bid = c.bid
+            ask = c.ask
+            bidSize = c.bidSize
+            askSize = c.askSize
+            if bid > 0 and bid == bid and ask > 0 and ask == ask:
                 if isinstance(c.contract, Future):
-                    usePrice = rounder.round(
-                        "/" + c.contract.symbol, (c.bid + c.ask) / 2
-                    )
+                    usePrice = rounder.round("/" + c.contract.symbol, (bid + ask) / 2)
                 else:
-                    usePrice = round((c.bid + c.ask) / 2, 2)
-            elif (
-                isinstance(c.contract, Bag)
-                and (c.bid != 0 and c.ask != 0)
-                and (c.bid == c.bid)
-                and (c.ask == c.ask)
-            ):
-                # bags are allowed to have negative prices because they can be credit quotes
-                usePrice = round((c.bid + c.ask) / 2, 2)
+                    usePrice = round((bid + ask) / 2, 2)
+            elif isinstance(c.contract, Bag):
+                if (bid != 0 and ask != 0) and (bid == bid) and (ask == ask):
+                    # bags are allowed to have negative prices because they can be credit quotes
+                    usePrice = round((bid + ask) / 2, 2)
+                else:
+                    # else, IBKR isn't giving us quotes for this spread (IBKR datafeeds suck), so actually let's
+                    # see if we have a live quote running for all legs so we can generate the spread quote
+                    # anyway with our own math... sigh.
+                    # logger.info("Generating synthetic quote using: {}", c.contract)
+                    contractIds = [x.conId for x in c.contract.comboLegs]
+                    quotes = [
+                        # .get() because MAYBE THIS QUOTE DOESN'T EXIST EITHER, so we can't even generate a synthetic bag quote. sad.
+                        self.quoteState.get(quotekey)
+                        for quotekey in [
+                            self.contractIdsToQuoteKeysMappings[x] for x in contractIds
+                        ]
+                    ]
+                    # logger.info("Found underlying quotes: {}", quotes)
+                    bid = 0
+                    ask = 0
+                    bidSize = float("inf")
+                    askSize = float("inf")
+                    for leg, quote in zip(c.contract.comboLegs, quotes):
+                        # if a quote doesn't exist, we need to abandon trying to generate any part of this synthetic quote
+                        # because we don't have all the data we need so just combining partial values would be wrong.
+                        if not quote:
+                            bid = 0
+                            ask = 0
+                            bidSize = 0
+                            askSize = 0
+                            usePrice = np.nan
+                            break
+
+                        if leg.action == "SELL":
+                            # SELL legs have opposite signs and positions because they are credits
+                            bid -= quote.ask * leg.ratio
+                            ask -= quote.bid * leg.ratio
+                            # the "quantity" of a spread is the smallest number available for the combinations
+                            bidSize = min(bidSize, quote.askSize)
+                            askSize = min(askSize, quote.bidSize)
+                        else:
+                            # else, is BUY, so we do normal adding to the normal order
+                            bid += quote.bid * leg.ratio
+                            ask += quote.ask * leg.ratio
+                            bidSize = min(bidSize, quote.bidSize)
+                            askSize = min(askSize, quote.askSize)
+                    else:
+                        usePrice = round((bid + ask) / 2, 2)
             else:
                 # else, bid/ask is currently offline or broken or just not on the symbol, so use the last traded price.
                 usePrice = c.last if c.last == c.last else c.close
 
+            # update EMA using current midpoint estimate (and allow Bag/spread quotes to have negative EMA due to credit spreads)
             updateEMA(ls, usePrice, not isinstance(c.contract, Bag))
 
             ago = (self.now - (c.time or self.now)).as_duration()
@@ -1656,23 +1695,23 @@ class IBKRCmdlineApp:
             # if bidsize or asksize are > 100,000, just show "100k" instead of breaking
             # the interface for being too wide
 
-            if np.isnan(c.bidSize):
+            if np.isnan(bidSize):
                 b_s = f"{'X':>6}"
-            elif 0 < c.bidSize < 1:
-                b_s = f"{c.bidSize:>6.4f}"
-            elif c.bidSize < 100_000:
-                b_s = f"{int(c.bidSize):>6,}"
+            elif 0 < bidSize < 1:
+                b_s = f"{bidSize:>6.4f}"
+            elif bidSize < 100_000:
+                b_s = f"{int(bidSize):>6,}"
             else:
-                b_s = f"{c.bidSize // 1000:>5}k"
+                b_s = f"{bidSize // 1000:>5}k"
 
-            if np.isnan(c.askSize):
+            if np.isnan(askSize):
                 a_s = f"{'X':>6}"
-            elif 0 < c.askSize < 1:
-                a_s = f"{c.askSize:>6.4f}"
-            elif c.askSize < 100_000 or np.isnan(c.askSize):
-                a_s = f"{int(c.askSize):>6,}"
+            elif 0 < askSize < 1:
+                a_s = f"{askSize:>6.4f}"
+            elif askSize < 100_000 or np.isnan(askSize):
+                a_s = f"{int(askSize):>6,}"
             else:
-                a_s = f"{c.askSize // 1000:>5}k"
+                a_s = f"{askSize // 1000:>5}k"
 
             # use different print logic if this is an option contract or spread
             bigboi = isinstance(c.contract, (Option, FuturesOption, Bag))
@@ -1683,8 +1722,8 @@ class IBKRCmdlineApp:
                 # if c.modelGreeks:
                 #     mark = c.modelGreeks.optPrice
 
-                if c.bid and c.bidSize and c.ask and c.askSize:
-                    mark = round((c.bid + c.ask) / 2, 2)
+                if bid and bidSize and ask and askSize:
+                    mark = round((bid + ask) / 2, 2)
                     # weighted sum of bid/ask as midpoint
                     # We do extra rounding here so we don't end up with
                     # something like "$0.015" when we really want "$0.01"
@@ -1698,7 +1737,7 @@ class IBKRCmdlineApp:
                     # If no bid, there's no valid midpoint so just go to the ask directly.
                     # Different views though: for BUYING, the price is the ask with no midpoint,
                     #                         for SELLING, the price DOES NOT EXIST because no buyers.
-                    mark = round((c.bid + c.ask) / 2, 2) if c.bid > 0 else 0
+                    mark = round((bid + ask) / 2, 2) if bid > 0 else 0
 
                 e100 = getEMA(ls, "1m")
                 e300 = getEMA(ls, "3m")
@@ -1823,10 +1862,10 @@ class IBKRCmdlineApp:
                             f"{fmtPriceOpt(e100):>6}",
                             f"{trend}",
                             f"{fmtPriceOpt(e300):>6}",
-                            f"   {fmtPriceOpt(mark):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
+                            f"   {fmtPriceOpt(mark):>6} ±{fmtPriceOpt(ask - mark):<4}",
                             f" ({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
                             f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low):>6})",
-                            f" {fmtPriceOpt(c.bid):>6} x {b_s}   {fmtPriceOpt(c.ask):>6} x {a_s} ",
+                            f" {fmtPriceOpt(bid):>6} x {b_s}   {fmtPriceOpt(ask):>6} x {a_s} ",
                             f"  ({str(ago):>13})  ",
                             "HALTED!" if c.halted > 0 else "",
                         ]
@@ -2229,7 +2268,9 @@ class IBKRCmdlineApp:
 
         # don't double-subscribe to symbols! If something is already in our quote state, we have an active subscription!
         if symkey not in self.quoteState:
+            # logger.info("[{}] Adding new live quote...", symkey)
             self.quoteState[symkey] = self.ib.reqMktData(contract, tickFields)
+            self.contractIdsToQuoteKeysMappings[contract.conId] = symkey
 
             # This is a nice debug helper just showing the quote key name to the attached contract subscription:
             # logger.info("[{}]: {}", symkey, contract)
@@ -2284,7 +2325,7 @@ class IBKRCmdlineApp:
         # return array of quote lookup keys
         # (because things like spreads have weird keys, we construct parts the caller
         #  can then use to index into the quoteState[] dict directly later)
-        return qs
+        return list(qs)
 
     async def dorepl(self):
         # Setup...
