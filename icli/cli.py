@@ -2309,6 +2309,19 @@ class IBKRCmdlineApp:
             if sym in self.quoteState:
                 continue
 
+            # if this is a spread quote, attempt to replace any :N requests with the actual symbols...
+            if " " in sym:
+                rebuild = []
+                for part in sym.split():
+                    if part[0] == ":":
+                        foundSymbol, _contract = self.quoteResolve(part)
+                        rebuild.append(foundSymbol)
+                    else:
+                        rebuild.append(part)
+
+                # now put it back together again...
+                sym = " ".join(rebuild)
+
             orderReq = self.ol.parse(sym)
             ors.append(orderReq)
 
