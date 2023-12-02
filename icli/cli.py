@@ -839,13 +839,24 @@ class IBKRCmdlineApp:
         name = contract.localSymbol.replace(" ", "")
         desc = f"{name} :: QTY {order.totalQuantity:,}"
         if preview:
+            # NOTE: margin requirement changes don't show up with MKT orders because there's no price on the order to calculate against
+            #       (we could look up the current price as a quote here if it's a market order for cost comparison, but we're not doing that yet)
             logger.info(
                 "[{}] PREVIEW REQUEST {} via {}",
                 desc,
                 contract,
                 pp.pformat(order),
             )
-            trade = await self.ib.whatIfOrderAsync(contract, order)
+            try:
+                trade = await asyncio.wait_for(
+                    self.ib.whatIfOrderAsync(contract, order), timeout=2
+                )
+            except:
+                logger.error(
+                    "Timeout while trying to run order preview (sometimes IBKR is just slow)"
+                )
+                return None
+
             logger.info("[{}] PREVIEW RESULT: {}", desc, pp.pformat(trade))
 
             if not trade:
