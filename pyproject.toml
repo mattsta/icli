@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "icli"
-version = "0.8.3"
+version = "0.8.4"
 description = "ibkr cli et al"
 authors = ["Matt Stancliff <matt@genges.com>"]
 license = "Apache-2.0"
@@ -40,7 +40,7 @@ diskcache = "^5.2.1"
 beautifulsoup4 = "^4.9.3"
 
 # our API helpers and wrappers
-tradeapis = { git = "https://github.com/mattsta/tradeapis.git", tag="2.4.1" }
+tradeapis = { git = "https://github.com/mattsta/tradeapis.git", tag="2.4.2" }
 
 [tool.poetry.scripts]
 icli = "icli.__main__:runit"
