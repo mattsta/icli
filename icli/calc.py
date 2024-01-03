@@ -1,21 +1,28 @@
 """A simple(ish) built-in calculator."""
 
+import decimal
 from dataclasses import dataclass, field
-from decimal import Decimal, getcontext
+from decimal import Decimal
+from typing import Any
 
 from lark import Lark, Transformer
 
-getcontext().prec = 10  # set precision for Decimal
+from loguru import logger
+
+decimal.getcontext().prec = 10  # set precision for Decimal
 
 grammar = """
     start: expr
     ?expr: operation
          | SIGNED_NUMBER -> number
+         | ":" INT -> positionlookup
+         | ":" CNAME -> portfoliovaluelookup
+         | CNAME -> stringlookup
     operation: "(" FUNC expr+ ")"
-    FUNC: "+" | "-" | "*" | "/" | "gains" | "grow" | "o"
+    FUNC: "+" | "-" | "*" | "/" | "gains" | "grow" | "o" | "r"
 
 # Use custom 'DIGIT' so we can have underscores as place holders in our numbers
-# (this means we need to -rebuild the entire number/float/int hierarchy here too)
+# (this is why we are rebuilding the entire number/float/int hierarchy here too)
 DIGIT: "0".."9" | "_"
 HEXDIGIT: "a".."f"|"A".."F"|DIGIT
 
@@ -30,12 +37,16 @@ SIGNED_FLOAT: ["+"|"-"] FLOAT
 NUMBER: FLOAT | INT
 SIGNED_NUMBER: ["+"|"-"] NUMBER
 
-    %import common.WS
-    %ignore WS
+%import common.CNAME
+%import common.WS
+%ignore WS
 """
 
 
+@dataclass
 class CalculatorTransformer(Transformer):
+    state: Any
+
     symbol_to_func = {
         "+": "add",
         "-": "sub",
@@ -43,8 +54,81 @@ class CalculatorTransformer(Transformer):
         "/": "div",
         "gains": "gains",
         "o": "optgains",
+        "r": "round",
         "grow": "grow",
     }
+
+    def round(self, value):
+        """Convert current value to a rounded integer"""
+        target, *decimals = value
+
+        # need to convert the decimal count to an 'int' because the parser generated it
+        # as a Decimal() by default using the number() rule below.
+        count = int(decimals[0]) if decimals else 0
+
+        return round(value[0], count)
+
+    def positionlookup(self, value):
+        """Look up a quote's value using positional :N syntax."""
+        key = int(value[0])
+        ticker = self.state.quotesPositional[key]
+
+        # ticker[0] is just the symbol name while ticker[1] is the Ticker() object...
+        q = ticker[1]
+
+        # during "regular times" there's a bid/ask spread
+        if q.bidSize and q.askSize:
+            mark = (q.bid + q.ask) / 2
+        else:
+            # else, over weekends and shutdown times, there's either the last price or the close price
+            mark = q.last if q.last == q.last else q.close
+
+        logger.info(
+            "[:{} -> {}] Using value: {:,.6f}", key, q.contract.localSymbol, mark
+        )
+        return Decimal(mark)
+
+    def portfoliovaluelookup(self, value):
+        """Look up metadata variable from portfolio for calculation."""
+        part = value[0].upper()
+        match part:
+            case "AF":
+                value = self.state.accountStatus["AvailableFunds"]
+            case "BP":
+                value = self.state.accountStatus["BuyingPower4"]
+            case "BP4":
+                value = self.state.accountStatus["BuyingPower4"]
+            case "BP3":
+                value = self.state.accountStatus["BuyingPower3"]
+            case "BP2":
+                value = self.state.accountStatus["BuyingPower2"]
+            case "NL":
+                value = self.state.accountStatus["NetLiquidation"]
+            case _:
+                logger.error(
+                    "[{}] Invalid account variable requested! Calculation can't continue!",
+                    part,
+                )
+                return None
+
+        logger.info("[{}] Using value: {:,.6f}", part, value)
+        return Decimal(value)
+
+    def stringlookup(self, value):
+        """Attempt to lookup by symbol name directly."""
+        part = value[0].upper()
+        try:
+            q = self.state.quoteState[part]
+            if q.bidSize and q.askSize:
+                value = (q.bid + q.ask) / 2
+            else:
+                value = q.last if q.last == q.last else q.close
+        except:
+            logger.error("[{}] No value found! Calculation can't continue.", value)
+            return None
+
+        logger.info("[{}] Using value: {:,.6f}", part, value)
+        return Decimal(value)
 
     def number(self, value):
         """ur a number lol"""
@@ -97,6 +181,7 @@ class CalculatorTransformer(Transformer):
         """
         qty, target, *mul = args
 
+        # TODO: when using symbols for live quotes in calculations, thread the contract through the calculator so we can properly access contract.multiple here!
         multiplier = mul[0] if mul else 100
 
         # we're assuming 100x multiples. ymmv when estimating currencies or other futures.
@@ -132,13 +217,16 @@ class CalculatorTransformer(Transformer):
         return a * ((1 + (b / 100)) ** c)
 
 
-@dataclass
+@dataclass(slots=True)
 class Calculator:
-    parser: Lark = field(
-        default_factory=lambda: Lark(
-            grammar, parser="lalr", transformer=CalculatorTransformer()
+    state: Any
+
+    parser: Lark = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.parser = Lark(
+            grammar, parser="lalr", transformer=CalculatorTransformer(self.state)
         )
-    )
 
     def calc(self, expression: str) -> Decimal:
         return self.parser.parse(expression).children[0]  # return result as string

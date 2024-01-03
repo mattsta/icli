@@ -322,7 +322,7 @@ class IBKRCmdlineApp:
     scheduler: dict[str, Any] = field(default_factory=dict)
 
     # use a single calculator instance so we only need to parse the grammar once
-    calc: icli.calc.Calculator = field(default_factory=icli.calc.Calculator)
+    calc: icli.calc.Calculator = field(init=False)
 
     # generic cache for data usage (strikes, etc)
     cache: Mapping[Any, Any] = field(
@@ -371,7 +371,10 @@ class IBKRCmdlineApp:
         # just use the entire IBKRCmdlineApp as our app state!
         self.opstate = self
 
-    async def qualify(self, *contracts) -> Union[list[Contract], None]:
+        # provide ourself to the calculator so the calculator can lookup live quote prices and live account values
+        self.calc = icli.calc.Calculator(self)
+
+    async def qualify(self, *contracts) -> list[Contract] | None:
         """Qualify contracts against the IBKR allowed symbols.
 
         Mainly populates .localSymbol and .conId
