@@ -22,14 +22,14 @@ CONFIG_DEFAULT = dict(
 CONFIG = {**CONFIG_DEFAULT, **dotenv_values(".env.icli"), **os.environ}
 
 try:
-    ACCOUNT_ID = CONFIG["ICLI_IBKR_ACCOUNT_ID"]
+    ACCOUNT_ID: str = CONFIG["ICLI_IBKR_ACCOUNT_ID"]
 except:
     logger.error(
         "Sorry, please provide your IBKR Account ID [U...] in ICLI_IBKR_ACCOUNT_ID"
     )
     sys.exit(0)
 
-HOST = CONFIG["ICLI_IBKR_HOST"]
+HOST: str = CONFIG["ICLI_IBKR_HOST"]
 PORT = int(CONFIG["ICLI_IBKR_PORT"])  # type: ignore
 REFRESH = float(CONFIG["ICLI_REFRESH"])  # type: ignore
 
@@ -45,11 +45,10 @@ async def initcli():
             try:
                 await app.dorepl()
             except SystemExit:
-                # known good exit condition
+                # known-good exit condition
                 ...
     else:
-        # NOT IMPLEMENTED HERE, HOLDOVER FROM TCLI
-        await app.consumeStdin()
+        logger.error("Attached input isn't a console, so we can't do anything!")
 
     app.stop()
 
@@ -58,8 +57,8 @@ def runit():
     """Entry point for icli script and __main__ for entire package."""
     try:
         asyncio.run(initcli())
-    except KeyboardInterrupt:
-        # known good exit condition
+    except (KeyboardInterrupt, SystemExit):
+        # known-good exit condition
         ...
     except:
         logger.exception("bad bad so bad bad")
