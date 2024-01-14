@@ -32,7 +32,6 @@ import aiohttp
 import pendulum
 
 import prettyprinter as pp
-import pygame
 import tradeapis.buylang as buylang
 from questionary import Choice
 
@@ -2631,18 +2630,6 @@ class IOpOrders(IOp):
                 )
 
 
-@dataclass
-class IOpSound(IOp):
-    """Stop or start the default order sound"""
-
-    def argmap(self):
-        return []
-
-    async def run(self):
-        if pygame.mixer.music.get_busy():
-            pygame.mixer.music.stop()
-        else:
-            pygame.mixer.music.play()
 
 
 @dataclass
@@ -3498,7 +3485,6 @@ OP_MAP = {
         "bars": None,
         "try": None,
         "tryf": None,
-        "snd": IOpSound,
         "cash": IOpCash,
         "alias": IOpAlias,
         "alert": IOpAlert,

@@ -56,11 +56,6 @@ import ib_insync
 
 # sounds!
 
-# Tell pygame to not print a hello message when it is imported
-os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
-
-import pygame
-
 import seaborn
 from ib_insync import (
     Bag,
@@ -1310,18 +1305,15 @@ class IBKRCmdlineApp:
         # TODO: different sounds if PNL is a loss?
         #       different sounds for big wins vs. big losses?
         #       different sounds for commission credit vs. large commission fee?
-
         # TODO: disable audio for algo trades?
-        # TODO: figure out the bug ehre, sometimes if they play back-to-back too fast, the
-        #       entire program locks up in a 100% CPU loop until manually kill -9'd?
 
         if self.alert:
-            pygame.mixer.music.stop()
-
             if fill.execution.side == "BOT":
-                pygame.mixer.music.play()
+                # send BUY note
+                ...
             elif fill.execution.side == "SLD":
-                pygame.mixer.music.play()
+                # send SOLD note
+                ...
 
         logger.warning(
             "[{} :: {} :: {}] Order {} commission: {} {} {} at ${:,.2f} (total {} of {}) (commission {} ({} each)){}",
@@ -2367,10 +2359,6 @@ class IBKRCmdlineApp:
         loop = asyncio.get_event_loop()
 
         self.dispatch = lang.Dispatch()
-        pygame.mixer.init()
-
-        # TODO: could probably just be: pathlib.Path(__file__).parent
-        pygame.mixer.music.load(pathlib.Path(__file__).parent / "CANYON.MID")
 
         contracts = [Stock(sym, "SMART", "USD") for sym in stocks]
         contracts += futures
