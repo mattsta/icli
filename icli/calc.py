@@ -19,7 +19,7 @@ grammar = """
          | ":" CNAME -> portfoliovaluelookup
          | CNAME -> stringlookup
     operation: "(" FUNC expr+ ")"
-    FUNC: "+" | "-" | "*" | "/" | "gains" | "grow" | "o" | "r"
+    FUNC: "+" | "-" | "*" | "/" | "gains"i | "grow"i | "o"i | "r"i
 
 # Use custom 'DIGIT' so we can have underscores as place holders in our numbers
 # (this is why we are rebuilding the entire number/float/int hierarchy here too)
@@ -138,7 +138,7 @@ class CalculatorTransformer(Transformer):
         """Map from grammar symbol to running method"""
         # Get the operation symbol and translate to method name
         func_symbol = str(exprs[0])
-        func_name = self.symbol_to_func.get(func_symbol, "")
+        func_name = self.symbol_to_func.get(func_symbol.lower(), "")
         func = getattr(self, func_name, None)
         if func and callable(func):
             return func(exprs[1:])
