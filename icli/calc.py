@@ -104,6 +104,11 @@ class CalculatorTransformer(Transformer):
                 value = self.state.accountStatus["BuyingPower2"]
             case "NL":
                 value = self.state.accountStatus["NetLiquidation"]
+            case "SMA":
+                value = self.state.accountStatus["SMA"]
+            case "ELV" | "EWLV":
+                # allow as ELV or EWLV
+                value = self.state.accountStatus["EquityWithLoanValue"]
             case _:
                 logger.error(
                     "[{}] Invalid account variable requested! Calculation can't continue!",
