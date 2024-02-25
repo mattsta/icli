@@ -850,8 +850,13 @@ class IOpDepth(IOp):
                 else:
                     fixedAsks = pd.DataFrame([dict(size=0)])
 
+                # generate a synthetic sum row then add commas to the sums after summing.......
                 fixedBids.loc["sum", "size"] = fixedBids["size"].sum()
+                fixedBids["size"] = fixedBids["size"].apply(lambda x: f"{x:,}")
+
                 fixedAsks.loc["sum", "size"] = fixedAsks["size"].sum()
+                fixedAsks["size"] = fixedAsks["size"].apply(lambda x: f"{x:,}")
+
                 fmtJoined = {"Bids": fixedBids, "Asks": fixedAsks}
 
                 # Create an order book with high bids and low asks first.
