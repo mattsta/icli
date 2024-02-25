@@ -1623,11 +1623,16 @@ class IBKRCmdlineApp:
             ask = c.ask
             bidSize = c.bidSize
             askSize = c.askSize
+            decimals = 2
+
+            if isinstance(c.contract, Forex):
+                decimals = 5
+
             if bid > 0 and bid == bid and ask > 0 and ask == ask:
                 if isinstance(c.contract, Future):
                     usePrice = rounder.round("/" + c.contract.symbol, (bid + ask) / 2)
                 else:
-                    usePrice = round((bid + ask) / 2, 2)
+                    usePrice = round((bid + ask) / 2, decimals)
             elif isinstance(c.contract, Bag):
                 if (bid != 0 and ask != 0) and (bid == bid) and (ask == ask):
                     # bags are allowed to have negative prices because they can be credit quotes
@@ -1642,7 +1647,8 @@ class IBKRCmdlineApp:
                         # .get() because MAYBE THIS QUOTE DOESN'T EXIST EITHER, so we can't even generate a synthetic bag quote. sad.
                         self.quoteState.get(quotekey)
                         for quotekey in [
-                            self.contractIdsToQuoteKeysMappings[x] for x in contractIds
+                            self.contractIdsToQuoteKeysMappings.get(x)
+                            for x in contractIds
                         ]
                     ]
                     # logger.info("Found underlying quotes: {}", quotes)
@@ -1746,23 +1752,24 @@ class IBKRCmdlineApp:
             # if bidsize or asksize are > 100,000, just show "100k" instead of breaking
             # the interface for being too wide
 
-            if np.isnan(bidSize):
+            if np.isnan(bidSize) or np.isinf(bidSize):
                 b_s = f"{'X':>6}"
             elif 0 < bidSize < 1:
+                # there's a bug here when 'bidSize' is 'inf' and it's triggering here??
                 b_s = f"{bidSize:>6.4f}"
             elif bidSize < 100_000:
                 b_s = f"{int(bidSize):>6,}"
             else:
-                b_s = f"{bidSize // 1000:>5}k"
+                b_s = f"{int(bidSize // 1000):>5,}k"
 
-            if np.isnan(askSize):
+            if np.isnan(askSize) or np.isinf(askSize):
                 a_s = f"{'X':>6}"
             elif 0 < askSize < 1:
                 a_s = f"{askSize:>6.4f}"
             elif askSize < 100_000 or np.isnan(askSize):
                 a_s = f"{int(askSize):>6,}"
             else:
-                a_s = f"{askSize // 1000:>5}k"
+                a_s = f"{int(askSize // 1000):>5,}k"
 
             # use different print logic if this is an option contract or spread
             bigboi = isinstance(c.contract, (Option, FuturesOption, Bag))
@@ -1906,6 +1913,54 @@ class IBKRCmdlineApp:
 
                     rowName = "\n".join(rns)
 
+                    # show a recent range of prices since spreads have twice (or more) the bid/ask volatility
+                    # of a single leg option (due to all the legs being combined into one quote dynamically)
+                    src = self.quotehistory[
+                        tuple(x.tuple() for x in c.contract.comboLegs)
+                    ]
+
+                    # typically, a low stddev indicates temporary low volatility which is
+                    # the calm before the storm when a big move happens next (in either direction,
+                    # but direction prediction can be augmented with moving average crossovers).
+                    try:
+                        std = statistics.stdev(src)
+                    except:
+                        std = 0
+
+                    try:
+                        parts = [
+                            round(x, 2)
+                            for x in statistics.quantiles(
+                                src,
+                                n=5,
+                                method="inclusive",
+                            )
+                        ]
+
+                        # TODO: benchmark if this double min/max run is faster than looping over it once and just
+                        #       checking for min/max in one loop instead of two loops here.
+                        minmax = max(src) - min(src)
+                    except:
+                        # 'statistics' throws an exception if there's not enough data points yet...
+                        parts = sorted(src)
+                        minmax = 0
+
+                    # add marker where curent price goes in this range...
+                    # (sometimes this complains for some reason, but it clears up eventually)
+                    try:
+                        bpos = bisect.bisect_left(parts, mark)
+                        parts.insert(bpos, "[X]")
+                    except:
+                        logger.info("Failed parts on: {}", parts)
+                        pass
+
+                    parts = ", ".join(
+                        [
+                            f"{x:>7.2f}" if isinstance(x, (float, int)) else x
+                            for x in parts
+                        ]
+                    )
+
                     # Some of the daily values seem to exist for spreads: high and low of day, but previous day close just reports the current price.
                     return " ".join(
                         [
@@ -1918,6 +1973,7 @@ class IBKRCmdlineApp:
                             f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low):>6})",
                             f" {fmtPriceOpt(bid):>6} x {b_s}   {fmtPriceOpt(ask):>6} x {a_s} ",
                             f"  ({str(ago):>13})  ",
+                            f"  :: {parts}  (r {minmax:.2f})  (s {std:.2f})",
                             "HALTED!" if c.halted > 0 else "",
                         ]
                     )
@@ -1943,6 +1999,8 @@ class IBKRCmdlineApp:
 
                     # TODO: should this be fancier and decay cleaner?
                     #       we could do more accurate countdowns to actual expiration time instead of just "days"
+                    # TODO: we could use market calendars to generate the proper instrument stop time to account for
+                    #       early closes the 1-2 days per year when those happen.
                     when = (
                         pendulum.parse(f"20{y}-{m}-{d} 16:00", tz="US/Eastern")
                         - self.now
@@ -1956,8 +2014,16 @@ class IBKRCmdlineApp:
                     #   - terminal width: 275+ characters
                     #   - terminal height: 60+ characters
 
-                    # our "is ITM" indicator (ITM always has a delta of abs(±0.50), so any delta larger than 0.50 is ITM)
-                    itm = "I" if abs(delta or 0) >= 0.50 else ""
+                    # guard the ITM flag because after hours 'underlying price' isn't populated in option quotes
+                    itm = ""
+                    if delta and und and mark:
+                        if delta > 0 and und >= price:
+                            # calls
+                            itm = "I"
+                        elif delta < 0 and und <= price:
+                            # puts
+                            itm = "I"
+
                     return " ".join(
                         [
                             rowName,
@@ -1983,6 +2049,7 @@ class IBKRCmdlineApp:
             #       not populated during those sessions.
             #       this also means during after-hours session, the high and low are fixed to what they
             #       were during RTH and are no longer valid. Should this have a time check too?
+            # TODO: replace these fixed 6.2 and 8.2 formats with fmtPricePad() with proper decimal extension for forex values instead.
             pctUndHigh, amtUndHigh = mkPctColor(
                 percentUnderHigh,
                 [
@@ -2011,20 +2078,20 @@ class IBKRCmdlineApp:
             )
 
             # somewhat circuitous logic to format NaNs and values properly at the same string padding offsets
-            atr = np.nan
+            atrval = np.nan
             if atrr := self.atrs.get(ls):
-                atr = self.atrs[ls].atr.current
+                atrval = atrr.atr.current
 
-            atr = f"{atr:>5.2f}"
+            atr = f"{atrval:>5.2f}"
 
             roundto = 2
             # symbol exceptions for things we want bigger (GBP is a future and not a Forex...)
             # TODO: fix for 3-decimal futures too.
             if ls in {"GBP"}:
-                roundto = 4
+                decimals = 4
 
-            e100 = getEMA(ls, "1m", roundto)
-            e300 = getEMA(ls, "3m", roundto)
+            e100 = getEMA(ls, "1m", decimals)
+            e300 = getEMA(ls, "3m", decimals)
 
             # for price differences we show the difference as if holding a LONG position
             # at the historical price as compared against the current price.
@@ -2054,21 +2121,21 @@ class IBKRCmdlineApp:
             return " ".join(
                 [
                     f"{ls:<9}",
-                    f"{fmtPricePad(e100)}",
-                    f"({fmtPricePad(e100diff, padding=6)})",
+                    f"{fmtPricePad(e100, decimals=decimals)}",
+                    f"({fmtPricePad(e100diff, padding=6, decimals=3)})",
                     f"{trend}",
-                    f"{fmtPricePad(e300)}",
-                    f"({fmtPricePad(e300diff, padding=6)})",
-                    f"{fmtPricePad(usePrice)}",
+                    f"{fmtPricePad(e300, decimals=decimals)}",
+                    f"({fmtPricePad(e300diff, padding=6, decimals=3)})",
+                    f"{fmtPricePad(usePrice, decimals=decimals)}",
                     f"({pctUndHigh} {amtUndHigh})",
                     f"({pctUpLow} {amtUpLow})",
                     f"({pctUpClose} {amtUpClose})",
-                    f"{fmtPricePad(c.high)}",
-                    f"{fmtPricePad(c.low)}",
-                    f"<aaa bg='purple'>{fmtPricePad(c.bid)} x {b_s} {fmtPricePad(c.ask)} x {a_s}</aaa>",
+                    f"{fmtPricePad(c.high, decimals=decimals)}",
+                    f"{fmtPricePad(c.low, decimals=decimals)}",
+                    f"<aaa bg='purple'>{fmtPricePad(c.bid, decimals=decimals)} x {b_s} {fmtPricePad(c.ask, decimals=decimals)} x {a_s}</aaa>",
                     f"({atr})",
-                    f"{fmtPricePad(c.open)}",
-                    f"{fmtPricePad(c.close)}",
+                    f"{fmtPricePad(c.open, decimals=decimals)}",
+                    f"{fmtPricePad(c.close, decimals=decimals)}",
                     f"({str(ago)})",
                     "     HALTED!" if c.halted > 0 else "",
                 ]
@@ -2161,27 +2228,27 @@ class IBKRCmdlineApp:
                     )
                 ):
                     priority = FUT_ORD[c.symbol] if c.symbol in FUT_ORD else 0
-                    return (0, priority, c.symbol)
+                    return (0, priority, c.secType, c.symbol)
 
-                # draw crypto quotes under futures quotes
-                if c.secType == "CRYPTO":
+                # draw crypto and forex/cash quotes under futures quotes
+                if c.secType in {"CRYPTO", "CASH"}:
                     priority = 0
-                    return (0, priority, c.symbol)
+                    return (0, priority, c.secType, c.symbol)
 
                 if c.secType == "OPT":
                     # options are medium last because they are wide
                     priority = 0
-                    return (2, priority, c.localSymbol)
+                    return (2, priority, c.secType, c.localSymbol)
 
                 if c.secType == "FOP":
                     # future options are above other options...
                     priority = -1
-                    return (2, priority, c.localSymbol)
+                    return (2, priority, c.secType, c.localSymbol)
 
                 if c.secType == "BAG":
                     # bags are last because their descriptions are big
                     priority = 0
-                    return (3, priority, c.symbol)
+                    return (3, priority, c.secType, c.symbol)
 
                 # else, just by name.
                 # BUT we do these in REVERSE order since they
@@ -2189,7 +2256,7 @@ class IBKRCmdlineApp:
                 # (We create "reverse order" by translating all
                 #  letters into their "inverse" where a == z, b == y, etc).
                 priority = 0
-                return (1, priority, invertstr(c.symbol.lower()))
+                return (1, priority, c.secType, invertstr(c.symbol.lower()))
 
             # RegT overnight margin can be at maximum 50% of total account value.
             # (note: does not apply to portfolion margin / SPAN accounts)
@@ -2198,6 +2265,8 @@ class IBKRCmdlineApp:
             # but the account value includes the margin loan, so overnight margin use must be only
             # up to half the total balance value (so overnight margin must be less than the total
             # cash+equity balance itself).
+            # Note: this doesn't account for an over-full SMA balance, so if your SMA is larger than
+            #       your GrossPositionValue, you are still fine to hold overnight.
             overnightDeficit = (
                 0
                 if self.accountStatus["TotalCashValue"] >= 0
