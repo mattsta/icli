@@ -87,6 +87,7 @@ ALGOMAP = dict(
     PRTSTOP="STOP PRT",  # STOP WITH PROTECTION (futs only), triggers when price hits
     PEGMID="PEG MID",  # Floating midpoint peg, must be directed IBKRATS or IBUSOPT
     REL="REL",
+    MKT="MKT",
     AFM="MKT + ADAPTIVE + FAST",
     AMF="MKT + ADAPTIVE + FAST",
     ASM="MKT + ADAPTIVE + SLOW",
@@ -101,44 +102,49 @@ ALGOMAP = dict(
 ICLI_CLIENT_ID = int(os.getenv("ICLI_CLIENT_ID", 0))
 
 
-def find_nearest(lst, target):
+def automaticLimitBuffer(contract, isBuying: bool, price: float) -> float:
+    """Given a contract and a target price we want to meet, create a limit order bound so we don't slide out of the quote spread.
+
+    This is basically an extra effort way of just doing IBKR's built-in ADAPTIVE FAST algo? Maybe? but we trust it more
+    because we do it ourself? Also see potentially (depending on instrument): Market-to-Limit or just the Adaptive Market algos?
     """
-    Finds the nearest number in a sorted list to the given target.
+    EQUITY_BOUNDS = 1.0025
+    OPTION_BOUNDS = 1.15
+    OPTIONS_BOOST = 1.333
 
-    If there is an exact match, that number is returned. Otherwise, it returns the number with the smallest
-    numerical difference from the target within the list.
+    if isBuying:
+        # if position IS BUYING, we want to chase HIGHER PRICES TO GET THE ORDER
+        limit = round(price * EQUITY_BOUNDS, 2)
 
-    Args:
-        lst (list): A sorted list of numbers.
-        target (int): The number for which to find the nearest value in the list.
+        if isinstance(contract, (Option, FuturesOption)):
+            # options have deeper exit floor criteria because their ranges can be wider.
+            # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
+            # the spread without immediately going to market, but ymmv.
+            limit = round(price * OPTION_BOUNDS, 2)
 
-    Returns:
-        The nearest index to `target` in `lst`.
+            # if price is too small, it may be moving faster, so increase the limit slightly more
+            # (this is still always bound by the market spread anyway; we're basically doing an
+            #  excessively high effort market order but just trying to protect against catastrophic fills)
+            if limit < 2:
+                limit = round(limit * OPTIONS_BOOST, 2)
+    else:
+        # else, position IS SELLING, we want to chase LOWER PRICES to GET THE ORDER
+        limit = round(price / EQUITY_BOUNDS, 2)
 
-    Bascially: using ONLY bisection causes rounding problems because if a query is just 0.0001 more than a value
-               in the array, then it picks the NEXT HIGHEST value, but we don't want that, we want the NEAREST value
-               which minimizes the difference between the input value and all values in the list.
+        if isinstance(contract, (Option, FuturesOption)):
+            # options have deeper exit floor criteria because their ranges can be wider.
+            # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
+            # the spread without immediately going to market, but ymmv.
+            limit = round(price / OPTION_BOUNDS, 2)
 
-               So, instead of just "bisect and use" we do the bisect then compare the numerical difference between
-               the current element and the next element to decide whether to round down or up from the current value.
-    """
+            # (see logic/rationale above)
+            if limit < 2:
+                limit = round(limit / OPTIONS_BOOST, 2)
 
-    # Get the index where the value should be inserted (rounded down)
-    idx = bisect.bisect_left(lst, target) - 1
+    if isinstance(contract, (Option, FuturesOption, Future)):
+        limit = comply(contract, limit)
 
-    size = len(lst)
-
-    # If the difference to the current element is less than or equal to the difference to the next element
-    try:
-        # this is equivalent to MATCHING or ROUNDING DOWN
-        if idx >= 0 and abs(target - lst[idx]) <= abs(target - lst[idx + 1]):
-            return idx
-    except:
-        # if list[idx + 1] doesn't exist (beyond the list) just fall through and we'll return "size - 1" which is the maximum position.
-        pass
-
-    # If we need to round up, return the next index in the list (or the final element if we've reached beyond the end of the list)
-    return idx + 1 if idx < size - 1 else size - 1
+    return limit
 
 
 def expand_symbols(symbols):
@@ -334,7 +340,13 @@ class IOpPositionEvict(IOp):
             logger.error("No contracts found for: {}", self.sym)
             return None
 
-        for contract, qty, price in contracts:
+        runners = []
+        for contract, qty, delayedEstimatedMarketPrice in contracts:
+            # use a live midpoint market price as our initial offer
+            quoteKey = lookupKey(contract)
+            bid, ask = self.state.currentQuote(quoteKey)
+            price = (bid + ask) / 2
+
             if self.delta:
                 # verify quote is loaded...
                 if not self.state.quoteExists(contract):
@@ -363,44 +375,6 @@ class IOpPositionEvict(IOp):
             if not contract.conId:
                 await self.state.qualify(contract)
 
-            # TODO: abstract the "buy" agent following to another coroutine and attach it here.
-            if True:
-                # set price floor to 0.25% below current live price for
-                # the midprice order floor for stocks.
-                # TODO: fix this... it's broken for low priced options. This should be more like a FAST EXIT and not just LIMIT AND CHILL.
-                # IN FACT, if we make it FAST, maybe we can start anchoring the price better to add padding/tolerance for fast fluxuating quote ranges
-                EQUITY_BOUNDS = 1.0025
-                OPTION_BOUNDS = 1.15
-                OPTIONS_BOOST = 1.333
-                if qty < 0:
-                    # if position IS SHORT, this is a BUY so we need a HIGHER CAP
-                    limit = round(price * EQUITY_BOUNDS, 2)
-
-                    if isinstance(contract, (Option, FuturesOption)):
-                        # options have deeper exit floor criteria because their ranges can be wider.
-                        # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
-                        # the spread without immediately going to market, but ymmv.
-                        limit = round(price * OPTION_BOUNDS, 2)
-
-                        # if price is too small, it may be moving faster, so increase the limit slightly more
-                        # (this is still always bound by the market spread anyway; we're basically doing an
-                        #  excessively high effort market order but just trying to protect against catastrophic fills)
-                        if limit < 2:
-                            limit = round(limit * OPTIONS_BOOST, 2)
-                else:
-                    # else, position IS LONG, this is a SELL, so we need a LOWER CAP
-                    limit = round(price / EQUITY_BOUNDS, 2)
-
-                    if isinstance(contract, (Option, FuturesOption)):
-                        # options have deeper exit floor criteria because their ranges can be wider.
-                        # the IBKR algo is "adaptive fast" so it should *try* to pick a good value in
-                        # the spread without immediately going to market, but ymmv.
-                        limit = round(price / OPTION_BOUNDS, 2)
-
-                        # (see logic/rationale above)
-                        if limit < 2:
-                            limit = round(limit / OPTIONS_BOOST, 2)
-
             algo = "MIDPRICE"
 
             # Note: we can't evict spreads/Bags because those must be constructed as multi-leg orders and
@@ -408,57 +382,33 @@ class IOpPositionEvict(IOp):
             # TODO: when opening a spread, we should record the positions as a spread so we can flip sides for easier closing.
             if isinstance(contract, (Option, FuturesOption)):
                 algo = "AF"
-                limit = comply(contract, limit)
             elif isinstance(contract, Future):
                 algo = "PRTMKT"
-                limit = comply(contract, limit)
-
-            # if limit price rounded down to zero, just do a market order
-            if not limit:
-                algo = "AMF"  # "MKT + ADAPTIVE + FAST"
 
             # if user provided their own algo name, override all our defaults and use the user's algo choice instead
             if self.algo:
                 algo = self.algo[0]
 
             logger.info(
-                "[{}] [{}] Submitting...",
+                "[{}] [{}] Submitting through spread tracking order automation...",
                 self.sym,
-                (contract.localSymbol, qty, price, limit),
+                (contract.localSymbol, qty, price),
             )
 
-            if False:
-                # instead of tirggering buy op here, abstract buy op logic to call directly just parameterized.
-                # POSITION IS SHORT, SO CANCEL WITH A BUY
-                # this is a bit of a hack because currently the "buy" automation takes money and not share/contract counts.
-                # TODO: fix the buy command to allow MONEY or QTY and also fix the layout so it's not "buy SYM buy/sell t TOTAL a ALGO"
-                #       Maybe more like: get $30,000 using MID for AAPL preview
-                #                        get 5 using PRTMKT for /RTY preview ???????
-                amt = round(abs(qty) * price, 2) * 2
-                if qty < 0:
-                    await self.runoplive("buy", f"{quotesym} buy t {amt} a MID")
-                else:
-                    # else, POSITION IS LONG, SO CANCEL WITH A SELL
-                    await self.runoplive("buy", f"{quotesym} sell t {amt} a MID")
+            # TODO: this isn't the most efficient because we are sending this to another
+            #       full command parser instance, so it has to re-do some of our work again.
+            #       GOAL: move the _entire_ "buy tracking" logic into placeOrderForContract() directly
+            #             as an option, then call .placeOrderForContract() here again so we don't
+            #             have to find everything again.
 
-            # using MIDPRICE for equity-like things and ADAPTIVE for option-like things.
-            # TODO: review this and see if maybe it should be hooked up to just price tracking algo?
+            # closing is the opposite of the quantity sign from the portfolio (10 long to -10 short (close), etc)
+            qty = -qty
+            runners.append(self.runoplive("buy", f"{quoteKey} {qty} {algo}"))
 
-            # TODO: when trades complete, have trade event send "trade done" event to listeners for
-            #       next chained action (e.g. EVICT SPXW* -1 0.78 ... THEN BUY MORE ... FAST SPX P {price} 0)
+        if runners:
+            await asyncio.gather(*runners)
 
-            # look algo up in the algo map. We must send IBKR ALGO NAMES to the order placement and not our shorthand names.
-            useAlgoFromMapLookup = ALGOMAP[algo]
 
-            ordertrade = await self.state.placeOrderForContract(
-                contract.localSymbol,  # TODO: may be unnecessary since 'contract' has symbols too...
-                # True==BUY if currently short so _BUY_ TO CLOSE, False==SELL if currently long so _SELL_ TO CLOSE
-                qty < 0,
-                contract,
-                qty=abs(qty),
-                price=limit,
-                orderType=useAlgoFromMapLookup,
-            )
 
 
 @dataclass
