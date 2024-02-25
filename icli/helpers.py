@@ -1,7 +1,11 @@
 """ A refactor-base for splitting out common helpers between cli and lang """
 
-from dataclasses import dataclass, field
+import bisect
+import dataclasses
+import enum
+import locale
 import math
+from dataclasses import dataclass, field
 
 import ib_insync  # just for UNSET_DOUBLE
 import numpy as np
@@ -11,6 +15,7 @@ import questionary
 import tradeapis.cal as tcal
 import tradeapis.rounder as rounder
 from ib_insync import (
+    Bag,
     Bond,
     CFD,
     Contract,
@@ -113,7 +118,7 @@ def comply(contract: Union[Contract, str], price: float) -> float:
         logger.info("[{}] ROUNDED: {}", contract.symbol, rounded)
         return rounded
 
-    if isinstance(contract, Option):
+    if isinstance(contract, (Option, Bag)):
         # hack for SPX or other index options needing specific increments
         # (IBKR API for contract details is slow and busted, so we either need to have a
         #  local DB of symbols to increments or just do minimal hacks like these along the way...)

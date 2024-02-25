@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 
 original_print = print
+import asyncio
+import bisect
 import datetime
 import decimal
-
 import fnmatch  # for glob string matching!
-
-# for automatic money formatting in some places
-import locale
+import locale  # automatic money formatting
+import logging
 import math
 import os
-
-import json
-
 import pathlib
 import re
+import statistics
 import sys
 
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional, Sequence, Union
+from typing import Any, Mapping, Sequence
 
 import bs4
 
@@ -27,15 +25,18 @@ import bs4
 import diskcache
 
 import numpy as np
-
+import orjson
 import pandas as pd
-
 import pendulum
-from prompt_toolkit import Application, print_formatted_text
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
-# from prompt_toolkit import print_formatted_text as print
+from prompt_toolkit import Application, print_formatted_text, PromptSession
+from prompt_toolkit.application import get_app
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.history import FileHistory, ThreadedHistory
+from prompt_toolkit.shortcuts import set_title
+
+import icli.awwdio as awwdio
 
 import icli.calc
 import icli.orders as orders
@@ -43,14 +44,10 @@ import icli.orders as orders
 from icli.futsexchanges import FUTS_EXCHANGE
 
 from . import agent
+from . import accum
 from .tinyalgo import ATRLive
 
 locale.setlocale(locale.LC_ALL, "")
-
-import asyncio
-
-import logging
-import os
 
 import ib_insync
 
@@ -72,15 +69,19 @@ from ib_insync import (
     Ticker,
     Trade,
 )
+
 from loguru import logger
 
 import icli.lang as lang
 from icli.helpers import *  # FUT_EXP is appearing from here
+import prettyprinter as pp
 import tradeapis.buylang as buylang
 import tradeapis.rounder as rounder
 
 from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
+
+pp.install_extras(["dataclasses"], warn_on_error=False)
 
 # global client ID for your IBKR gateway connection (must be unique per client per gateway)
 ICLI_CLIENT_ID = int(os.getenv("ICLI_CLIENT_ID", 0))
@@ -90,6 +91,7 @@ ICLI_CLIENT_ID = int(os.getenv("ICLI_CLIENT_ID", 0))
 # outputs non-JSON compliant NaN values, so you may need to filter those out if read back using a different
 # json parser)
 ICLI_DUMP_QUOTES = bool(int(os.getenv("ICLI_DUMP_QUOTES", 0)))
+ICLI_AWWDIO_URL = awwdio.ICLI_AWWDIO_URL
 
 # Configure logger where the ib_insync live service logs get written.
 # Note: if you have weird problems you don't think are being exposed
@@ -131,10 +133,6 @@ logger.add(
     colorize=True,
 )
 
-
-import prettyprinter as pp
-
-pp.install_extras(["dataclasses"], warn_on_error=False)
 
 # setup color gradients we use to show gain/loss of daily quotes
 COLOR_COUNT = 100
@@ -230,15 +228,6 @@ def readableHTML(html):
     )
 
 
-import asyncio
-import os
-
-# Create prompt object.
-from prompt_toolkit import PromptSession
-from prompt_toolkit.application import get_app
-from prompt_toolkit.history import FileHistory, ThreadedHistory
-from prompt_toolkit.shortcuts import set_title
-
 stocks = ["QQQ", "SPY", "AAPL"]
 
 # Futures to exchange mappings:
@@ -279,7 +268,12 @@ idxs = [
 # Note: ContFuture is only for historical data; it can't quote or trade.
 # So, all trades must use a manual contract month (quarterly)
 futures = [
-    Future(symbol=sym, lastTradeDateOrContractMonth=FUT_EXP, exchange=x, currency="USD")
+    Future(
+        symbol=sym,
+        lastTradeDateOrContractMonth=FUT_EXP or "",
+        exchange=x,
+        currency="USD",
+    )
     for x, syms in sfutures.items()
     for sym in syms
 ]
@@ -302,7 +296,7 @@ class IBKRCmdlineApp:
     # initialized to True/False when we first see the account
     # ID returned from the API which will tell us if this is a
     # sandbox ID or True Account ID
-    isSandbox: Optional[bool] = None
+    isSandbox: bool | None = None
 
     # The Connection
     ib: IB = field(default_factory=IB)
@@ -332,7 +326,7 @@ class IBKRCmdlineApp:
     position: dict[str, float] = field(default_factory=dict)
     order: dict[str, float] = field(default_factory=dict)
     liveBars: dict[str, RealTimeBarList] = field(default_factory=dict)
-    pnlSingle: dict[str, PnLSingle] = field(default_factory=dict)
+    pnlSingle: dict[int, PnLSingle] = field(default_factory=dict)
     exiting: bool = False
     ol: buylang.OLang = field(default_factory=buylang.OLang)
 
@@ -343,6 +337,8 @@ class IBKRCmdlineApp:
             lambda: ATRLive(int(90 / 0.25), int(45 / 0.25))
         )
     )
+
+    speak: awwdio.AwwdioClient = field(default_factory=awwdio.AwwdioClient)
 
     # hold EMA per current symbol with various lookback periods
     ema: dict[str, dict[int, float]] = field(
@@ -358,7 +354,7 @@ class IBKRCmdlineApp:
     )
 
     # Cache all contractIds and names to their fully qualified contract object values
-    conIdCache: Mapping[int, Contract] = field(
+    conIdCache: diskcache.Cache = field(
         default_factory=lambda: diskcache.Cache("./cache-contracts")
     )
 
@@ -427,7 +423,7 @@ class IBKRCmdlineApp:
         return result
 
     def contractsForPosition(
-        self, sym, qty: Optional[float] = None
+        self, sym, qty: float | None = None
     ) -> list[tuple[Contract, float, float]]:
         """Returns matching portfolio positions as list of (contract, size, marketPrice).
 
@@ -475,7 +471,7 @@ class IBKRCmdlineApp:
 
     async def contractForOrderRequest(
         self, oreq: buylang.OrderRequest, exchange="SMART"
-    ) -> Optional[Contract]:
+    ) -> Contract | None:
         """Return a valid qualified contract for any order request.
 
         If order request has multiple legs, returns a Bag contract representing the spread.
@@ -501,7 +497,7 @@ class IBKRCmdlineApp:
 
     async def bagForSpread(
         self, oreq: buylang.OrderRequest, exchange="SMART", currency="USD"
-    ) -> Optional[Bag]:
+    ) -> Bag | None:
         """Given a multi-leg OrderRequest, return a qualified Bag contract.
 
         If legs do not validate, returns None and prints errors along the way."""
@@ -564,9 +560,10 @@ class IBKRCmdlineApp:
 
     def symbolNormalizeIndexWeeklyOptions(self, name: str) -> str:
         """Weekly index options have symbol names with 'W' but orders are placed without."""
+        # TODO: figure out if this is still required or not
         return name.replace("SPXW", "SPX").replace("RUTW", "RUT").replace("NDXP", "NDX")
 
-    def quoteResolve(self, lookup: str) -> str:
+    def quoteResolve(self, lookup: str) -> tuple[str, Contract] | tuple[None, None]:
         """Resolve a local symbol alias like ':33' to current symbol name for the index."""
 
         # TODO: this doesn't work for futures symbols. Probably need to read the contract type
@@ -590,7 +587,9 @@ class IBKRCmdlineApp:
             return None, None
 
         # now we passed the integer extraction and the quote lookup, so return the found symbol for the lookup id
+        assert ticker.contract
         name = (ticker.contract.localSymbol or ticker.contract.symbol).replace(" ", "")
+
         return name, ticker.contract
 
     async def placeOrderForContract(
@@ -1019,9 +1018,7 @@ class IBKRCmdlineApp:
 
         return order, trade
 
-    def amountForTrade(
-        self, trade: Trade
-    ) -> tuple[float, float, float, Union[float, int]]:
+    def amountForTrade(self, trade: Trade) -> tuple[float, float, float, float | int]:
         """Return dollar amount of trade given current limit price and quantity.
 
         Also compensates for contract multipliers correctly.
@@ -1061,7 +1058,7 @@ class IBKRCmdlineApp:
 
     def quantityForAmount(
         self, contract: Contract, amount: float, limitPrice: float
-    ) -> Union[int, float]:
+    ) -> int | float:
         """Return valid quantity for contract using total dollar amount 'amount'.
 
         Also compensates for limitPrice being a contract quantity.
@@ -1230,7 +1227,7 @@ class IBKRCmdlineApp:
         # else, break out by order size, sorted from smallest to largest exit prices
         return sorted(ts, key=lambda x: abs(x[1]))
 
-    def currentQuote(self, sym, show=True) -> Optional[tuple[float, float]]:
+    def currentQuote(self, sym, show=True) -> tuple[float, float] | None:
         # TODO: maybe we should refactor this to only accept qualified contracts as input (instead of string symbol names) to avoid naming confusion?
         q = self.quoteState.get(sym)
         assert q and q.contract, f"Why doesn't {sym} exist in the quote state?"
@@ -1663,8 +1660,8 @@ class IBKRCmdlineApp:
                 percentUpFromClose = 0
 
             def mkcolor(
-                n: float, vals: Union[str, list[str]], colorRanges: list[str]
-            ) -> Union[str, list[str]]:
+                n: float, vals: str | list[str], colorRanges: list[str]
+            ) -> str | list[str]:
                 def colorRange(x):
                     buckets = len(MONEY_COLORS) // len(colorRanges)
                     for idx, crLow in enumerate(colorRanges):
@@ -2231,10 +2228,13 @@ class IBKRCmdlineApp:
             logger.exception("qua?")
             return HTML("No data yet...")  # f"""{self.now:<40}\n""")
 
-    async def qask(self, terms) -> Union[dict[str, Any], None]:
+    async def qask(self, terms) -> dict[str, Any] | None:
         """Ask a questionary survey using integrated existing toolbar showing"""
         result = dict()
-        extraArgs = dict(bottom_toolbar=self.bottomToolbar, refresh_interval=0.750)
+        extraArgs = dict(
+            bottom_toolbar=self.bottomToolbar,
+            refresh_interval=self.toolbarUpdateInterval,
+        )
         for t in terms:
             if not t:
                 continue
@@ -2269,9 +2269,7 @@ class IBKRCmdlineApp:
                 [x.conId for x in contract.comboLegs]
             ), f"Sorry, your bag doesn't have qualified contracts inside of it? Got: {contract}"
         else:
-            assert (
-                contract.conId
-            ), f"Sorry, we only accept qualified contracts for adding quotes, but we got: {contract}"
+            assert contract.conId, f"Sorry, we only accept qualified contracts for adding quotes, but we got: {contract}"
 
         tickFields = tickFieldsForContract(contract)
 
@@ -2307,7 +2305,7 @@ class IBKRCmdlineApp:
 
             # if this is a spread quote, attempt to replace any :N requests with the actual symbols...
             if " " in sym:
-                rebuild = []
+                rebuild: list[str] = []
                 for part in sym.split():
                     if part[0] == ":":
                         foundSymbol, _contract = self.quoteResolve(part)
@@ -2329,7 +2327,7 @@ class IBKRCmdlineApp:
 
         # technically not necessary for quotes, but we want the contract
         # to have the full '.localSymbol' designation for printing later.
-        cs: list[Contract] = await asyncio.gather(
+        cs: list[Contract | None] = await asyncio.gather(
             *[self.contractForOrderRequest(o) for o in ors]
         )
 
@@ -2360,7 +2358,9 @@ class IBKRCmdlineApp:
 
         self.dispatch = lang.Dispatch()
 
-        contracts = [Stock(sym, "SMART", "USD") for sym in stocks]
+        contracts: list[Stock | Future | Index] = [
+            Stock(sym, "SMART", "USD") for sym in stocks
+        ]
         contracts += futures
         contracts += idxs
 

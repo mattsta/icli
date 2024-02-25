@@ -28,9 +28,6 @@ tableprint = "^0.9.1"
 # for ANSI console color gradients
 seaborn = "^0.12.2"
 
-# for audio output
-pygame = "^2.0.1"
-
 # for showing nice things
 prettyprinter = "^0.18.0"
 setproctitle = "^1.2.2"

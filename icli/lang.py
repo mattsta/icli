@@ -724,7 +724,7 @@ class IOpAlias(IOp):
             logger.error("Available aliases: {}", sorted(aliases.keys()))
             return None
 
-        cmd = aliases[self.cmd]
+        cmd: dict[str, dict[str, list[str]]] = aliases[self.cmd]
         logger.info("[alias {}] Running: {}", self.cmd, cmd)
 
         # TODO: we could make a simpler run wrapper for "run command string" instead of
@@ -2997,7 +2997,11 @@ class IOpOrderSpread(IOp):
                 pp.pformat(bag),
                 pp.pformat(order),
             )
-            trade = await self.ib.whatIfOrderAsync(bag, order)
+
+            trade = await asyncio.wait_for(
+                self.ib.whatIfOrderAsync(bag, order), timeout=2
+            )
+
             logger.info("[{}] TRADE PREVIEW: {}", desc, pp.pformat(trade))
             logger.warning("[{}] ONLY PREVIEW. NO TRADE PLACED.", desc)
             # TODO: add more preview calculations around commissions, etc like we do with the regular single order previews.
