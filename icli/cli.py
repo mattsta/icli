@@ -1443,25 +1443,26 @@ class IBKRCmdlineApp:
         # Some fields are for "All" accounts under this login, which don't help us here.
         # TODO: find a place to set this once instead of checking every update?
         if self.isSandbox is None and v.account != "All":
-            self.isSandbox = v.account.startswith("D")
+            self.isSandbox = v.account[0] == "D"
 
+        # collect updates into a single update dict so we can re-broadcast this update
+        # to external agent listeners too all at once.
+        update = {}
         if v.tag in STATUS_FIELDS_PROCESS:
             try:
                 match v.tag:
                     case "BuyingPower":
                         # regular 25% margin for boring symbols
-                        self.accountStatus["BuyingPower4"] = float(v.value)
+                        update["BuyingPower4"] = float(v.value)
 
-                        # 30% margin for "exciting" symbols"
-                        self.accountStatus["BuyingPower3"] = (
-                            float(v.value) / 1.3333333333
-                        )
+                        # 30% margin for "regular" symbols
+                        update["BuyingPower3"] = float(v.value) / 1.3333333333
 
                         # 50% margin for overnight or "really exciting" symbols
-                        self.accountStatus["BuyingPower2"] = float(v.value) / 2
+                        update["BuyingPower2"] = float(v.value) / 2
                     case "NetLiquidation":
                         nl = float(v.value)
-                        self.accountStatus[v.tag] = nl
+                        update[v.tag] = nl
                         upl = self.accountStatus.get("UnrealizedPnL", 0)
                         rpl = self.accountStatus.get("RealizedPnL", 0)
 
@@ -1470,13 +1471,22 @@ class IBKRCmdlineApp:
                         # We subtract the PnL values from the account NetLiquidation because the PnL contribution is *already* accounted for
                         # in the NetLiquididation value.
                         # (the updates are *here* because this runs on every NetLiq val update instead of ONLY on P&L updates)
-                        self.accountStatus["RealizedPnL%"] = (rpl / (nl - rpl)) * 100
-                        self.accountStatus["UnrealizedPnL%"] = (upl / (nl - upl)) * 100
+                        update["RealizedPnL%"] = (rpl / (nl - rpl)) * 100
+                        update["UnrealizedPnL%"] = (upl / (nl - upl)) * 100
+
+                        # Also combine realized+unrealized to show the current daily total PnL percentage because
+                        # maybe we have 12% realized profit but -12% unrealized and we're actually flat...
+                        update["DayPnL%"] = (
+                            update["RealizedPnL%"] + update["UnrealizedPnL%"]
+                        )
                     case _:
                         self.accountStatus[v.tag] = float(v.value)
             except:
                 # don't care, just keep going
                 pass
+            finally:
+                self.accountStatus |= update
+                self.updateAgentAccountStatus("summary", update)
 
     def updatePNL(self, v):
         """Kinda like summary, except account PNL values aren't summary events,
@@ -1496,18 +1506,20 @@ class IBKRCmdlineApp:
         self.summary["RealizedPnL"] = v.realizedPnL
         self.summary["DailyPnL"] = v.dailyPnL
 
+        update = {}
         try:
-            rpl = float(v.realizedPnL)
-            upl = float(v.unrealizedPnL)
-
-            self.accountStatus["UnrealizedPnL"] = upl
-            self.accountStatus["RealizedPnL"] = rpl
-            self.accountStatus["DailyPnL"] = float(v.dailyPnL)
+            update["UnrealizedPnL"] = float(v.unrealizedPnL)
+            update["RealizedPnL"] = float(v.realizedPnL)
+            update["DailyPnL"] = float(v.dailyPnL)
         except:
             # don't care, just keep going
             # (maybe some of these keys don't exist yet, but they will get populated quickly as
             #  the post-connect-async-data-population finishes sending us data for all the fields)
             pass
+        finally:
+            self.accountStatus |= update
+            # ignore agent pnl update for now since it is probably in the summary updates anyway?
+            # self.updateAgentAccountStatus("pnl", update)
 
     def updatePNLSingle(self, v):
         """Streaming individual position PnL updates.
