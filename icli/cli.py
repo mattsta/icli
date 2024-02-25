@@ -1421,12 +1421,30 @@ class IBKRCmdlineApp:
         # logger.info("Ticker update: {}", tickr)
 
         for ticker in tickr:
-            name = ticker.contract.localSymbol or ticker.contract.symbol
+            c = ticker.contract
+            name = (c.localSymbol or c.symbol).replace(" ", "")
+            price = (ticker.bid + ticker.ask) / 2
+
+            # "Bag" spreads have no unique ID themselves and Contract objects can't be hashed because
+            # they are mutable, so we generate a fast synthetic bag quote key here (which is mostly like
+            # the global quote key except we aren't bothering to sort it here... the sort probably isn't necessary
+            # in the global one either)
+            if isinstance(c, Bag):
+                quotekey = tuple(x.tuple() for x in c.comboLegs)
+            else:
+                quotekey = c.conId
+
+            self.quotehistory[quotekey].append(price)
 
             # this is a synthetic memory-having ATR where we just feed it price data and
             # it calculates a dynamic H/L/C for the actual ATR based on recent price history.
             if ticker.bid > 0 and ticker.ask > 0:
-                self.atrs[name].update((ticker.bid + ticker.ask) / 2)
+                self.atrs[name].update(price)
+
+                if False and ICLI_AWWDIO_URL:
+                    asyncio.create_task(
+                        self.speak.say(say=f"PRICE UP: {name} TO {price:,.2f}")
+                    )
 
         # TODO: we could also run volume crossover calculations too...
 
@@ -1438,7 +1456,7 @@ class IBKRCmdlineApp:
             ) as tj:
                 for ticker in tickr:
                     tj.write(
-                        json.dumps(
+                        orjson.dumps(
                             dict(
                                 symbol=name,
                                 time=str(ticker.time),
