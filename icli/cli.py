@@ -1382,7 +1382,7 @@ class IBKRCmdlineApp:
                 )
         else:
             # if quantity is gone, stop listening for updates and remove.
-            self.ib.cancelPnLSingle(self.pnlSingle[trade.contract.conId])
+            self.ib.cancelPnLSingle(self.accountId, "", trade.contract.conId)
             del self.pnlSingle[trade.contract.conId]
 
     def tickersUpdate(self, tickr):
