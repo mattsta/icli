@@ -71,6 +71,8 @@ FUTS_MONTH_MAPPING = {
     "Z": "12",  # December
 }
 
+PQ = enum.Enum("PQ", "PRICE QTY")
+
 
 def convert_futures_code(code: str):
     """Convert a futures-date-format into IBKR date format.
@@ -97,11 +99,51 @@ def convert_futures_code(code: str):
     return str(year) + month_code
 
 
+def find_nearest(lst, target):
+    """
+    Finds the nearest number in a sorted list to the given target.
+
+    If there is an exact match, that number is returned. Otherwise, it returns the number with the smallest
+    numerical difference from the target within the list.
+
+    Args:
+        lst (list): A sorted list of numbers.
+        target (int): The number for which to find the nearest value in the list.
+
+    Returns:
+        The nearest index to `target` in `lst`.
+
+    Bascially: using ONLY bisection causes rounding problems because if a query is just 0.0001 more than a value
+               in the array, then it picks the NEXT HIGHEST value, but we don't want that, we want the NEAREST value
+               which minimizes the difference between the input value and all values in the list.
+
+               So, instead of just "bisect and use" we do the bisect then compare the numerical difference between
+               the current element and the next element to decide whether to round down or up from the current value.
+    """
+
+    # Get the index where the value should be inserted (rounded down)
+    idx = bisect.bisect_left(lst, target) - 1
+
+    size = len(lst)
+
+    # If the difference to the current element is less than or equal to the difference to the next element
+    try:
+        # this is equivalent to MATCHING or ROUNDING DOWN
+        if idx >= 0 and abs(target - lst[idx]) <= abs(target - lst[idx + 1]):
+            return idx
+    except:
+        # if list[idx + 1] doesn't exist (beyond the list) just fall through and we'll return "size - 1" which is the maximum position.
+        pass
+
+    # If we need to round up, return the next index in the list (or the final element if we've reached beyond the end of the list)
+    return idx + 1 if idx < size - 1 else size - 1
+
+
 def comply(contract: Union[Contract, str], price: float) -> float:
     """Conform a calculated price to an IBKR-acceptable price increment.
 
     We say "IBKR-acceptable" because for some price increments IBKR will self-adjust
-    internally, while for other proeducts it requires exact conformity. shrug."""
+    internally, while for other products it requires exact conformity. shrug."""
 
     if isinstance(contract, Future):
         # ES/MES/NQ/MNQ futures have a 0.25 minimum tick increment and other futures
@@ -128,7 +170,7 @@ def comply(contract: Union[Contract, str], price: float) -> float:
         #       lookup table hack. thanks, IBKR!
 
         # "SPX trades in specific increments of $0.05 when premiums are less than $3 and $0.10 for premiums higher than or equal to $3."
-        name = contract.localSymbol[:-15].rstrip()
+        name = contract.localSymbol[:-15].rstrip() or contract.symbol
         return math.copysign(rounder.round(name, abs(price), price > 0), price)
 
     # another hack in case we're just doing quotes or something?
@@ -481,22 +523,93 @@ def lookupKey(contract):
     Needs some tricks here because spreads don't have a built-in
     one dimensional representation."""
 
-    # exclude COMBO/BAG orders from local symbol replacement because
-    # those show the underlying symbol as localSymbol and it doesn't
-    # look like a spread/bag/combo.
-    # logger.debug("Generating symbol for contract: {}", contract)
+    # if this is a spread, there's no single symbol to use as an identifier, so generate a synthetic description instead
+    if isinstance(contract, Bag):
+        return tuple(
+            x.tuple()
+            for x in sorted(
+                contract.comboLegs, key=lambda x: (x.ratio, x.action, x.conId)
+            )
+        )
 
-    if contract.localSymbol and not contract.tradingClass == "COMB":
+    # else, is not a spread so we can use regular in-contract symbols
+    if contract.localSymbol:
         return contract.localSymbol.replace(" ", "")
 
     # else, if a regular symbol but DOESN'T have a .localSymbol (means
     # we added the quote from a contract without first qualifying it,
     # which works, it's just missing extra details)
-    if contract.symbol and not contract.comboLegs:
+    if contract.symbol:
         return contract.symbol
 
-    # else, is spread so need to make something new...
-    return tuple(
-        x.tuple()
-        for x in sorted(contract.comboLegs, key=lambda x: (x.ratio, x.action, x.conId))
+    logger.error("Your contract doesn't have a symbol? Bad contract: {}", contract)
+
+    return None
+
+
+@dataclass(slots=True)
+class PriceOrQuantity:
+    """A wrapper/box to allow users to provide price OR quantity using one variable based on input syntax.
+
+    e.g. "$300" is ... price $300... while "300" is quantity 300.
+    """
+
+    value: str | int | float
+    qty: float | int = field(init=None)
+
+    is_quantity: bool = False
+    is_money: bool = False
+
+    is_long: bool = True
+
+    def __post_init__(self) -> None:
+        # TODO: different currency support?
+
+        if isinstance(self.value, (int, float)):
+            assert (
+                self.is_quantity ^ self.is_money
+            ), f"If you provided a direct quantity, you must enable only one of quantity or money, but got: {self}"
+
+            self.qty = self.value
+
+            if self.qty < 0:
+                self.is_long = False
+
+                # we don't deal in negative quantities here because IBKR sells have a sell action.
+                # negative quantities only happen for prices of credit spreads because those are all "BUY [negative money]"
+                self.qty = abs(self.qty)
+        else:
+            # else, input is a string and we auto-detect money-vs-quantity depending on if the
+            # string value starts with '$' (is money value) or not (is direct quantity)
+
+            assert isinstance(self.value, str)
+
+            # allow numbers to use '_' or ',' for any digit breaks
+            self.value = self.value.replace("_", "").replace(",", "")
+
+            # if we have a negative sign in the value, consider it a short.
+            # allow: -10 -$10 and $-10 to all activate the short detector.
+            if self.value.startswith("-") or self.value.startswith("$-"):
+                self.is_long = False
+                self.value = self.value.replace("-", "")
+
+            if self.value[0] == "$":
+                self.is_money = True
+                self.qty = float(self.value[1:])
+            else:
+                self.qty = float(self.value)
+                self.is_quantity = True
+
+        # if there's no fractional component, use integer quantity directly
+        iqty = int(self.qty)
+        if self.qty == iqty:
+            self.qty = iqty
+
+    def __repr__(self) -> str:
+        if self.is_quantity:
+            return f"{self.qty:,.2f}"
+
+        return locale.currency(self.qty, grouping=True)
+
+
     )

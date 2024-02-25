@@ -591,35 +591,34 @@ class IBKRCmdlineApp:
         sym: str,
         isLong: bool,
         contract: Contract,
-        qty: float,
-        price: float,
+        qty: PriceOrQuantity,
+        limit: float,
         orderType: str,
-        preview=False,
+        preview: bool = False,
     ):
         """Place a BUY (isLong) or SELL (!isLong) for qualified 'contract' at qty/price.
 
-        If 'qty' is negative we calculate a live quantity+price based
-        on the (positive) number as a dollar value."""
+        The 'qty' parameter allows switching between price amounts and share/contract/quantity amounts directly.
+        """
 
         # Immediately ask to add quote to live quotes for this trade positioning...
         # turn option contract lookup into non-spaced version
         sym = sym.replace(" ", "")
 
-        if price > 0:
-            price = comply(contract, price)
-            logger.info(
-                "[{}] Request to order qty {:,.2f} price {:,.2f}", sym, qty, price
-            )
+        if limit:
+            limit = comply(contract, limit)
+
+        if qty.is_quantity:
+            logger.info("[{}] Request to order qty {} at current prices", sym, qty)
         else:
             logger.info(
-                "[{}] Request to order at dynamic qty/price: {:,.2f} price {:,.2f}",
+                "[{}] Request to order at dynamic qty/price: {} price {:,.2f}",
                 sym,
                 qty,
-                price,
+                limit,
             )
 
-        # need to replace underlying if is "fake settled underlying"
-        quotesym = sym  # self.symbolNormalizeIndexWeeklyOptions(sym)
+        quotesym = sym
         # TODO: check if symbol already exists as a value from
         # while not (currentQuote := self.currentQuote(quoteKey))
         # to avoid the extra/noop add lookup here.
@@ -639,7 +638,7 @@ class IBKRCmdlineApp:
         # REL and LMT/MKT/MOO/MOC orders can be outside RTH
         outsideRth = True
 
-        # hack for Bags not having multipliers at their top level. we should probably fix this better
+        # hack for Bags not having multipliers at their top level. we should probably fix this better.
         multiplier = (
             100 if isinstance(contract, Bag) else float(contract.multiplier or 1)
         )
@@ -654,9 +653,15 @@ class IBKRCmdlineApp:
 
         # Note: don't make this an 'else if' to the previous check because this needs to also run again
         # for all option types.
-        if " " in orderType or (
-            orderType in {"MIDPRICE", "MKT + ADAPTIVE + FAST", "LMT + ADAPTIVE + FAST"}
-        ):
+        # TODO: make this list more exhaustive for what only works during RTH liquid hours. Often the IBKR
+        #       order system will just say "well, this flag is wrong and I'm ignoring it to execute the order anyway..."
+        if orderType in {
+            "MIDPRICE",
+            "MKT + ADAPTIVE + FAST",
+            "MKT + ADAPTIVE + SLOW",
+            "LMT + ADAPTIVE + FAST",
+            "LMT + ADAPTIVE + SLOW",
+        }:
             # TODO: cleanup, also verify how we want to run FAST or EVICT outside RTH?
             # Algos can only operate RTH:
             outsideRth = False
@@ -674,17 +679,22 @@ class IBKRCmdlineApp:
         else:
             tif = "GTC"
 
-        # Negative 'qty' is a dollar amount to buy instead of share/contract
-        # quantity, so we fetch a live quote to determine the initial quantity.
-        # TODO: fix the parser so we just can have $12_000 for dollar quantity versus numbers for actual unit quantities?
-        if qty < 0:
-            # we treat negative quantities as dollar amounts (because
-            # we convert 'qty' to float, so we can't pass through $3000, so
-            # instead we do -3000 for $3,000).
+        determinedQty = None
 
-            # also note: negative quantites are not shorts, shorts are specified
-            # by SELL QTY, not SELL -QTY, not BUY -QTY.
+        # if input is quantity, use quantity directly
+        # TODO: also allow quantity trades to submit their own limit price like 100@3.33???
+        # Maybe even "100@3.33+" to start with _our_ limit price, but then run our price-follow-tracking algo
+        # if the initial offer doesn't execute after a couple seconds?
+        if qty.is_quantity:
+            determinedQty = qty.qty
 
+        # Also, this loop does quote lookup to generate the 'limit' price if none exists.
+        # Conditions:
+        #  - if quantity is a dollar amount, we need to calculate quantity based on current quote.
+        #  - also, if this is a preview (with or without a limit price), we calculate a price for margin calculations.
+        #  - basically: guard against quantity orders attempting to lookup prices when they aren't needed.
+        #    (market orders also imply quantity is NOT money because a market order with no quantity doesn't make sense)
+        if (not limit and "MKT" not in orderType) or preview:
             quoteKey = lang.lookupKey(contract)
 
             # if this is a new quote just requested, we may need to wait
@@ -729,10 +739,13 @@ class IBKRCmdlineApp:
             if bid == -1:
                 logger.warning(
                     "[{}] WARNING: No bid price, so just using ASK directly for buying!",
-                    quoteSymbol,
+                    quoteKey,
                 )
                 bid = ask
 
+            # Note: this logic is different than the direct 'evict' logic where we place wider limit
+            #       bounds in an attempt to get out as soon as possible. This is more "at market, best effort,
+            #       and follow the price if we don't get it the first time" attempts.
             if isinstance(contract, Option):
                 # Options retain "regular" midpoint behavior because spreads can be wide and hopefully
                 # quotes are fairly slow/stable.
@@ -749,42 +762,37 @@ class IBKRCmdlineApp:
                 #       but the goal here is immediate fills at market-adjusted prices anyway.
                 mid = round(((bid + ask) / 2) * (1.005 if isLong else 0.995), 2)
 
-            price = comply(contract, mid)
+            limit = comply(contract, mid)
 
-            # since this is in the "negative quantity" block, we convert the
-            # negative number to a positive number for representing total
-            # amount to spend.
-            amt = abs(qty)
+        # only update qty if this is a money-ask because we also use this limit discovery
+        # for quantity-only orders, where we don't want to alter the quantity, obviously.
+        if qty.is_money:
+            amt = qty.qty
 
             # calculate order quantity for spend budget at current estimated price
-            logger.info(
-                "[{}] Trying to order ${:,.2f} worth at ${:,.2f}...", sym, amt, price
-            )
+            logger.info("[{}] Trying to order ${:,.2f} worth at {}...", sym, amt, qty)
 
-            qty = self.quantityForAmount(contract, amt, price)
+            determinedQty = self.quantityForAmount(contract, amt, limit)
 
-            if not qty:
+            if not determinedQty:
                 logger.error(
                     "[{}] Zero quantity calculated for: {} {} {}!",
                     sym,
                     contract,
                     amt,
-                    price,
+                    limit,
                 )
                 return None
 
-            assert qty > 0
+            assert determinedQty > 0
 
-            # If integer, show integer, else show fractions.
             logger.info(
                 "Ordering {:,} {} at ${:,.2f} for ${:,.2f}",
-                qty,
+                determinedQty,
                 sym,
-                price,
-                qty * price * multiplier,
+                limit,
+                determinedQty * limit * multiplier,
             )
-
-        assert qty > 0
 
         try:
             side = "BUY" if isLong else "SELL"
@@ -792,17 +800,17 @@ class IBKRCmdlineApp:
                 "[{} :: {}] {:,.2f} @ ${:,.2f} x {:,.2f} (${:,.2f}) ALL_HOURS={} TIF={}",
                 orderType,
                 side,
-                qty,
-                price,
+                determinedQty,
+                limit,
                 multiplier,
-                qty * price * multiplier,
+                determinedQty * limit * multiplier,
                 outsideRth,
                 tif,
             )
             order = orders.IOrder(
                 side,
-                qty,
-                price,
+                determinedQty,
+                limit,
                 outsiderth=outsideRth,
                 tif=tif,
             ).order(orderType)
@@ -830,8 +838,10 @@ class IBKRCmdlineApp:
         name = contract.localSymbol.replace(" ", "")
         desc = f"{name} :: QTY {order.totalQuantity:,}"
         if preview:
-            # NOTE: margin requirement changes don't show up with MKT orders because there's no price on the order to calculate against
-            #       (we could look up the current price as a quote here if it's a market order for cost comparison, but we're not doing that yet)
+            # Also note: there is _something_ off with our math because we aren't getting exactly 30% or 25% or 3% or 5% etc,
+            #            but it's close enough for what we're trying to show at this point.
+            previewPrice = order.lmtPrice if isset(order.lmtPrice) else limit
+
             logger.info(
                 "[{}] PREVIEW REQUEST {} via {}",
                 desc,
@@ -844,7 +854,7 @@ class IBKRCmdlineApp:
                 )
             except:
                 logger.error(
-                    "Timeout while trying to run order preview (sometimes IBKR is just slow)"
+                    "Timeout while trying to run order preview (sometimes IBKR is slow or the order preview API could be offline)"
                 )
                 return None
 
@@ -857,6 +867,11 @@ class IBKRCmdlineApp:
             # We currently assume only two kinds of things exist. We could add more.
             nameOfThing = "SHARE" if isinstance(contract, Stock) else "CONTRACT"
 
+            # set 100% margin defaults so our return value has something populated even if margin isn't relevant (options, etc)
+            margPctInit = 100
+            margPctMaint = 100
+            multiplier = float(contract.multiplier or 1)
+
             # for options or other conditions, there's no margin change to report.
             # also, if there is a "warning" on the trade, the numbers aren't valid.
             # Also, we need this extra 'isset()' check because unpopulated values from IBKR show up as string '1.7976931348623157E308'
@@ -864,21 +879,16 @@ class IBKRCmdlineApp:
                 not (trade.warningText)
                 and float(trade.initMarginChange) > 0
                 and isset(float(trade.initMarginChange))
-                and order.lmtPrice
+                and previewPrice
             ):
-                # Also note: there is _something_ off with our math because we aren't getting exactly 30% or 25% or 3% or 5% etc,
-                #            but it's close enough for what we're trying to show at this point.
-
-                multiplier = float(contract.multiplier or 1)
-
                 margPctInit = (
                     float(trade.initMarginChange)
-                    / (order.totalQuantity * order.lmtPrice * multiplier)
+                    / (order.totalQuantity * previewPrice * multiplier)
                 ) * 100
 
                 margPctMaint = (
                     float(trade.maintMarginChange)
-                    / (order.totalQuantity * order.lmtPrice * multiplier)
+                    / (order.totalQuantity * previewPrice * multiplier)
                 ) * 100
 
                 logger.info(
@@ -908,6 +918,16 @@ class IBKRCmdlineApp:
                 if int(multiplier) == multiplier:
                     multiplier = int(multiplier)
 
+                    # temporary (?) hack/fix for bags not having multiplers themselves, so we assume we're doing spreads of 100 multiplier option legs currently
+                    if isinstance(contract, Bag):
+                        multiplier = 100
+
+                # TODO: it woudl be nice to use the symbol's actual .minTick here, but it's extra work to fetch the ContractDetails itself.
+                # (why these intervals? some products trade only in 0.05 increments, others in 0.10 increments, some trade in 0.25 increments; some 0.01, etc)
+                #
+                # ADD TO PREVIEW: calculation for current quote spread (bounce-out loss immediately as percentage of buy, if wait for 2 ticks down and want to exit, that's 3+ ticks of opposite side, etc)
+                #                 also include: a {10%, 30%, 50%} loss is $X drop in contract...
+
                 for amt in (0.20, 0.75, 1, 3, 5):
                     logger.info(
                         "[{}] PREVIEW LEVERAGE ({} x {}): ${:,.2f} CONTRACT MOVE LEVERAGE is ${:,.2f}",
@@ -930,9 +950,7 @@ class IBKRCmdlineApp:
                 )
 
                 if multiplier > 1:
-                    # (Basically: how much must the underlying change in price for you to pay off
-                    #             the commission for this order (note: probably 2x this to cover
-                    #             both sides of the commission to exit.)
+                    # (Basically: how much must the underlying change in price for you to pay off the commission for this order.
                     tcmin = trade.minCommission / order.totalQuantity / multiplier
                     tcmax = trade.maxCommission / order.totalQuantity / multiplier
                     logger.info(
@@ -975,24 +993,33 @@ class IBKRCmdlineApp:
                     # show rough estimate of how much we're spending.
                     # for equity instruments with margin, we use the margin buy requirement as the cost estimate.
                     # for non-equity (options) without margin, we use the absolute value of the buying power drawdown for the purchase.
-                    logger.info(
-                        "[{}] PREVIEW TRADE PERCENTAGE OF AVAILABLE FUNDS: {:,.2f} %",
-                        desc,
-                        100
-                        * (
-                            float(trade.initMarginAfter)
-                            or abs(float(trade.equityWithLoanChange))
-                        )
-                        / self.accountStatus["AvailableFunds"],
-                    )
+                    # TODO: this value is somewhere between wrong or excessive if there's already marginable positions engaged since
+                    #       the calculation here is assuming a new position request is the only position in the account.
 
-            return False
+                    # don't print if this is a failed preview (this max float value is just the ibkr default way of saying "value does not exist")
+                    if trade.initMarginAfter != "1.7976931348623157E308":
+                        logger.info(
+                            "[{}] PREVIEW TRADE PERCENTAGE OF AVAILABLE FUNDS: {:,.2f} %",
+                            desc,
+                            100
+                            * (
+                                float(trade.initMarginAfter)
+                                or abs(float(trade.equityWithLoanChange))
+                            )
+                            / self.accountStatus["AvailableFunds"],
+                        )
+
+            return dict(
+                symbol=contract.localSymbol,
+                marginInit=margPctInit,
+                marginMaint=margPctMaint,
+                multiplier=multiplier,
+            )
 
         logger.info("[{}] Ordering {} via {}", desc, contract, order)
 
         # Enforce a market exchange for the trade to be present if one didn't exist.
-        # (somehow this started causing errors because 'exchange' wasn't populated, but we don't think
-        #  our code changed, so maybe their API used to default to SMART but doesn't anymore?)
+        # (the contract.exchange field must be populated with a valid value so the order knows where/how to route the order)
         if not contract.exchange:
             contract.exchange = "SMART"
 
@@ -1067,6 +1094,9 @@ class IBKRCmdlineApp:
         # your $4,000 MES contract is holding $20,000 notional on a $1,700 margin requirement).
         if isinstance(contract, Option):
             mul = float(contract.multiplier or 1)
+        elif isinstance(contract, Bag):
+            # TODO: we should be calculating the bag multipler in a better way probably, but for now we assume all bags have 100 multipliers
+            mul = 100
         else:
             mul = 1
 
@@ -1075,7 +1105,12 @@ class IBKRCmdlineApp:
         # total spend amount divided by price of thing to buy == how many things to buy
         # (rounding to fix IBKR error for fractional qty: "TotalQuantity field cannot contain more than 8 decimals")
         qty = round(amount / (limitPrice * mul), 8)
-        assert qty > 0
+        if qty <= 0:
+            logger.error(
+                "Sorry, your calculated quantity is {:,.8f} so we can't order anything!",
+                qty,
+            )
+            return
 
         if not isinstance(contract, Crypto):
             # only crypto orders support fractional quantities over the API.
