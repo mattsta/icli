@@ -968,6 +968,14 @@ class IOpOrderModify(IOp):
             # we MUST have replaced the order by now or else the conditions above are broken
             assert ordr != trade.order
 
+            # Also, MODIFY must not attempt to populate an algo or else IBKR complains (but only sometimes)
+            # (primarily found when using Adaptive aglos (AF/AS) on spreads, it complains "Cannot change to the new order type" even though we didn't
+            #  modify the algo type? — or, it looks like the API is configuring Adaptive orders to have orderType IBALGO when
+            #  after they are submitted, so when we re-submit with just LMT+Adaptive, IBKR thinks we are "changing" the algo when actually
+            #  their API change dit out from under us)
+            if ordr.orderType == "IBALGO":
+                ordr.orderType = "LMT"
+
             logger.info("Submitting order update: {} :: {}", contract, ordr)
             trade = self.ib.placeOrder(contract, ordr)
             logger.info("Updated: {}", pp.pformat(trade))
