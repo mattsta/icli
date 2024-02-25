@@ -1006,14 +1006,7 @@ class IOpOrder(IOp):
         #       Would also easily allow us to maybe have xor args where we want to switch between "total cost" and "total quantity" as inputs.
         return [
             DArg("symbol", convert=lambda x: x.upper()),
-            DArg("bs", verify=lambda x: x.lower() in {"b", "s", "buy", "sell"}),
-            DArg("t", verify=lambda x: x.lower() in {"t", "total"}),
-            DArg(
-                "total",
-                convert=lambda x: float(x.replace("_", "")),
-                verify=lambda x: x > 0,
-            ),
-            DArg("a", verify=lambda x: x.lower() in {"a", "algo"}),
+            DArg("total", convert=lambda x: PriceOrQuantity(x)),
             DArg(
                 "algo",
                 convert=lambda x: x.upper(),
@@ -1026,14 +1019,11 @@ class IOpOrder(IOp):
     async def run(self) -> bool:
         contract = None
         if " " in self.symbol:
-            # is spread, so do bag
-            isSpread = True
+            # is multi-leg spread/bag request, so do bag
             orderReq = self.state.ol.parse(self.symbol)
             contract = await self.state.bagForSpread(orderReq)
         else:
-            # else, is symbol
-            isSpread = False
-
+            # else, is a regular single symbol
             # if ordering current positional quote, do the lookup.
             # TODO: make centralized lookup helper function
             if self.symbol.startswith(":"):
@@ -1049,42 +1039,42 @@ class IOpOrder(IOp):
             logger.error("Not submitting order because contract can't be formatted!")
             return None
 
-        if not isSpread:
-            # spreads are qualified when they are initially populated
+        if not isinstance(contract, Bag):
+            # spreads are qualified when they are initially populated so we never qualify a bag directly
             await self.state.qualify(contract)
 
-        # B BUY is Long
-        # S SELL is Short
-        isLong = self.bs.lower().startswith("b")
+        isLong = self.total.is_long
 
         # send the order to IBKR
-        # Note: negative quantity is parsed as a WHOLE DOLLAR AMOUNT to use,
-        # then limit price is irrelevant since it runs a midpoint order.
         am = ALGOMAP[self.algo]
+
+        # note: limit=0 causes placeOrderForContract to automatically calculate the quote midpoint as starting offer.
         placed = await self.state.placeOrderForContract(
             self.symbol,
             isLong,
             contract,
-            # "negative quantity" means use as TOTAL PRICE
-            -self.total,
-            # also since we are buying by AMOUNT, we don't specify a
-            # limit price since it will be calculated automatically.
-            0,
-            am,
+            qty=self.total,
+            # we are buying by AMOUNT, we don't specify a
+            # limit price since it will be calculated automatically,
+            # then we read the calculated amount to run the auto-price-tracking attempts.
+            limit=0,
+            orderType=am,
             preview=self.preview,
         )
 
         if self.preview:
-            # Don't continue if this was just a preview request
-            return False
+            # Don't continue trying to update the order if this was just a preview request
+            return placed
 
         if not placed:
             logger.error("[{}] Order can't continue!", self.symbol)
             return False
 
         # if this is a market order, don't run the algo loop
-        if {"MOO", "MOC", "MKT"} & set(am.split()):
-            logger.warning("Not running price algo because this is a market order...")
+        if {"MOO", "MOC", "MKT", "SLOW", "PEG", "STOP", "MTL"} & set(am.split()):
+            logger.warning(
+                "Not running price algo because this is a market order or a slower resting order..."
+            )
             return False
 
         order, trade = placed
@@ -1109,20 +1099,21 @@ class IOpOrder(IOp):
 
             if rem == 0:
                 logger.warning(
-                    "Quantity Remaining is zero, but status is Pending. Waiting for update..."
+                    "Quantity Remaining is zero, but status is Pending. Waiting for final order status update..."
                 )
                 # sleep 75 ms and check again
                 await asyncio.sleep(0.075)
                 # TODO: infinite looped here? WHAT?
                 continue
 
-            logger.info("Quantity remaining: {}", rem)
+            logger.info("Quantity remaining: {:,.2f}", rem)
             checkedTimes += 1
 
             # if this is the first check after the order was placed, don't
             # run the algo (i.e. give the original limit price a chance to work)
             if checkedTimes == 1:
                 logger.info("Skipping adjust so original limit has a chance to fill...")
+                await asyncio.sleep(0.075)
                 continue
 
             # get current qty/value of trade both remaining and already executed
@@ -1134,90 +1125,45 @@ class IOpOrder(IOp):
                 currentQty,  # REMAINING QUANTITY
             ) = self.state.amountForTrade(trade)
 
-            # get current quote for order
+            # re-read current quote for symbol before each update in case the price is moving rapidly against us
             bid, ask = self.state.currentQuote(quoteKey)
-            if bid and ask:
+
+            if bid > 0 and ask > 0:
                 logger.info("Adjusting price for more aggressive fills...")
 
-                # TODO: these need to be more aware of opening-vs-closing so they DO NOT
-                #       REDUCE QUANTITY when closing, because closing means remove ALL current holding for symbol.
+                # TODO: restore ability for OPENING ORDERS to reduce quantity when ordering and chasing quotes, but
+                #       remember to DO NOT reduce quantity when chasing closing orders because we want to close a whole position.
                 if isLong:
-                    # if is buy, chase the ask with a market buffer
-                    # TODO: if this is futures, don't use a 1% limit margin, needs to be much smaller (like less than 5-10 points NQ or decrement by ATR levels...)
-                    # TODO: create a function to just take "price + offset" so we can more easily adjust this for different symbol types (stocks 1%, futures 1.5x ATR, options: follow current midpoint)
-                    newPrice = round((((currentPrice + ask) / 2) * 1.01), 2)
-                    newPrice = comply(trade.contract, newPrice)
-
-                    # TODO: fix this logic. It's currently replacing the UNFILLED QUANTITY
-                    #       with the current FILLED QUANTITY so the order just stops working...
-
-                    # reduce qty to remain in expected total spend constraint
-                    # FOR NOW, DISABLE DYNAMIC QUANITY REASSESMENT UNTIL WE ADD
-                    #          OPENING / CLOSING BIAS TO THESE (OPENS can adjust qty, CLOSE can't)
-                    if False:
-                        if False:
-                            newQty = totalAmount / newPrice
-
-                            # only crypto supports fractional values over the API,
-                            # so all non-crypto contracts get floor'd
-                            if not isinstance(trade.contract, Crypto):
-                                newQty = math.floor(newQty)
-                        else:
-                            # this is wrong because "CurrentQty" is "Current Remaining" but this is also
-                            # the amount for the TOTAL ORDER, so if we replace it each time, the order
-                            # fills smaller than the total we wanted.
-                            newQty = currentQty
+                    # if this is a BUY LONG order, we want to close the gap between our initial price guess and the actual ask.
+                    newPrice = automaticLimitBuffer(
+                        trade.contract, isLong, (currentPrice + ask) / 2
+                    )
                 else:
-                    # else if is sell, chase the bid with a market buffer
-                    newPrice = round((((currentPrice + bid) / 2) / 1.01), 2)
-                    newPrice = comply(contract, newPrice)
-
-                    # TODO: this is also probably broken
-                    # newQty = currentQty  # don't change quantities on shorts / sells
-                    # TODO: this needs to be aware of CLOSING instead of OPEN SHORT.
-                    # i.e. on OPENING orders we can grow/shrink qty, but on CLOSING
-                    # we DO NOT want to shrink or grow our qty.
+                    # else, this is a SELL SHORT (or close long) order, so we want to start at our price and chase the bid closer.
+                    newPrice = automaticLimitBuffer(
+                        trade.contract, isLong, (currentPrice + bid) / 2
+                    )
 
                 logger.info(
-                    "Price changing from {} to {} ({}) for spending ${:,.2f}",
+                    "Price changing from {} to {} (difference {}) for spending ${:,.2f}",
                     currentPrice,
                     newPrice,
                     round((newPrice - currentPrice), 4),
                     totalAmount,
                 )
 
-                # we aren't changing quantities anymore (for now)
-                if False:
-                    logger.info(
-                        "Qty changing from {} to {} ({})",
-                        currentQty,
-                        newQty,
-                        (newQty - currentQty),
-                    )
-
-                    if newQty <= 0:
-                        logger.error(
-                            "Not submitting order because calculated quantity to zero?"
-                        )
-                        return False
-
-                    if newQty > 0:
-                        order.totalQuantity = newQty
-                    else:
-                        logger.error(
-                            "Quantity was set to {} so not changing it...", newQty
-                        )
-
                 if currentPrice == newPrice:
-                    logger.error("Not submitting order because no price change?")
+                    logger.error(
+                        "Not submitting order update because no price change? Order still active!"
+                    )
                     return False
 
-                logger.info("Submitting order update...")
+                logger.info("Submitting order update to: ${:,.2f}", newPrice)
                 order.lmtPrice = newPrice
 
                 self.ib.placeOrder(contract, order)
 
-            waitDuration = 0.75
+            waitDuration = 3
             logger.info(
                 "[{} :: {}] Waiting for {} seconds to check for new executions...",
                 trade.orderStatus.orderId,
