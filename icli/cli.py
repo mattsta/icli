@@ -1267,9 +1267,10 @@ class IBKRCmdlineApp:
             ago = (self.now - (q.time or self.now)).as_duration()
 
             show = [
-                f"{q.contract.localSymbol or q.contract.symbol}: bid {q.bid:,.2f} x {q.bidSize}",
-                f"ask {q.ask:,.2f} x {q.askSize}",
+                f"{q.contract.localSymbol or q.contract.symbol}:",
+                f"bid {q.bid:,.2f} x {q.bidSize}",
                 f"mid {(q.bid + q.ask) / 2:,.2f}",
+                f"ask {q.ask:,.2f} x {q.askSize}",
                 f"last {q.last:,.2f} x {q.lastSize}",
                 f"ago {str(ago)}",
             ]
