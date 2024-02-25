@@ -38,6 +38,8 @@ beautifulsoup4 = "^4.9.3"
 
 # our API helpers and wrappers
 tradeapis = { git = "https://github.com/mattsta/tradeapis.git", tag="2.4.2" }
+schedule = "^1.1.0"
+httpx = "^0.25.2"
 
 [tool.poetry.scripts]
 icli = "icli.__main__:runit"

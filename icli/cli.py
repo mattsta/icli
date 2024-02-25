@@ -330,6 +330,9 @@ class IBKRCmdlineApp:
     pnlSingle: dict[int, PnLSingle] = field(default_factory=dict)
     exiting: bool = False
     ol: buylang.OLang = field(default_factory=buylang.OLang)
+    quotehistory: dict[int, deque[float]] = field(
+        default_factory=lambda: defaultdict(lambda: deque(maxlen=120))
+    )
 
     # calculate live ATR based on quote updates
     # (the .25 is because quotes update at 250 ms intervals, so we normalize "events per second" by update frequency)
@@ -1341,6 +1344,22 @@ class IBKRCmdlineApp:
             elif fill.execution.side == "SLD":
                 # send SOLD note
                 ...
+
+        if ICLI_AWWDIO_URL:
+            if fill.commissionReport.realizedPNL:
+                asyncio.create_task(
+                    self.speak.say(
+                        say=f"P-N-L: {fill.execution.cumQty} profit ${int(fill.commissionReport.realizedPNL):,}"
+                    )
+                )
+            else:
+                # We notify about orders HERE instead of in 'orderExecuteHandler()' because HERE we have details about filled/canceled for
+                # the status, where 'orderExecuteHandler()' always just has status of "Submitted" when an execution happens (also with no price details) which isn't as useful.
+                asyncio.create_task(
+                    self.speak.say(
+                        say=f"ORDER {trade.orderStatus.status} FOR {fill.contract.localSymbol} ({fill.execution.side} {int(fill.execution.cumQty)} of {int(trade.order.totalQuantity)}) (commission {locale.currency(fill.commissionReport.commission)})"
+                    )
+                )
 
         logger.warning(
             "[{} :: {} :: {}] Order {} commission: {} {} {} at ${:,.2f} (total {} of {}) (commission {} ({} each)){}",
@@ -2538,13 +2557,19 @@ class IBKRCmdlineApp:
             logger.info("[quotes] All global quotes resubscribed!")
 
             for contract in contracts:
-                self.addQuoteFromContract(contract)
+                try:
+                    self.addQuoteFromContract(contract)
+                except:
+                    logger.error("Failed to add on startup: {}", contract)
 
         async def reconnect():
             # don't reconnect if an exit is requested
             if self.exiting:
                 return
 
+            # TODO: we should really find a better way of running this on startup because currently, if the
+            #       IBKR gateway/API is down or unreachable, icli will never actually start since we just
+            #       get stuck in this "while not connected, attempt to connect" pre-launch condition forever.
             logger.info("Connecting to IBKR API...")
             while True:
                 self.connected = False
@@ -2592,27 +2617,6 @@ class IBKRCmdlineApp:
                         self.pnlSingle[p.contract.conId] = self.ib.reqPnLSingle(
                             self.accountId, "", p.contract.conId
                         )
-
-                    if False:
-                        # Optionally we can subscribe to live bars for futures if we
-                        # want to run a real time futures price algo too.
-                        lookupBars = [
-                            Future(
-                                symbol="MES",
-                                exchange="GLOBEX",
-                                lastTradeDateOrContractMonth=FUT_EXP,
-                            ),
-                            Future(
-                                symbol="MNQ",
-                                exchange="GLOBEX",
-                                lastTradeDateOrContractMonth=FUT_EXP,
-                            ),
-                        ]
-
-                        self.liveBars = {
-                            c.symbol: self.ib.reqRealTimeBars(c, 5, "TRADES", False)
-                            for c in lookupBars
-                        }
 
                     # run some startup accounting subscriptions concurrently
                     await asyncio.gather(

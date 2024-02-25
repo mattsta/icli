@@ -604,7 +604,6 @@ class IOpScheduleEvent(IOp):
                     c, *v = cmd.split(" ", 1)
                     await self.runoplive(c, v[0] if v else None)
                     logger.info("[{} :: {}] Completed UR CMD!", self.name, cmd)
-
             except asyncio.CancelledError:
                 logger.warning(
                     "[{} :: {}] Future Scheduled Task Canceled!", self.name, self.cmd
@@ -619,7 +618,7 @@ class IOpScheduleEvent(IOp):
 
         sched = asyncio.create_task(doit())
 
-        # save reference so this task doesn't get GC'd
+        # save reference so this task doesn't get GC'd (also so we can cancel it manually too)
         self.state.scheduler[self.name] = (self.datetime, self.cmd, sched)
         logger.info("[{} :: {}] Scheduled via: {}", self.name, self.cmd, sched)
 
@@ -669,28 +668,9 @@ class IOpAlias(IOp):
         # TODO: should this just be an external parser language too?
         aliases = {
             "buy-spx": {"async": ["fast spx c :1 0 :2*"]},
-            "sell-spx": {"async": ["evict SPXW* -1"]},
-            "evict": {"async": ["evict * -1"]},
+            "sell-spx": {"async": ["evict SPXW* -1 0"]},
+            "evict": {"async": ["evict * -1 0"]},
             "clear-quotes": {"async": ["qremove blahblah SPXW*"]},
-            # TODO: if RTH, use 4x, if PM or AH use 2x
-            "buy-screen": {
-                "var": {"spend": self.state.accountStatus["AvailableFunds"] * 4 / 1.10},
-                "spend-per-order": {"calc": ":spend / ::asynclength"},
-                "async": [
-                    f"buy buy {sym} q 0 p :spend-per-order a AF"
-                    for sym in {
-                        "AAPL",
-                        "SHOP",
-                        "FB",
-                        "NVDA",
-                        "AMD",
-                        "MSFT",
-                        "TWLO",
-                        "ETSY",
-                        "ROKU",
-                    }
-                ],
-            },
         }
 
         if self.cmd not in aliases:
@@ -831,7 +811,6 @@ class IOpDepth(IOp):
                     # format floats as currency strings with proper cent padding.
                     fixedBids["price"] = fixedBids["price"].apply(decimal_formatter)
                     fixedBids["marketMaker"] = sorted(fixedBids["marketMaker"])
-
                 else:
                     fixedBids = pd.DataFrame([dict(size=0)])
 
@@ -954,6 +933,9 @@ class IOpOrderModify(IOp):
                 # User didn't provide new data, so stop processing
                 return None
 
+            # TODO: if new limit price is 0, the user is trying to just do a market order, but we can't change
+            #       order types, so technically we should cancel this order the create a new AMF order.
+            # TODO: we should be rounding these limit prices too because IBKR complains about incorrect tick compliance on updates.
             if lmt:
                 # COPY the underlying order so we don't directly modify the internal trade cache
                 # (so if the order update fails to apply, our data remains in a good state)
@@ -3330,6 +3312,7 @@ class IOpOptionChainRange(IOp):
             self.symbol,
         )
 
+        # TODO: what about ranges where we do'nt have an underlying like NDXP doesn't mean we are subscribed to ^NDX
         quote = self.state.quoteState[self.symbol]
 
         # prices are NaN until they get populated...
@@ -3749,7 +3732,7 @@ class IOpQuoteGroupDelete(IOp):
         if not self.groups:
             logger.error("No groups provided!")
 
-        for group in sorted(groups):
+        for group in sorted(self.groups):
             logger.info("Deleting quote group: {}", group)
             self.cache.delete(("quotes", group))
 
