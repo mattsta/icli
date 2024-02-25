@@ -46,7 +46,7 @@ from loguru import logger
 # we add some padding to the futs exp to compensate for having the client open a couple days before
 # (which will be weekends or sunday night, which is fine)
 futexp = tcal.nextFuturesRollDate(
-    datetime.datetime.now().date() + datetime.timedelta(days=3)
+    datetime.datetime.now().date() + datetime.timedelta(days=2)
 )
 
 # Also compare: https://www.cmegroup.com/trading/equity-index/rolldates.html
