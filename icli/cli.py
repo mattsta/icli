@@ -387,7 +387,15 @@ class IBKRCmdlineApp:
 
         # For uncached, fetch them from external system
         if uncached_contracts:
-            got = await self.ib.qualifyContractsAsync(*uncached_contracts)
+            try:
+                got = await asyncio.wait_for(
+                    self.ib.qualifyContractsAsync(*uncached_contracts), timeout=2
+                )
+            except:
+                logger.error(
+                    "Timeout while trying to qualify contracts (sometimes IBKR is slow or the API is offline during nightly restarts)"
+                )
+                return None
 
             # iterate resolved contracts and save them all
             for contract in got:
