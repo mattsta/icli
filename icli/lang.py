@@ -1184,11 +1184,319 @@ class IOpOrder(IOp):
         # now just print current holdings so we have a clean view of what we just transacted
         # (but schedule it for a next run so so the event loop has a chance to update holdings first)
         async def delayShowPositions():
-            await asyncio.sleep(0.666)
+            await asyncio.sleep(0.9626)
             await self.runoplive("positions", [])
 
         asyncio.create_task(delayShowPositions())
+
+        # "return True" signals to an algo caller the order is finalized without errors.
         return True
+
+
+
+@dataclass
+class IOpOrderStraddle(IOp):
+    """Place a long straddle spread order (optionally a strangle) by providing symbol and width in strikes from ATM for put/call strikes (width 0 is just an ATM(ish) straddle)."""
+
+    def argmap(self):
+        return [
+            DArg(
+                "symbol",
+                convert=lambda x: x.upper(),
+                verify=lambda x: " " not in x,
+                desc="Underlying for contracts to use for ATM quote and leg choices",
+            ),
+            DArg(
+                "tradeSymbol",
+                convert=lambda x: x.upper(),
+                verify=lambda x: " " not in x,
+                desc="Symbol to use for order placement. Common usage is by using SPX for underlying but SPXW as the trade symbol.",
+            ),
+            DArg(
+                "amount",
+                convert=lambda x: float(x.replace("_", "").replace(",", "")),
+                desc="Maximum dollar amount to spend",
+            ),
+            DArg(
+                "width",
+                convert=int,
+                desc="How many strikes apart to place your legs (can be 0 to just to strangle P/C ATM)",
+            ),
+            DArg(
+                "*preview",
+                desc="Run all the calculations, but do not place an active order.",
+            ),
+        ]
+
+    async def run(self):
+        # Step 1: resolve input symbol to a contract
+        # Step 2: fetch chains for underlying
+        # Step 3: fetch current price for underlying
+        # Step 4: Determine strikes to use for straddle
+        # Step 5: build spread
+        # Step 6: add quote for open spread
+        # Step 6: add quote for close spread
+        # Step 7: place spread or preview calculations
+        if self.symbol[0] == ":":
+            self.symbol, contract = self.state.quoteResolve(self.symbol)
+            assert self.symbol
+        else:
+            logger.info("[{}] Looking up contract...", self.symbol)
+
+            # we need to hack the symbol lookup if these are index options...
+            prefix = "I:" if self.symbol in {"SPX", "NQ", "VX"} else ""
+            contract = contractForName(f"{prefix}{self.symbol}")
+
+            await self.state.qualify(contract)
+            logger.info("[{}] Found contract: {}", self.symbol, contract)
+
+        if not isinstance(contract, (Stock, Future, Index)):
+            logger.error(
+                "Spreads are only supported on stocks and futures and index options, but you tried to run a spread on: {}",
+                contract,
+            )
+            return
+
+        # also hack here for index contracts having 'I:' prefix but we don't want it for the quote lookup.
+        quotesym = lookupKey(contract)
+
+        quotesym = self.symbol
+        quote = self.state.quoteState[quotesym]
+        strikes = await self.runoplive("chains", quotesym)
+
+        strikes = strikes[quotesym]
+
+        if not strikes:
+            logger.error("[{} :: {}] No strikes found?", self.symbol, quotesym)
+            return None
+
+        currentPrice = quote.last
+        logger.info("[{}] Using ATM price: {:,.2f}", self.symbol, currentPrice)
+
+        sstrikes = sorted(strikes.keys())
+
+        now = pendulum.now().in_tz("US/Eastern")
+
+        # if after market close, use next day
+        if (now.hour, now.minute) >= (16, 15):
+            now = now.add(days=1)
+
+        # Note: IBKR Expiration formats in the dict are *full* YYYYMMDD, not OCC YYMMDD.
+        expTry = now.date()
+        expirationFmt = f"{expTry.year}{expTry.month:02}{expTry.day:02}"
+        useExpIdx = bisect.bisect_left(sstrikes, expirationFmt)
+
+        # TODO: add param for expiration days away or keep fixed?
+        self.expirationAway = 0
+        useExp = sstrikes[useExpIdx : useExpIdx + 1 + self.expirationAway][-1]
+
+        assert useExp in strikes
+        useChain = strikes[useExp]
+
+        # nearest ATM strike to the current quote
+        currentStrikeIdx = find_nearest(useChain, currentPrice)
+
+        # Note: we are indexing these by STRIKE WIDTH and NOT BY PRICE. We would bisect if using price.
+        # LOWER PUT
+        putIdx = currentStrikeIdx - self.width
+
+        # HIGHER CALL
+        callIdx = currentStrikeIdx + self.width
+
+        put = useChain[putIdx]
+        atm = useChain[currentStrikeIdx]
+        call = useChain[callIdx]
+
+        logger.info(
+            "[{} :: {}] USING SPREAD: [put {:.2f}] <-(${:,.2f} wide)-> [atm {:.2f}] <-(${:,.2f} wide)-> [call {:.2f}]",
+            self.symbol,
+            self.tradeSymbol,
+            put,
+            atm - put,
+            atm,
+            call - atm,
+            call,
+        )
+
+        assert put <= atm <= call
+
+        spread = " ".join(
+            [
+                f"{what} 1 {self.tradeSymbol}{useExp[2:]}{direction}{int(strike * 1000):08}"
+                for what, direction, strike in {
+                    ("buy", "P", put),
+                    ("buy", "C", call),
+                }
+            ]
+        )
+
+        closingSpread = " ".join(
+            [
+                f"{what} 1 {self.tradeSymbol}{useExp[2:]}{direction}{int(strike * 1000):08}"
+                for what, direction, strike in {
+                    ("sell", "P", put),
+                    ("sell", "C", call),
+                }
+            ]
+        )
+
+        logger.info("[{} :: {}] OPEN CHAIN:  {}", self.symbol, self.tradeSymbol, spread)
+        logger.info(
+            "[{} :: {}] CLOSE CHAIN: {}",
+            self.symbol,
+            self.tradeSymbol,
+            closingSpread,
+        )
+
+        orderReq = self.state.ol.parse(spread)
+
+        # subscribe to quote for spread so we can figure out the current price for ordering...
+        qk = await self.runoplive("add", f'"{spread}"')
+
+        # add closing spread async because it was causing maybe rate limit problems with IBKR data feeds?
+        asyncio.create_task(self.runoplive("add", f'"{closingSpread}"'))
+
+        # logger.info("Got quote keys: {}", qk)
+
+        # find quote key for the spread (not the legs)
+        # (kinda weird, but the 'add' returns 3 or 4 keys: one for each leg symbol and one for the combined spread quote to
+        #  buy and (maybe) ANOTHER for the combined spread quote to sell, so we want to ONLY extract the BUY SPREAD quote
+        #  for this straddle purchase. the spread quote is a tuple key while the leg quotes are just string keys)
+        # The Bag BUY quote keys look like: ((640377328, 1, 'BUY', 'SMART', 0, 0, '', -1), (649711537, 1, 'BUY', 'SMART', 0, 0, '', -1))
+        quoteKey = next(filter(lambda x: isinstance(x, tuple) and x[0][2] == "BUY", qk))
+
+        # ACTUALLY, the IBKR spread quotes are VERY UNRELIABLE and often just NEVER POPULATE, so build our own spread quotes... sigh.
+        spreadBuyQuote = self.state.quoteState[quoteKey]
+        legsKeys = list(filter(lambda x: not isinstance(x, tuple), qk))
+
+        legsquotes = [self.state.quoteState[legKey] for legKey in legsKeys]
+        for i in range(0, 15):
+            # when not populated, bid/ask are nan
+            # bid = speadBuyQuote.bid
+            # ask = speadBuyQuote.ask
+
+            # construct our own spread quote because the IBKR spread datafeed is unreliable.
+            # This is just a fully long spread, so the quotes are just the sum of each side.
+            bid = 0
+            ask = 0
+            for leg in legsquotes:
+                bid += leg.bid
+                ask += leg.ask
+
+            middle = (bid + ask) / 2
+
+            # but bid/ask can also be 0  or -1 when no trade is viable (too wide 0DTE spreads with no buyers, etc)
+            # (this is okay because these are LONG straddles/strangles so we are not running credit orders at all)
+            isok = middle and middle == middle and middle > 0
+
+            if isok:
+                middle = round(comply(self.tradeSymbol, middle), 2)
+                logger.info(
+                    "[{} :: {}] Current quote: [bid {:.2f}] [mid {:.2f}] [ask {:.2f}]",
+                    self.symbol,
+                    self.tradeSymbol,
+                    bid,
+                    middle,
+                    ask,
+                )
+                if not (bid == bid or bid):
+                    logger.warning(
+                        "[{} :: {}] Spread does not have bids for all legs!",
+                        self.symbol,
+                        self.tradeSymbol,
+                    )
+                break
+
+            logger.warning("[{} :: {}] No quote yet...", self.symbol, self.tradeSymbol)
+
+            # else, price not found yet, so wait to try again.
+            await asyncio.sleep(0.222)
+
+        if not isok:
+            logger.error(
+                "[{} :: {}] Spread doesn't have a quote? Can't continue!",
+                self.symbol,
+                self.tradeSymbol,
+            )
+            return None
+
+        # TODO: for now we're being lazy and assuming a 100 multiplier on everything...
+        usePrice = middle  # could also be speadBuyQuote.bid or speadBuyQuote.ask or other ranges
+
+        if not usePrice:
+            logger.warning(
+                "[{} :: {}] Price not found! Can't continue.",
+                self.symbol,
+                self.tradeSymbol,
+            )
+            return
+
+        # make sure we don't try to submit a negative quantity, because we are not GOING SHORT here.
+        qty = int(self.amount // (usePrice * 100))
+
+        if qty <= 0:
+            logger.warning(
+                "Why did your quantity not work? Created quantity {} from price {}",
+                qty,
+                usePrice,
+            )
+            return None
+
+        logger.info(
+            "[{} :: {}] Decided on offer: {:.2f} with qty {:,} (est: ${:,.2f} before commissions)",
+            self.symbol,
+            self.tradeSymbol,
+            usePrice,
+            qty,
+            qty * usePrice * 100,
+        )
+
+        algo = "LIM"
+        useAlgoFromMapLookup = ALGOMAP[algo]
+
+        # even if the spread doesn't have a quote, we still need to use the Bag contract with the legs inside
+        bag = spreadBuyQuote.contract
+
+        if False:
+            order = orders.IOrder("BUY", qty, usePrice, outsiderth=True).order(
+                useAlgoFromMapLookup
+            )
+
+            assert isinstance(
+                bag, Bag
+            ), f"Why isn't your bag a bag? Your contract is: {bag}"
+
+            logger.info(
+                "[{} :: {}] BAG: {} via ORDER: {}",
+                self.symbol,
+                self.tradeSymbol,
+                pp.pformat(bag),
+                pp.pformat(order),
+            )
+
+        # Let the common order executor handle the remainder of this actual trade or preview state
+        return await self.state.placeOrderForContract(
+            self.symbol,
+            True,  # spreads are always "BUY" orders
+            bag,
+            PriceOrQuantity(qty, is_quantity=True),
+            limit=usePrice,
+            orderType=useAlgoFromMapLookup,
+            preview=self.preview,
+        )
+
+        # If we were previewing and ordering locally...
+        if self.preview:
+            trade = await self.ib.whatIfOrderAsync(bag, order)
+            logger.info("PREVIEW: {}", pp.pformat(trade))
+            logger.warning("ONLY PREVIEW. NO TRADE PLACED.")
+            return
+
+        if False:
+            if not contract.exchange:
+                contract.exchange = "SMART"
+
+            trade = self.ib.placeOrder(contract, order)
 
 
 @dataclass
@@ -1235,6 +1543,12 @@ class IOpOrderFast(IOp):
                 convert=int,
                 desc="pick strikes N apart (e.g. use 2 for room to lock gains with butterflies)",
             ),
+            DArg(
+                "atm",
+                convert=int,
+                desc="Number of strikes away from ATM to target for starting. Can be negative to start ITM.",
+            ),
+            # TODO: add feature where we could just specify "OPEX" for next opex? Just need to calculate the next 3rd fridayd date.
             DArg(
                 "expirationAway",
                 convert=int,
@@ -1377,11 +1691,11 @@ class IOpOrderFast(IOp):
         useChain = strikes[useExp]
 
         logger.info(
-            "[{} :: {}] Using expiration {} (days away: {}) chain: {}",
+            "[{} :: {} :: {}] Using expiration {} having chain: {}",
             initSym,
             self.direction,
+            useExpIdx,
             useExp,
-            int(useExp) - int(expirationFmt),
             useChain,
         )
 
@@ -1534,18 +1848,13 @@ class IOpOrderFast(IOp):
         # (and walk _backwards_ if doing puts!)
         firstStrikeIdx = find_nearest(useChain, currentPrice)
 
-        # because of sorting, the bisect selects an ITM strike for
-        # initial puts, but we can back it down one to start at
-        # the first OTM strike (or it will be ATM if the prices
-        # match exactly).
-        if not usingCalls and firstStrikeIdx > 0:
-            if useChain[firstStrikeIdx] > currentPrice:
-                firstStrikeIdx -= 1
-
         buyStrikes = []
 
         # if puts, walk towards lower strikes instead of higher strikes.
         directionMul = 1 if usingCalls else -1
+
+        # move strike by 'atm' positions in the direction of the request (LOWER PRICE for calls, HIGHER PRICE for puts)
+        firstStrikeIdx += directionMul * self.atm
 
         # If asking for negative gaps (more ITM instead of more OTM) then our
         # direction is inverted from normal for the call/put strike discovery.
@@ -1565,7 +1874,7 @@ class IOpOrderFast(IOp):
         if self.percentageRun == 0:
             # If NO WIDTH specified, use current ATM pick (potentially moved by 'gaps' requested to start)
             poffset = self.gaps
-            picked = useChain[firstStrikeIdx + (poffset * (1 if usingCalls else -1))]
+            picked = useChain[firstStrikeIdx]
             logger.info("No width requested, so using: {}", picked)
             buyStrikes.append(picked)
         elif self.percentageRun >= 1:
@@ -1671,9 +1980,14 @@ class IOpOrderFast(IOp):
                 occForQuote = occ
 
                 # multipler is a string of a number because of course it is.
-                # It's likely always an integer, but why risk coercing to int when float is
-                # also fine here with our flakey price math.
-                qs = self.state.quoteState[occForQuote]
+                try:
+                    qs = self.state.quoteState[occForQuote]
+                except:
+                    logger.error(
+                        "[{}] Quote doesn't exist? Can't continue!", occForQuote
+                    )
+                    return None
+
                 multiplier = float(qs.contract.multiplier or 1)
 
                 ask = self.state.quoteState[occForQuote].ask * multiplier
@@ -1795,9 +2109,8 @@ class IOpOrderFast(IOp):
         # assemble coroutines with parameters per order
         placement = []
         for occ, qty in buyQty.items():
-            qs = self.state.quoteState[
-                occ.replace("SPX", "SPXW")
-            ]  # TODO: FIX HACK NAME CRAP
+            # TODO: FIX HACK NAME CRAP
+            qs = self.state.quoteState[occ.replace("SPX", "SPXW")]
             limit = round((qs.bid + qs.ask) / 2, 2)
 
             # if for some reason bid/ask aren't populated, wait for them...
@@ -1805,7 +2118,10 @@ class IOpOrderFast(IOp):
                 await asyncio.sleep(0.075)
                 limit = round((qs.bid + qs.ask) / 2, 2)
 
-            placement.append((occ, qty, limit, "AF"))
+            # buy order algo hackery...
+            algo = "AF"
+
+            placement.append((occ, qty, limit, algo))
             # placement.append(
             #     self.state.placeOrderForContract(
             #         occ, True, contracts[occ], qty, limit, "LMT + ADAPTIVE + FAST"
@@ -1823,14 +2139,12 @@ class IOpOrderFast(IOp):
         # for all our calculated strikes.
         placed = await asyncio.gather(
             *[
-                self.runoplive(
-                    "buy",
-                    # Since these are per-contract limit price, we need to re-inflate the total by the multiplier again.
-                    f"{occ} buy total {qty * limit * multiplier} algo {algo}",
-                )
-                for occ, qty, limit, algo in placement
+                self.runoplive("buy", f"{occ} {qty} {algo}")
+                for occ, qty, _limit, algo in placement
             ]
         )
+
+        return True
 
 
 @dataclass
@@ -1964,19 +2278,19 @@ class IOpOrderLimit(IOp):
                     "chains",
                     sym,
                 )
-                strikes = strikes[sym]
+                strikesUse = strikesDict[sym]
 
                 # strikes are in a dict by expiration date,
                 # so symbol AAPL211112C00150000 will have expiration
                 # 211112 with key 20211112 in the strikesDict return
                 # value from the "chains" operation.
                 # Note: not year 2100 compliant.
-                strikes = strikes["20" + sym[-15 : -15 + 6]]
+                strikesFound = strikesUse["20" + sym[-15 : -15 + 6]]
 
                 currentStrike = float(sym[-8:]) / 1000
-                pos = find_nearest(strikes, currentStrike)
+                pos = find_nearest(strikesFound, currentStrike)
                 # TODO: filter this better if we are at top of chain
-                (l2, l1, current, h1, h2) = strikes[pos - 2 : pos + 3]
+                (l2, l1, current, h1, h2) = strikesFound[pos - 2 : pos + 3]
 
                 # verify we found the correct midpoint or else the next strike
                 # calculations will be all bad
@@ -2019,7 +2333,12 @@ class IOpOrderLimit(IOp):
             await self.state.qualify(contract)
 
         return await self.state.placeOrderForContract(
-            sym, isLong, contract, qty, price, orderType
+            sym,
+            isLong,
+            contract,
+            PriceOrQuantity(qty, is_quantity=True),
+            price,
+            orderType,
         )
 
         # TODO: allow opt-in to midpoint price adjustment following.
@@ -2051,8 +2370,8 @@ class IOpOrderCancel(IOp):
         return [
             DArg(
                 "*orderids",
-                lambda xs: [int(x) for x in xs],
-                errmsg="Order IDs must be integers!",
+                lambda xs: [int(x) if x.isdigit() else x for x in xs],
+                errmsg="Order IDs can be order id integers or glob strings for symbols to cancel.",
             )
         ]
 
@@ -2064,7 +2383,7 @@ class IOpOrderCancel(IOp):
                     "Orders to Cancel",
                     choices=[
                         Choice(
-                            f"{o.order.action} {o.contract.localSymbol} {o.order.totalQuantity} ${o.order.lmtPrice:.2f} == ${o.order.totalQuantity * o.order.lmtPrice * (100 if o.contract.secType == 'OPT' else 1):,.2f}",
+                            f"{o.order.action} {o.contract.localSymbol} {o.order.totalQuantity} ${o.order.lmtPrice:.2f} == ${o.order.totalQuantity * o.order.lmtPrice * float(o.contract.multiplier or 1):,.6f}",
                             o.order,
                         )
                         for o in sorted(self.ib.openTrades(), key=tradeOrderCmp)
@@ -2085,14 +2404,30 @@ class IOpOrderCancel(IOp):
                 # These aren't indexed in anyway, so just n^2 search, but the
                 # count is likely to be tiny overall.
                 # TODO: we could maintain a cache of active orders indexed by orderId
-                for o in self.ib.orders():
-                    if o.orderId == orderid:
-                        oooo.append(o)
+                for o in self.ib.openTrades():
+                    # if provided direct order id integer, just check directly...
+                    if isinstance(orderid, int):
+                        if o.order.orderId == orderid:
+                            oooo.append(o.order)
+                    else:
+                        # else, is either a symbol name or glob to try...
+                        name = o.contract.localSymbol.replace(" ", "")
 
-        if oooo:
-            for o in oooo:
-                logger.info("Canceling order {}", o)
-                self.ib.cancelOrder(o)
+                        # also allow evict :N if we just have a quote for it handy...
+                        # TODO: actually move this out to the arg pre-processing step so we don't run it each time
+                        if orderid[0] == ":":
+                            orderid, _contract = self.state.quoteResolve(orderid)
+
+                        if fnmatch.fnmatch(name, orderid):
+                            oooo.append(o.order)
+
+        if not oooo:
+            logger.error("[{}] No match for orders cancel!", self.orderids)
+            return
+
+        for n, o in enumerate(oooo, start=1):
+            logger.info("[{} of {}] Cancel for order: {}", n, len(oooo), o)
+            self.ib.cancelOrder(o)
 
 
 @dataclass
@@ -2453,19 +2788,35 @@ class IOpOrders(IOp):
 
                     # now the name will be in the cache!
                     lsym = self.state.conIdCache[x.conId].localSymbol
-                    lsymsym, lsymrest = lsym.split()
-                    myLegs.append(
-                        (
-                            x.action[0],  # 0
-                            x.ratio,  # 1
-                            # Don't need symbol because row has symbol...
-                            # lsymsym,
-                            lsymrest[-9],  # 2
-                            str(pendulum.parse("20" + lsymrest[:6]).date()),  # 3
-                            round(int(lsymrest[-8:]) / 1000, 2),  # 4
-                            lsym.replace(" ", ""),  # 5
+                    lsymsym, *lsymrest = lsym.split()
+
+                    # leg of spread is an IBKR OPTION SYMBOL (SPY 20240216C00500000)
+                    if lsymrest:
+                        lsymrest = lsymrest[0]
+                        myLegs.append(
+                            (
+                                x.action[0],  # 0
+                                x.ratio,  # 1
+                                # Don't need symbol because row has symbol...
+                                # lsymsym,
+                                lsymrest[-9],  # 2
+                                str(pendulum.parse("20" + lsymrest[:6]).date()),  # 3
+                                round(int(lsymrest[-8:]) / 1000, 2),  # 4
+                                lsym.replace(" ", ""),  # 5
+                            )
                         )
-                    )
+                    else:
+                        # else, leg of spread is a single STOCK SYMBOL (SPY)
+                        myLegs.append(
+                            (
+                                x.action[0],  # 0
+                                x.ratio,  # 1
+                                "",  # 2
+                                "",  # 3
+                                0,  # 4
+                                lsym.replace(" ", ""),  # 5
+                            )
+                        )
                 else:
                     # normalize all multipliers in the bags by their total weight for the final credit/debit value calculation
                     totalMultiplier /= len(o.contract.comboLegs)
@@ -2573,8 +2924,6 @@ class IOpOrders(IOp):
                     l.status,
                     l.message,
                 )
-
-
 
 
 @dataclass
@@ -2813,13 +3162,17 @@ class IOpQuotesRemove(IOp):
         # Also, we just de-duplicate the symbol requests into a set in case there are duplicate requests
         # (because it would look weird doing "remove :29 :29 :29 :29" just to consume the same position
         #  as it gets removed over and over again?).
+        # BUG NOTE: if you mix different digit lengths (like :32 and :302 and :1 and :1005) this sorted() doesn't
+        #           work as expected, but most users shouldn't be having more than 100 live quotes anyway.
+        #           We could implement a more complex "detect if ':N' syntax then use natural sort' but it's
+        #           not important currently. You can see the incorrect sorting behavior using: `remove :{25..300}`
         for sym in sorted(set(self.symbols), reverse=True):
             sym = sym.upper()
             if len(sym) > 30:
                 # this is a combo request, so we need to evaluate, resolve, then key it
                 orderReq = self.state.ol.parse(sym)
                 contract = await self.state.contractForOrderRequest(orderReq)
-            elif sym.startswith(":"):
+            elif sym[0] == ":":
                 resolved, contract = self.state.quoteResolve(sym)
                 if not resolved:
                     logger.warning(
@@ -2868,9 +3221,7 @@ class IOpOrderSpread(IOp):
     async def run(self):
         bag = None
 
-        logger.info(
-            "Reminder: selling spreads for a net credit requires a negative price here."
-        )
+        logger.info("NOTE: SELLING FOR CREDIT requires NEGATIVE PRICE")
 
         # if we're using a quote as entrypoint, look it up first...
         if self.legdesc.startswith(":"):
@@ -2908,10 +3259,7 @@ class IOpOrderSpread(IOp):
                 orderReq = self.state.ol.parse(req)
 
                 # re-add quote if changed or new (no impact if already added)
-                await self.runoplive(
-                    "add",
-                    f'"{req}"',
-                )
+                asyncio.create_task(self.runoplive("add", f'"{req}"'))
 
             qty = int(got["Quantity"])
             price = float(got["Price"])
@@ -3089,17 +3437,22 @@ class IOpOptionChain(IOp):
             # logger.info("Looking up {}", cacheKey)
 
             # if found in cache, don't lookup again!
-            if found := self.cache.get(cacheKey):
-                # don't print cached chains by default because this pollutes `Fast` output,
-                # but if the last symbol is "preview" then do show it...
-                if IS_PREVIEW:
-                    logger.info(
-                        "[{}] Already cached: {}",
-                        symbol,
-                        pp.pformat(sorted(found.items())),
-                    )
-                got[symbol] = found
-                continue
+            if True:
+                if found := self.cache.get(cacheKey):
+                    # don't print cached chains by default because this pollutes `Fast` output,
+                    # but if the last symbol is "preview" then do show it...
+                    if IS_PREVIEW:
+                        logger.info(
+                            "[{}] Already cached: {}",
+                            symbol,
+                            pp.pformat(found.items()),
+                        )
+                    got[symbol] = found
+                    continue
+
+            # note "fetching" here so it doesn't fire if the cache hit passes.
+            # (We only want to log the fetching network requests; just cache reading is quiet)
+            logger.info("[chains] Fetching for {}", symbol)
 
             # resolve for option chains lookup
             contractExact = contractForName(symbol)
@@ -3128,7 +3481,6 @@ class IOpOptionChain(IOp):
                 # polygon takes milliseconds for hundreds of chains.
                 # TODO: we should allow alternate chain lookup feeds or using a local cache populated from
                 #       external services.
-                now = pendulum.now()
                 useDates = set(
                     [
                         pendulum.date(d.year, d.month, 1)
@@ -3155,10 +3507,10 @@ class IOpOptionChain(IOp):
             # Depending on what you ask for with the contract, it can return between
             # one row (one date+strike), dozens of rows (all strikes for a date),
             # or thousands of rows (all strikes at all future dates).
-            strikes = defaultdict(list)
+            strikes: dict[str, list[float]] = defaultdict(list)
             got[symbol] = strikes
 
-            for d in useDates:
+            for d in sorted(useDates):
                 if symbol.startswith("/"):
                     # Futures use future expiration
                     contractExact.lastTradeDateOrContractMonth = FUT_EXP
@@ -3183,7 +3535,9 @@ class IOpOptionChain(IOp):
                     contractExact.lastTradeDateOrContractMonth,
                 )
 
-                for d in chainsExact:
+                for d in sorted(
+                    chainsExact, key=lambda k: k.contract.lastTradeDateOrContractMonth
+                ):
                     strikes[d.contract.lastTradeDateOrContractMonth].append(
                         d.contract.strike
                     )
@@ -3205,7 +3559,7 @@ class IOpOptionChain(IOp):
             # compare now.time() against pendulum.Time(16, 15, 0)
             self.cache.set(cacheKey, strikes, expire=86400)
 
-            logger.info("Strikes: {}", pp.pformat(sorted(strikes.items())))
+            logger.info("Strikes: {}", pp.pformat(strikes))
 
             if False:
                 df = pd.DataFrame(chainsExact)
@@ -3274,9 +3628,12 @@ class IOpQuoteRemove(IOp):
         goodbye = set()
         for s in self.symbols:
             for symbol in symbols:
-                if fnmatch.filter([symbol], s):
-                    logger.info("Dropping quote: {}", symbol)
-                    goodbye.add(symbol)
+                # guard against running fnmatch on the tuple entries we use for spread quotes
+                # (spread quotes can only be removed by :N id)
+                if isinstance(symbol, str):
+                    if fnmatch.fnmatch(symbol, s):
+                        logger.info("Dropping quote: {}", symbol)
+                        goodbye.add(symbol)
 
         symbols -= goodbye
 
@@ -3288,7 +3645,7 @@ class IOpQuoteRemove(IOp):
             self.state.symbolNormalizeIndexWeeklyOptions(f'"{x}"') for x in goodbye
         }
 
-        logger.info("Removing quotes: {}", repopulate)
+        logger.info("Removing quotes: {}", ", ".join(repopulate))
 
         await self.runoplive(
             "remove",
@@ -3418,10 +3775,12 @@ OP_MAP = {
         "modify": IOpOrderModify,
         "evict": IOpPositionEvict,
         "cancel": IOpOrderCancel,
+        "straddle": IOpOrderStraddle,
     },
     "Portfolio": {
         "balance": IOpBalance,
         "positions": IOpPositions,
+        "ls": IOpPositions,
         "orders": IOpOrders,
         "executions": IOpExecutions,
     },
@@ -3462,16 +3821,6 @@ OP_MAP = {
         "qlist": IOpQuoteList,
     },
 }
-
-
-# Simple copy template for new commands
-@dataclass
-class IOp_(IOp):
-    def argmap(self):
-        return [DArg()]
-
-    async def run(self):
-        ...
 
 
 @dataclass
