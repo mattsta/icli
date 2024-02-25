@@ -200,6 +200,7 @@ LIVE_ACCOUNT_STATUS = [
     "GrossPositionValue",
     "MaintMarginReq",
     "OptionMarketValue",
+    "EquityWithLoanValue",
     # row 3
     "NetLiquidation",
     "RealizedPnL",
