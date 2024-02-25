@@ -516,6 +516,30 @@ class IOpCalculator(IOp):
 
 
 @dataclass
+class IOpInfo(IOp):
+    """Show the underlying IBKR contract object for a symbol.
+
+    This is mainly useful to verify the IBKR details or extract underlying contract IDs
+    for other debugging or one-off usage purposes."""
+
+    def argmap(self):
+        return [DArg("*symbols", desc="Symbols to check for contract details")]
+
+    async def run(self):
+        contracts = []
+
+        for sym in self.symbols:
+            # yet another in-line hack for :N lookups because we still haven't created a central abstraction yet...
+            if sym[0] == ":":
+                contracts.append(self.state.quoteResolve(sym)[1])
+            else:
+                contracts.append(contractForName(sym))
+
+        await self.state.qualify(*contracts)
+        logger.info("{}", pp.pformat(contracts))
+
+
+@dataclass
 class IOpScheduleEvent(IOp):
     """Schedule a command to execute at a specific date+time in the future."""
 
@@ -2117,11 +2141,23 @@ class IOpBalance(IOp):
     """Return the currently cached account balance summary."""
 
     def argmap(self):
-        return []
+        return [DArg("*fields")]
 
     async def run(self):
         ords = self.state.summary
-        logger.info("{}", pp.pformat(ords))
+
+        # if specific fields requested, compare by case insensitive prefix
+        # then only output matching fields
+        if self.fields:
+            send = {}
+            for k, v in ords.items():
+                for field in self.fields:
+                    if k.lower().startswith(field.lower()):
+                        send[k] = v
+            logger.info("{}", pp.pformat(send))
+        else:
+            # else, no individual fields requested, so output the entire summary
+            logger.info("{}", pp.pformat(ords))
 
 
 @dataclass
@@ -3444,6 +3480,7 @@ OP_MAP = {
         "alert": IOpAlert,
         "calendar": IOpCalendar,
         "math": IOpCalculator,
+        "info": IOpInfo,
     },
     "Schedule Management": {
         # full "named" versions of the commands
