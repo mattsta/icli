@@ -450,12 +450,12 @@ class IBKRCmdlineApp:
             # Note: using 'localSymbol' because for options, it includes
             # the full OCC-like format, while contract.symbol will just
             # be the underlying equity symbol.
-            # Note note: using fnmatch.filter() because we allow 'sym' to
+            # Note note: using fnmatch.fnmatch() because we allow 'sym' to
             #            have glob characters for multiple lookups at once!
             # Note 3: options .localSymbols have the space padding, so remove for input compare.
             # TODO: fix temporary hack of OUR symbols being like /NQ but position values dont' have the slash...
-            if fnmatch.filter(
-                [pi.contract.localSymbol.replace(" ", "")], sym.replace("/", "")
+            if fnmatch.fnmatch(
+                pi.contract.localSymbol.replace(" ", ""), sym.replace("/", "")
             ):
                 contract = None
                 contract = pi.contract
