@@ -521,27 +521,12 @@ class IBKRCmdlineApp:
         ]
         await self.qualify(*contracts)
 
-        if not all(c.conId for c in contracts):
+        if not all([c.conId for c in contracts]):
             logger.error("Not all contracts qualified!")
             return None
 
-        contractUnderlying = contracts[0].symbol
-        reqUnderlying = oreq.orders[0].underlying()
-
-        # Temporarily removed because it breaks with weekly index options
-        if False:
-            # FIX for SPX/SPXW
-            if contractUnderlying != reqUnderlying.lstrip("/"):
-                logger.error(
-                    "Resolved symbol [{}] doesn't match order underlying [{}]?",
-                    contractUnderlying,
-                    reqUnderlying,
-                )
-                return None
-
-            if not all(c.symbol == contractUnderlying for c in contracts):
-                logger.error("All contracts must have same underlying for spread!")
-                return None
+        # trying to match logic described at https://interactivebrokers.github.io/tws-api/spread_contracts.html
+        underlyings = ",".join(sorted({x.symbol for x in contracts}))
 
         # Iterate (in MATCHED PAIRS) the resolved contracts with their original order details
         legs = []
@@ -561,7 +546,7 @@ class IBKRCmdlineApp:
             legs.append(leg)
 
         return Bag(
-            symbol=contractUnderlying,
+            symbol=underlyings,
             exchange=useExchange or exchange,
             comboLegs=legs,
             currency=currency,
