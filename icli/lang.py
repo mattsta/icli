@@ -57,6 +57,9 @@ ORDER_TYPE_Q = Q(
         Choice("Peg Primary (RELATIVE)", "REL"),
         Choice("MidPrice", "MIDPRICE"),
         Choice("Market", "MKT"),
+        Choice("Stop", "STP"),
+        Choice("Limit If Touched", "LIT"),
+        Choice("Market If Touched", "MIT"),
         Choice("Adaptive Fast Market", "MKT + ADAPTIVE + FAST"),
         Choice("Adaptive Slow Market", "MKT + ADAPTIVE + SLOW"),
         Choice("Market on Open (MOO)", "MOO"),
@@ -88,7 +91,11 @@ ALGOMAP = dict(
     PRTSTOP="STOP PRT",  # STOP WITH PROTECTION (futs only), triggers when price hits
     PEGMID="PEG MID",  # Floating midpoint peg, must be directed IBKRATS or IBUSOPT
     REL="REL",
+    STOP="STP",
+    STP="STP",
     MKT="MKT",
+    MIT="MIT",
+    LIT="LIT",
     AFM="MKT + ADAPTIVE + FAST",
     AMF="MKT + ADAPTIVE + FAST",
     ASM="MKT + ADAPTIVE + SLOW",
@@ -1107,7 +1114,18 @@ class IOpOrder(IOp):
             return False
 
         # if this is a market order, don't run the algo loop
-        if {"MOO", "MOC", "MKT", "SLOW", "PEG", "STOP", "MTL"} & set(am.split()):
+        if {
+            "MOO",
+            "MOC",
+            "MKT",
+            "LIT",
+            "MIT",
+            "SLOW",
+            "PEG",
+            "STP",
+            "STOP",
+            "MTL",
+        } & set(am.split()):
             logger.warning(
                 "Not running price algo because this is a market order or a slower resting order..."
             )
@@ -3309,7 +3327,7 @@ class IOpOrderSpread(IOp):
                 "BUY",
                 qty,
                 price,
-                outsiderth=True if orderType in {"LMT", "MKT"} else False,
+                outsiderth=True if orderType in {"LMT", "MKT", "MIT"} else False,
             ).order(orderType)
         except Exception as e:
             logger.warning("Order canceled due to incomplete fields: {}", e)

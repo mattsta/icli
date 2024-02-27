@@ -49,7 +49,7 @@ class IOrder:
     qtycash: float = 0.00
 
     # aux holds anything not a limit price and not a trailing percentage:
-    #   - stop price for stop / stop limita / stop with protection
+    #   - stop price for stop / stop limit / stop with protection
     #   - trailing amounts for trailing orders (instead of .trailingPercent)
     #   - touch price on MIT
     #   - offset for pegs (treated as (bid + aux) for sell and (ask - off) for buys)
@@ -149,6 +149,9 @@ class IOrder:
             # Basic
             "LMT": self.limit,
             "MKT": self.market,
+            "STP": self.stop,
+            "LIT": self.limitIfTouched,
+            "MIT": self.marketIfTouched,
             "REL": self.pegPrimary,
             # One Algo
             "MIDPRICE": self.midprice,
@@ -313,6 +316,30 @@ class IOrder:
         self.adjustForCashQuantity(o)
         return o
 
+    def marketIfTouched(self) -> Order:
+        o = Order(
+            action=self.action,
+            totalQuantity=self.qty,
+            auxPrice=self.lmt,  # the stop price for when to trigger the market-if-touched order
+            orderType="MIT",
+            **self.commonArgs(),
+        )
+
+        return o
+
+    def limitIfTouched(self) -> Order:
+        o = Order(
+            action=self.action,
+            totalQuantity=self.qty,
+            # TODO: we need to fix our order placement UI to allow the "aux/stop" vs "limit price" additions...
+            lmtPrice=self.lmt,  # the limit price to submit when the stop is triggered
+            auxPrice=self.lmt,  # the stop price for when to trigger the market-if-touched order
+            orderType="LIT",
+            **self.commonArgs(),
+        )
+
+        return o
+
     def adaptiveFastLmt(self) -> Order:
         # Note: adaptive can't be GTC!
         # Also means this doesn't work PM/AH
@@ -371,6 +398,17 @@ class IOrder:
         )
 
         self.adjustForCashQuantity(o)
+        return o
+
+    def stop(self) -> Order:
+        o = Order(
+            action=self.action,
+            orderType="STP",
+            totalQuantity=self.qty,
+            auxPrice=self.lmt,  # Stop trigger price... (currently we are using the 'lmt' field even though this is an 'aux' API field...)
+            **self.commonArgs(),
+        )
+
         return o
 
     def stopLimit(self) -> Order:
