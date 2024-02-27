@@ -2,11 +2,12 @@ import dataclasses  # just for .replace
 from dataclasses import dataclass, field
 from typing import *
 import bisect
+import calendar
 import datetime
 import enum
-import calendar
 
 import fnmatch
+import itertools
 import math
 import pathlib
 
@@ -537,6 +538,59 @@ class IOpInfo(IOp):
 
         await self.state.qualify(*contracts)
         logger.info("{}", pp.pformat(contracts))
+
+
+@dataclass
+class IOpExpand(IOp):
+    """Schedule multiple commands to run based on the expansion of all inputs.
+
+    Example:
+
+    > expand buy {AAPL,MSFT} $10_000 AF
+
+    Would run 2 async commands:
+    > buy AAPL $10_000 AF
+    > buy MSFT $10_000 AF
+
+    Or you could even do weird things like:
+
+    > expand buy {NVDA,AMD} {$5_000,$9_000} {AF, LIM}
+
+    Would run all of these:
+    > buy NVDA $5_000 AF
+    > buy NVDA $5_000 LIM
+    > buy NVDA $9_000 AF
+    > buy NVDA $9_000 LIM
+    > buy AMD $5_000 AF
+    > buy AMD $5_000 LIM
+    > buy AMD $9_000 AF
+    > buy AMD $9_000 LIM
+
+    Note: Using 'expand' for menu based commands like "limit" or "spread" will probably do weird/bad things to your interface.
+    """
+
+    def argmap(self):
+        return [
+            DArg(
+                "*parts", desc="Command to expand then execute all combinations thereof"
+            )
+        ]
+
+    async def run(self):
+        # build each part needing expansion
+        assemble = [
+            mutil.expand.expand_string_curly_braces(part) for part in self.parts
+        ]
+
+        # now generate all combinations of all expanded parts
+        # (we break out the solution as list of [command, args] pairs)
+        cmds = [(x[0], " ".join(x[1:])) for x in itertools.product(*assemble)]
+        logger.info(
+            "Running commands ({}): {}", len(cmds), [c[0] + " " + c[1] for c in cmds]
+        )
+
+        # now run all commands concurrently(ish) by using our standard [command, args] format to the op runner
+        await asyncio.gather(*[self.runoplive(c[0], c[1]) for c in cmds])
 
 
 @dataclass
@@ -3782,6 +3836,7 @@ OP_MAP = {
         "calendar": IOpCalendar,
         "math": IOpCalculator,
         "info": IOpInfo,
+        "expand": IOpExpand,
     },
     "Schedule Management": {
         # full "named" versions of the commands
