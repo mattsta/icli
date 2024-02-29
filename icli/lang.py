@@ -3031,6 +3031,7 @@ class IOpExecutions(IOp):
         df["time"] = df["time"].apply(pd.Timestamp).dt.tz_convert("US/Eastern")
         df["timestamp"] = df["time"]
 
+        df["date"] = df["time"].dt.strftime("%Y-%m-%d")
         df["time"] = df["time"].dt.strftime("%H:%M:%S")
 
         df["c_each"] = df.commission / df.shares
@@ -3048,11 +3049,13 @@ class IOpExecutions(IOp):
 
         dfByTrade = df.groupby("orderId localSymbol side".split()).agg(
             dict(
+                date=["min"],
                 time=[("start", "min"), ("finish", "max")],
                 price=["mean"],
                 shares=["sum"],
                 total=["sum"],
                 commission=["sum"],
+                c_each=["mean"],
             )
         )
 
@@ -3060,7 +3063,7 @@ class IOpExecutions(IOp):
             by=["time", "orderId", "secType", "side", "localSymbol"]
         )
 
-        needsPrices = "price shares total commission".split()
+        needsPrices = "price shares total commission c_each".split()
         dfByTrade[needsPrices] = dfByTrade[needsPrices].map(fmtPrice)
 
         # this currently has a false pandas warning about "concatenation with empty or all-NA entries is deprecated"
@@ -3133,7 +3136,7 @@ class IOpExecutions(IOp):
         printFrame(df, "Execution Summary")
         printFrame(profitByHour, "Profit by Half Hour")
         printFrame(
-            dfByTrade.sort_values(by=[("time", "start"), "orderId", "localSymbol"]),
+            dfByTrade.sort_values(by=[("date", "min"), ("time", "start"), "orderId", "localSymbol"]),
             "Execution Summary by Complete Order",
         )
 
