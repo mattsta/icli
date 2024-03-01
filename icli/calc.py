@@ -106,7 +106,7 @@ class CalculatorTransformer(Transformer):
                 value = self.state.accountStatus["NetLiquidation"]
             case "SMA":
                 value = self.state.accountStatus["SMA"]
-            case "ELV" | "EWLV":
+            case "ELV" | "EWL" | "EWLV":
                 # allow as ELV or EWLV
                 value = self.state.accountStatus["EquityWithLoanValue"]
             case _:
