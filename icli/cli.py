@@ -2295,26 +2295,21 @@ class IBKRCmdlineApp:
                 priority = 0
                 return (1, priority, c.secType, invertstr(c.symbol.lower()))
 
-            # RegT overnight margin can be at maximum 50% of total account value.
-            # (note: does not apply to portfolion margin / SPAN accounts)
-            # "TotalCashValue" will be negative if using margin, so the negative amount is the
-            # current margin used. Overnight margin must be no more than half current account value,
-            # but the account value includes the margin loan, so overnight margin use must be only
-            # up to half the total balance value (so overnight margin must be less than the total
-            # cash+equity balance itself).
-            # Note: this doesn't account for an over-full SMA balance, so if your SMA is larger than
-            #       your GrossPositionValue, you are still fine to hold overnight.
-            overnightDeficit = (
-                0
-                if self.accountStatus["TotalCashValue"] >= 0
-                else (
-                    self.accountStatus["TotalCashValue"]
-                    + self.accountStatus["NetLiquidation"]
-                )
-            )
+            # RegT overnight margin means your current margin balance must be less than your SMA value.
+            # Your SMA account increases with deposits and when your positions grow profit, so the minimum
+            # overnight you can hold is 50% of your deposited cash, while the maximum you can hold is your
+            # 4x margin if your SMA has grown larger than your total BuyingPower.
+            # After you trade for a while without withdraws, your profits will grow your SMA value to be larger
+            # than your full 4x BuyingPower, so eventually you can hold 4x margin overnight with no liquidations.
+            # (note: the SMA margin calculations are only for RegT and do not apply to portfolio margin / SPAN accounts)
+            overnightDeficit = self.accountStatus["SMA"]
 
             onc = ""
             if overnightDeficit < 0:
+                # You must restore your SMA balance to be positive before:
+                # > Whenever you have a position change on a trading day,
+                # > we check the balance of your SMA at the end of the US trading day (15:50-17:20 ET),
+                # > to ensure that it is greater than or equal to zero.
                 onc = f" (OVERNIGHT REG-T MARGIN CALL: ${-overnightDeficit:,.2f})"
 
             qs = sorted(self.quoteState.items(), key=sortQuotes)
