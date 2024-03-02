@@ -51,8 +51,6 @@ locale.setlocale(locale.LC_ALL, "")
 
 import ib_insync
 
-# sounds!
-
 import seaborn
 from ib_insync import (
     Bag,
@@ -73,7 +71,7 @@ from ib_insync import (
 from loguru import logger
 
 import icli.lang as lang
-from icli.helpers import *  # FUT_EXP is appearing from here
+from icli.helpers import *  # FUT_EXP and isset() is appearing from here
 import prettyprinter as pp
 import tradeapis.buylang as buylang
 import tradeapis.rounder as rounder
@@ -1000,7 +998,7 @@ class IBKRCmdlineApp:
                     #       the calculation here is assuming a new position request is the only position in the account.
 
                     # don't print if this is a failed preview (this max float value is just the ibkr default way of saying "value does not exist")
-                    if trade.initMarginAfter != "1.7976931348623157E308":
+                    if isset(trade.initMarginAfter):
                         logger.info(
                             "[{}] PREVIEW TRADE PERCENTAGE OF AVAILABLE FUNDS: {:,.2f} %",
                             desc,
@@ -1346,10 +1344,12 @@ class IBKRCmdlineApp:
                 ...
 
         if ICLI_AWWDIO_URL:
+            #  This triggers on a successful close of a position (TODO: need to fill out more details)
             if fill.commissionReport.realizedPNL:
+                PorL = "profit" if fill.commissionReport.realizedPNL >= 0 else "loss"
                 asyncio.create_task(
                     self.speak.say(
-                        say=f"P-N-L: {fill.execution.cumQty} profit ${int(fill.commissionReport.realizedPNL):,}"
+                        say=f"CLOSED: {trade.orderStatus.status} FOR {fill.contract.localSymbol} ({fill.execution.side} {int(fill.execution.cumQty)} of {int(trade.order.totalQuantity)}) ({PorL} ${round(fill.commissionReport.realizedPNL, 2):,})"
                     )
                 )
             else:
@@ -1357,7 +1357,7 @@ class IBKRCmdlineApp:
                 # the status, where 'orderExecuteHandler()' always just has status of "Submitted" when an execution happens (also with no price details) which isn't as useful.
                 asyncio.create_task(
                     self.speak.say(
-                        say=f"ORDER {trade.orderStatus.status} FOR {fill.contract.localSymbol} ({fill.execution.side} {int(fill.execution.cumQty)} of {int(trade.order.totalQuantity)}) (commission {locale.currency(fill.commissionReport.commission)})"
+                        say=f"OPENED: {trade.orderStatus.status} FOR {fill.contract.localSymbol} ({fill.execution.side} {int(fill.execution.cumQty)} of {int(trade.order.totalQuantity)}) (commission {locale.currency(fill.commissionReport.commission)})"
                     )
                 )
 
@@ -1394,6 +1394,7 @@ class IBKRCmdlineApp:
             trade.contract.localSymbol,
             fill.contract.localSymbol,
         )
+
         if fill.execution.cumQty > 0:
             if trade.contract.conId not in self.pnlSingle:
                 self.pnlSingle[trade.contract.conId] = self.ib.reqPnLSingle(
@@ -1590,7 +1591,7 @@ class IBKRCmdlineApp:
         def fmtPriceOpt(n):
             if isinstance(n, (int, float)):
                 # assume trading $0.01 to $99.99 range for options
-                # (we can get intgers here is we have decided there's no valid bid
+                # (we can get integers here if we decided there's no valid bid
                 #  and we're just marking a price to 0)
                 return f"{n:>5,.2f}"
 
@@ -1629,7 +1630,6 @@ class IBKRCmdlineApp:
 
         def getEMA(sym, name, roundto=2):
             # Round our results here so we don't need to excessively format all the prints.
-            # Though, this doesn't show usable results for currencies and 3-decimal futures.
             return round(self.ema[sym][name], roundto)
 
         # Fields described at:
