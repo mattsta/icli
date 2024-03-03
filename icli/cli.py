@@ -1277,8 +1277,11 @@ class IBKRCmdlineApp:
             ]
             logger.info("    ".join(show))
 
-        # if no quote yet (or no prices available), return nothing...
+        # if no quote yet (or no prices available), return last seen price...
         if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
+            if q.last == q.last:
+                return q.last, q.last
+
             return None
 
         return q.bid, q.ask
