@@ -104,6 +104,16 @@ class CalculatorTransformer(Transformer):
                 value = self.state.accountStatus["BuyingPower2"]
             case "NL":
                 value = self.state.accountStatus["NetLiquidation"]
+            case "UPL":
+                value = self.state.accountStatus["UnrealizedPnL"]
+            case "RPL":
+                value = self.state.accountStatus["RealizedPnL"]
+            case "GPV":
+                value = self.state.accountStatus["GrossPositionValue"]
+            case "MMR":
+                value = self.state.accountStatus["MaintMarginReq"]
+            case "EL":
+                value = self.state.accountStatus["ExcessLiquidity"]
             case "SMA":
                 value = self.state.accountStatus["SMA"]
             case "ELV" | "EWL" | "EWLV":
