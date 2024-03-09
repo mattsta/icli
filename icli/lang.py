@@ -2656,7 +2656,15 @@ class IOpPositions(IOp):
                     make["dailyPNL"] = -1
             except:
                 logger.warning("No PNL for: {}", pp.pformat(o))
-                # spreads don't like having daily PNL?
+
+                # if we didn't have a PnL, attempt to subscribe it now anyway...
+                # (We can have an unsubscribed PnL if we have live positions created today
+                #  on another client or we have some positions just "show up" like getting assigned
+                #  short options overnight)
+                self.pnlSingle[o.contract.conId] = self.ib.reqPnLSingle(
+                    self.state.accountId, "", o.contract.conId
+                )
+
                 pass
 
             if t == "FUT":
