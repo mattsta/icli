@@ -3172,8 +3172,6 @@ class IOpQuotesAddFromOrderId(IOp):
     async def run(self):
         trades = self.ib.openTrades()
 
-        # TODO: clean-up this logic; it should live more like addQuotes() in cli and not here because it
-        #       is subscribing to quotes we should be tracking in the cli state and not breaking abstractions here.
         if not self.orderIds:
             addTrades = trades
         else:
@@ -3207,11 +3205,7 @@ class IOpQuotesAddFromOrderId(IOp):
                 if useTrade.contract.conId not in self.state.conIdCache:
                     await self.state.qualify(Contract(conId=useTrade.contract.conId))
 
-            symkey = lookupKey(useTrade.contract)
-
-            self.state.quoteState[symkey] = self.ib.reqMktData(
-                useTrade.contract, tickFields
-            )
+            self.state.addQuoteFromContract(useTrade.contract)
 
 
 @dataclass
