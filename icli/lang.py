@@ -965,7 +965,13 @@ class IOpOrderModify(IOp):
                         f"{o.contract.localSymbol or o.contract.symbol:<21} {o.order.action:<4} {o.order.totalQuantity:<6} {o.order.orderType} {o.order.tif} lmt:${fmtPrice(o.order.lmtPrice):<7} aux:${fmtPrice(o.order.auxPrice):<7}",
                         o,
                     )
-                    for o in sorted(ords, key=tradeOrderCmp)
+                    for o in sorted(
+                        filter(
+                            lambda x: x.orderStatus.clientId == self.state.clientId,
+                            ords,
+                        ),
+                        key=tradeOrderCmp,
+                    )
                 ],
             ),
             Q("New Limit Price"),
@@ -2440,7 +2446,13 @@ class IOpOrderCancel(IOp):
                             f"{o.order.action} {o.contract.localSymbol} {o.order.totalQuantity} ${o.order.lmtPrice:.2f} == ${o.order.totalQuantity * o.order.lmtPrice * float(o.contract.multiplier or 1):,.6f}",
                             o.order,
                         )
-                        for o in sorted(self.ib.openTrades(), key=tradeOrderCmp)
+                        for o in sorted(
+                            filter(
+                                lambda x: x.orderStatus.clientId == self.state.clientId,
+                                self.ib.openTrades(),
+                            ),
+                            key=tradeOrderCmp,
+                        )
                     ],
                 )
             ]
@@ -2459,6 +2471,10 @@ class IOpOrderCancel(IOp):
                 # count is likely to be tiny overall.
                 # TODO: we could maintain a cache of active orders indexed by orderId
                 for o in self.ib.openTrades():
+                    # we can't cancel orders not on our current orderId (clientId==0 can see all orders, but it can't modify them)
+                    if o.orderStatus.clientId != self.state.clientId:
+                        continue
+
                     # if provided direct order id integer, just check directly...
                     if isinstance(orderid, int):
                         if o.order.orderId == orderid:
