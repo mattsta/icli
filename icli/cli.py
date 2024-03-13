@@ -914,30 +914,37 @@ class IBKRCmdlineApp:
                     float(trade.initMarginChange) / order.totalQuantity,
                 )
 
-            if multiplier != 1 or isinstance(contract, Bag):
-                # don't print floats if not necessary
-                if int(multiplier) == multiplier:
-                    multiplier = int(multiplier)
+            # don't print floats if not necessary
+            imul = int(multiplier)
+            if imul == multiplier:
+                multiplier = imul
 
-                    # temporary (?) hack/fix for bags not having multiplers themselves, so we assume we're doing spreads of 100 multiplier option legs currently
-                    if isinstance(contract, Bag):
-                        multiplier = 100
+                # temporary (?) hack/fix for bags not having multiplers themselves, so we assume we're doing spreads of 100 multiplier option legs currently
+                if isinstance(contract, Bag):
+                    multiplier = 100
 
-                # TODO: it woudl be nice to use the symbol's actual .minTick here, but it's extra work to fetch the ContractDetails itself.
-                # (why these intervals? some products trade only in 0.05 increments, others in 0.10 increments, some trade in 0.25 increments; some 0.01, etc)
-                #
-                # ADD TO PREVIEW: calculation for current quote spread (bounce-out loss immediately as percentage of buy, if wait for 2 ticks down and want to exit, that's 3+ ticks of opposite side, etc)
-                #                 also include: a {10%, 30%, 50%} loss is $X drop in contract...
+            # TODO: it woudl be nice to use the symbol's actual .minTick here, but it's extra work to fetch the ContractDetails itself.
+            # (why these intervals? some products trade only in 0.05 increments, others in 0.10 increments, some trade in 0.25 increments; some 0.01, etc)
+            #
+            # ADD TO PREVIEW: calculation for current quote spread (bounce-out loss immediately as percentage of buy, if wait for 2 ticks down and want to exit, that's 3+ ticks of opposite side, etc)
+            #                 also include: a {10%, 30%, 50%} loss is $X drop in contract...
 
-                for amt in (0.20, 0.75, 1, 3, 5):
-                    logger.info(
-                        "[{}] PREVIEW LEVERAGE ({} x {}): ${:,.2f} CONTRACT MOVE LEVERAGE is ${:,.2f}",
-                        desc,
-                        order.totalQuantity,
-                        multiplier,
-                        amt,
-                        amt * multiplier * order.totalQuantity,
-                    )
+            leverageKind = (
+                "CONTRACT"
+                if isinstance(contract, (Bag, Option, Future, FuturesOption))
+                else "STOCK"
+            )
+
+            for amt in (0.20, 0.75, 1, 3, 5):
+                logger.info(
+                    "[{}] PREVIEW LEVERAGE ({:,} x {}): ${:,.2f} {} MOVE LEVERAGE is ${:,.2f}",
+                    desc,
+                    order.totalQuantity,
+                    multiplier,
+                    amt,
+                    leverageKind,
+                    amt * multiplier * order.totalQuantity,
+                )
 
             # "MAIN" for "MAINTENANCE" to match the length of "INIT" above for alignment.
             if isset(trade.minCommission):
