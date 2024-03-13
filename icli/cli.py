@@ -989,6 +989,21 @@ class IBKRCmdlineApp:
                         2 * tc,
                     )
 
+            # calculate percentage width of the spread just to note if we are trading difficult to close positions
+            spreadDiff = (ask - bid) / bid
+            logger.info(
+                "[{}] BID/ASK SPREAD IS {:,.2f} % WIDE (${:,.2f} spread @ ${:,.2f} total)",
+                desc,
+                spreadDiff * 100,
+                ask - bid,
+                (determinedQty * limit * spreadDiff * multiplier),
+            )
+
+            if spreadDiff > 0.05:
+                logger.warning(
+                    "[{}] WARNING: BID/ASK SPREAD MAY CAUSE NOTICEABLE LOSS/SLIPPAGE ON EXIT"
+                )
+
             # (if trade isn't valid, trade is an empty list, so only print valid objects...)
             if trade:
                 # sigh, these are strings of course.
