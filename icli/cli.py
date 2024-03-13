@@ -292,6 +292,8 @@ class IBKRCmdlineApp:
     host: str = "127.0.0.1"
     port: int = 4001
 
+    clientId: int = ICLI_CLIENT_ID
+
     # initialized to True/False when we first see the account
     # ID returned from the API which will tell us if this is a
     # sandbox ID or True Account ID
