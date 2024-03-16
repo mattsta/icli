@@ -43,8 +43,8 @@ import icli.orders as orders
 
 from icli.futsexchanges import FUTS_EXCHANGE
 
-from . import agent
-from . import accum
+# from . import agent
+# from . import accum
 from .tinyalgo import ATRLive
 
 locale.setlocale(locale.LC_ALL, "")

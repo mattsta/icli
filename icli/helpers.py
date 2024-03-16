@@ -612,4 +612,3 @@ class PriceOrQuantity:
         return locale.currency(self.qty, grouping=True)
 
 
-    )
