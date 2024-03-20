@@ -1376,13 +1376,15 @@ class IBKRCmdlineApp:
             # replace "BOT" and "SLD" with real words because the text-to-speech was pronouncing "SLD" as individual letters "S-L-D"
             side = "bought" if fill.execution.side == "BOT" else "sold"
 
+            fillQty = f"{fill.contract.localSymbol} ({side} {int(fill.execution.shares)} (for {int(fill.execution.cumQty)} of {int(trade.order.totalQuantity)}))"
+
             #  This triggers on a successful close of a position (TODO: need to fill out more details)
             if fill.commissionReport.realizedPNL:
                 PorL = "profit" if fill.commissionReport.realizedPNL >= 0 else "loss"
 
                 asyncio.create_task(
                     self.speak.say(
-                        say=f"CLOSED: {trade.orderStatus.status} FOR {fill.contract.localSymbol} ({side} {int(fill.execution.cumQty)} of {int(trade.order.totalQuantity)}) ({PorL} ${round(fill.commissionReport.realizedPNL, 2):,})"
+                        say=f"CLOSED: {trade.orderStatus.status} FOR {fillQty} ({PorL} ${round(fill.commissionReport.realizedPNL, 2):,})"
                     )
                 )
             else:
@@ -1390,7 +1392,7 @@ class IBKRCmdlineApp:
                 # the status, where 'orderExecuteHandler()' always just has status of "Submitted" when an execution happens (also with no price details) which isn't as useful.
                 asyncio.create_task(
                     self.speak.say(
-                        say=f"OPENED: {trade.orderStatus.status} FOR {fill.contract.localSymbol} ({side} {int(fill.execution.cumQty)} of {int(trade.order.totalQuantity)}) (commission {locale.currency(fill.commissionReport.commission)})"
+                        say=f"OPENED: {trade.orderStatus.status} FOR {fillQty} (commission {locale.currency(fill.commissionReport.commission)})"
                     )
                 )
 
