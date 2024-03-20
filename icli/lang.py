@@ -2678,7 +2678,7 @@ class IOpPositions(IOp):
                 # (We can have an unsubscribed PnL if we have live positions created today
                 #  on another client or we have some positions just "show up" like getting assigned
                 #  short options overnight)
-                self.pnlSingle[o.contract.conId] = self.ib.reqPnLSingle(
+                self.state.pnlSingle[o.contract.conId] = self.ib.reqPnLSingle(
                     self.state.accountId, "", o.contract.conId
                 )
 
