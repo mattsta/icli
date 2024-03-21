@@ -1006,6 +1006,18 @@ class IBKRCmdlineApp:
                     spreadDiff,
                 )
 
+            # TODO: make this delta range configurable? config file? env? global setting?
+            if isinstance(contract, (Option, FuturesOption)):
+                delta = self.quoteState[name].modelGreeks.delta
+                if not delta:
+                    logger.warning("[{}] WARNING: OPTION DELTA NOT POPULATED YET", desc)
+                elif abs(delta) <= 0.15:
+                    logger.warning(
+                        "[{}] WARNING: OPTION DELTA IS LOW ({:.2f}) — THIS MAY NOT WORK FOR SHORT TERM TRADING",
+                        desc,
+                        delta,
+                    )
+
             # (if trade isn't valid, trade is an empty list, so only print valid objects...)
             if trade:
                 # sigh, these are strings of course.
