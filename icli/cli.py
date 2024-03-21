@@ -996,7 +996,7 @@ class IBKRCmdlineApp:
                 desc,
                 spreadDiff,
                 ask - bid,
-                (determinedQty * limit * spreadDiff * multiplier),
+                (determinedQty * limit * (spreadDiff / 100) * multiplier),
             )
 
             if spreadDiff > 5:
