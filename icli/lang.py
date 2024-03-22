@@ -224,6 +224,7 @@ class IOpQQuote(IOp):
         # clear their background-created cached value and the entire
         # double-request cycle needs to start again.
         totalTry = 0
+        ATTEMPT_LIMIT = 10
         while True:
             tickers = []
             logger.info(
@@ -249,12 +250,16 @@ class IOpQQuote(IOp):
                 ivhv = [(t.impliedVolatility, t.histVolatility) for t in tickers]
 
                 # if any iv/hv are still nan, don't stop yet.
-                if np.isnan(ivhv).any() and totalTry < 10:
-                    logger.warning("Waiting for data to arrive...")
+                if np.isnan(ivhv).any() and totalTry < ATTEMPT_LIMIT:
+                    logger.warning(
+                        "Waiting for data to arrive... (attempt {} of {})",
+                        totalTry,
+                        ATTEMPT_LIMIT,
+                    )
                     totalTry += 1
                 else:
-                    if totalTry >= 10:
-                        logger.warning("Quote never finished. Final state:")
+                    if totalTry >= ATTEMPT_LIMIT:
+                        logger.warning("Not all quotes finished fetching. Final state:")
 
                     # if all iv and hv are populated, stop!
                     success = True
