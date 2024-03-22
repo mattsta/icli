@@ -315,6 +315,34 @@ class IOpQQuote(IOp):
 
 
 @dataclass
+class IOpSetEnvironment(IOp):
+    """Read or Write a global environment setting for this current client session.
+
+    For a list of settable options, just run `set show`.
+    To view the current value of an option, run `set [key]` with no value.
+    To delete a key, use an empty value for the argument as `set [key] ""`.
+    """
+
+    def argmap(self):
+        return [DArg("key"), DArg("*val")]
+
+    async def run(self):
+        # forward map of keys -> shorthand aliases for the key
+        KEY_ALIASES = dict(exchange=set("x xch xchange".split()))
+
+        # reverse map of each unique alias -> original key
+        ALIASES_KEYS = {vx: k for k, v in KEY_ALIASES.items() for vx in v}
+
+        key = self.key.lower()
+        val = self.val[0] if self.val else None
+
+        # attempt to use shorthand for key, but if no shorthand, use key directly anyway
+        key = ALIASES_KEYS.get(key, key)
+
+        self.state.updateGlobalStateVariable(key, val)
+
+
+@dataclass
 class IOpPositionEvict(IOp):
     """Evict a position using automatic MIDPRICE sell order for equity or ADAPTIVE FAST for options and futures.
 
@@ -3884,6 +3912,7 @@ OP_MAP = {
         "math": IOpCalculator,
         "info": IOpInfo,
         "expand": IOpExpand,
+        "set": IOpSetEnvironment,
     },
     "Schedule Management": {
         # full "named" versions of the commands

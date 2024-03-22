@@ -319,6 +319,11 @@ class IBKRCmdlineApp:
         default_factory=lambda: diskcache.Cache("./cache-multipurpose")
     )
 
+    # global state variables (set per-client and per-session currently with no persistence)
+    # We also populate the defaults here. We can potentially have these load from a config
+    # file instead of being directly stored here.
+    localvars: dict[str, str] = field(default_factory=lambda: dict(exchange="SMART"))
+
     # State caches
     quoteState: dict[str, Ticker] = field(default_factory=dict)
     contractIdsToQuoteKeysMappings: dict[int, str] = field(default_factory=dict)
@@ -434,6 +439,31 @@ class IBKRCmdlineApp:
 
         return result
 
+    def updateGlobalStateVariable(self, key: str, val: str | None) -> None:
+        # 'val' of None means just print the output, while 'val' of empty string means delete the key.
+        if val is None:
+            logger.info("No value provided, so printing current settings:")
+            for k, v in sorted(self.localvars.items()):
+                logger.info("SET: {} = {}", k, v)
+
+            return
+
+        original = self.localvars.get(key)
+
+        if val:
+            # if value provided, set it
+            self.localvars[key] = val
+        else:
+            # else, if value not provided, remove key (if exists; not an error if key doesn't exist)
+            self.localvars.pop(key)
+
+        if original and not val:
+            logger.info("UNSET: {} (previously: {})", key, original)
+        elif original:
+            logger.info("SET: {} = {} (previously: {})", key, val, original)
+        else:
+            logger.info("SET: {} = {}", key, val)
+
     def contractsForPosition(
         self, sym, qty: float | None = None
     ) -> list[tuple[Contract, float, float]]:
@@ -482,7 +512,7 @@ class IBKRCmdlineApp:
         return results
 
     async def contractForOrderRequest(
-        self, oreq: buylang.OrderRequest, exchange="SMART"
+        self, oreq: buylang.OrderRequest, exchange=None
     ) -> Contract | None:
         """Return a valid qualified contract for any order request.
 
@@ -490,6 +520,9 @@ class IBKRCmdlineApp:
         If order request only has one symbol, returns a regular future/stock/option contract.
 
         If symbol(s) in order request are not valid, returns None."""
+
+        if not exchange:
+            exchange = self.localvars.get("exchange", "SMART")
 
         if oreq.isSpread():
             return await self.bagForSpread(oreq, exchange)
@@ -508,11 +541,14 @@ class IBKRCmdlineApp:
         return None
 
     async def bagForSpread(
-        self, oreq: buylang.OrderRequest, exchange="SMART", currency="USD"
+        self, oreq: buylang.OrderRequest, exchange=None, currency="USD"
     ) -> Bag | None:
         """Given a multi-leg OrderRequest, return a qualified Bag contract.
 
         If legs do not validate, returns None and prints errors along the way."""
+
+        if not exchange:
+            exchange = self.localvars.get("exchange", "SMART")
 
         # For IBKR spreads ("Bag" contracts), each leg of the spread is qualified
         # then placed in the final contract instead of the normal approach of qualifying
@@ -604,6 +640,10 @@ class IBKRCmdlineApp:
         The 'qty' parameter allows switching between price amounts and share/contract/quantity amounts directly.
         """
 
+        # Always overwrite the contract cache with our current exchange (and fallback to SMART if none are specified)
+        globalExchange = self.localvars.get("exchange", "SMART")
+        contract.exchange = globalExchange
+
         # Immediately ask to add quote to live quotes for this trade positioning...
         # turn option contract lookup into non-spaced version
         sym = sym.replace(" ", "")
@@ -679,7 +719,11 @@ class IBKRCmdlineApp:
             # Crypto can only use IOC or Minutes for tif BUY
             # (but for SELL, can use IOC, Minutes, Day, GTC)
             tif = "Minutes"
+        elif contract.exchange in {"OVERNIGHT", "IBEOS"}:
+            # Overnight requests can't persist past the 20:00-03:50 session (vampire orders!)
+            tif = "DAY"
         else:
+            # TODO: Add default TIF capability also to global var setting? Or let it be configured in the "limit" menu too?
             tif = "GTC"
 
         determinedQty = None
@@ -1056,11 +1100,6 @@ class IBKRCmdlineApp:
             )
 
         logger.info("[{}] Ordering {} via {}", desc, contract, order)
-
-        # Enforce a market exchange for the trade to be present if one didn't exist.
-        # (the contract.exchange field must be populated with a valid value so the order knows where/how to route the order)
-        if not contract.exchange:
-            contract.exchange = "SMART"
 
         trade = self.ib.placeOrder(contract, order)
 
