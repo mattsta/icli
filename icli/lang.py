@@ -2618,10 +2618,14 @@ class IOpPositions(IOp):
                 "totalCost",
             ]
 
+            # fix pandas becoming more strictly typed with every new update making it more difficult to use by the day
+            # (we probably to add more conversions for other columns too)
+            df[simpleCols] = df[simpleCols].astype(str)
+
             df.loc[:, detailCols] = df[detailCols].map(
                 lambda x: fmtPrice(x) if isinstance(x, (int, float)) else x
             )
-            df.loc[:, simpleCols] = df[simpleCols].map(lambda x: f"{x:,.2f}")
+            df.loc[:, simpleCols] = df[simpleCols].map(lambda x: f"{float(x):,.2f}")
 
             # show fractional shares only if they exist
             defaultG = ["position"]
