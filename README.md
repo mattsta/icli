@@ -11,6 +11,43 @@ Watch the console replay demo below to see a paper trading account where we add 
 
 [![asciicast](https://asciinema.org/a/424814.svg)](https://asciinema.org/a/424814)
 
+## Overview
+
+Welcome to `icli`! You can use `icli` to manage manual and automated trading using your IBKR account for stocks, futures, currencies, and options.
+
+You can enable audio announcements of trade events if you also run [awwdio](https://github.com/mattsta/awwdio) and provide your `awwdio` address as an environment variable like `ICLI_AWWDIO_URL=http://127.0.0.1:8000 poetry run icli` (macOS only currently and you need to manually install the system speech voice packs in system settings).
+
+There's always a hundred more features we could add, but focus goes mainly towards usability and efficient order entry currently. There's an unreleased in-progress algo trading agent plugin to automatically buy and sell stocks, futures, and/or options based on external signals too. Cleaning those up for public release isn't a priority at the moment unless sponsors would like to step up and motivate us for a wider code release to combine all the feautres into a finished product we can publish.
+
+You can run multiple clients in different terminal windows using unique client ids for each session like `ICLI_CLIENT_ID=4 poetry run icli`. Note: IBKR restricts orders per-client-id, so for example if you place an order under client id 4, the order will not show up under other clients.
+
+
+Some helpful advanced commands only available in `icli`:
+
+- We have an efficient quote adding system where one command of `add SPY240412{P,C}005{1,2,3}0000` will add live quotes for each of: `SPY240412C00510000`, `SPY240412C00520000`, `SPY240412C00530000`, `SPY240412P00510000`, `SPY240412P00520000`, `SPY240412P00530000`.
+  - Then if you want to easily remove those quotes, you can run `rm SPY240412{P,C}005{1,2,3}0000` too. The syntax also supports range population like `add SPXW24041{5..7}{P05135,C05150}000`. Each quote also has a row id, and you can remove quotes by row id individually or using replacement syntax: `rm :31`, `rm :{31..37}`, `rm :{25,27,29}` etc.
+- You can run multiple purchases concurrently using the `expand` wrapper like: `expand buy {META,MSFT,NVDA,AMD,AAPL} $15_000 MID` — that command will buy approximately $15,000 worth of _each_ symbol using current midpoint quote prices.
+- You can easily empty your portfolio with `evict * -1 0 MID` or immediately sell symbols with current market price caps using `evict MSFT -1 0 AF` etc as well.
+  - See `expand?` and `evict?` and `buy?` for more details of how it all works.
+- The price format also supports negative prices for shorts or sells, so you can do `buy AAPL 100 MID` to buy then `buy AAPL -100 MID` to sell. You can buy and sell by any combination of price and quantity: `buy MSFT $10_000 AF`, `buy MSFT -10 MKT` etc.
+- The price format also doubles as a share count format if you don't include `$`, so `buy AAPL 100 AF` will buy 100 shares of AAPL at the current market price using IBKR's Adaptive Fast order algo type. Price or Quantity values can be positive or negative: `buy AAPL 100 AF`, `buy AAPL $10_000 AF`, `buy AAPL -20 AF`, `buy AAPL -$40_000 AF`. You can append `preview` to `buy` orders to get an estimate of margin impact and other account-based order details too.
+- The cli also supports running any commands concurrently or sequentially. This will run both `buy` commands concurrently then show your portfolio holdings after they complete:
+  - `buy AAPL 100 AF preview&; buy MSFT 100 AF preview&; ls`.
+  - Basically: append `&` to your commands to run them concurrently then split commands with `;`, and you can also run any commands sequentially with just `;` as well like: `ls; ord; bal SMA`
+  - Note: these two are equivalent, but the `expand` version is easier if your purchase quantity/amount and algo are the same: `buy AAPL 100 AF preview&; buy MSFT 100 AF preview&` versus `expand buy {MSFT,AAPL} 100 AF prevew`
+- We also have a built-in account and market calculator operating in prefix mode:
+  - `(/ :BP3 AAPL)` shows how many shares you can buy of AAPL (on 33% margin).
+  - `(grow :AF 300)` calculates your AvailableFunds growing by 300%.
+  - Caluclation functions can be combined arbitrarily like: `(grow (* AAPL (/ :BP3 AAPL)) 7)`
+  - You can also do math on arbitrary symbols if you want to for some reason: `(/ AAPL TSLA)`
+  - prices used for symbol math are the live bid/ask midpoint price for each symbol.
+  - You can also use row-position details for a live quote value too: `(/ AAPL :18)`.
+
+See below for further account setup and environment variable conditions under the Download section.
+
+For tracking feature updates, check the full commit history and you can always run `?` for listing commands and getting help when running commands. The README is slightly undermaintained and some features are lacking complete documentation outside of the runtime itself, so feel free to suggest updates where useful.
+
+
 ## Features
 
 - allows full trading and data access to your IBKR account using only a CLI
@@ -178,11 +215,6 @@ Even though you are logged in to the gateway, the IBKR API still requires your a
 - You can also configure the idle refresh time for toolbar quotes (in seconds):
     - `ICLI_REFRESH=3.3`
 
-- You can specify a specific futures expiration quarter month for quotes and trades too:
-    - `ICLI_FUT_EXP=202309`
-        - If not specified, we auto-detect the next futures date on startup using standard "roll forward 4 days before expiration" logic.
-        - If you want to use a different contract month, you can use this env var to override the auto-calculated value.
-        - the setting is global for all futures quotes and transactions, so we don't currently support futures calendar spreads (but futures options calendar spreads should work since the dates are in the symbol names)
 
 
 Configure environment settings as above, confirm the IBKR Gateway is started (and confirm whether you want read-only mode or full mode in addition to noting which port the gateway is opening for local connections), login to the IBKR Gateway (requires 2fa to the IBKR app on your phone), then run:
