@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 import bs4
+import warnings
 
 # http://www.grantjenks.com/docs/diskcache/
 import diskcache
@@ -79,6 +80,7 @@ import tradeapis.rounder as rounder
 from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
 
+warnings.filterwarnings("ignore", category=bs4.MarkupResemblesLocatorWarning)
 pp.install_extras(["dataclasses"], warn_on_error=False)
 
 # global client ID for your IBKR gateway connection (must be unique per client per gateway)
@@ -1397,7 +1399,7 @@ class IBKRCmdlineApp:
                 "API Error [orderId {}] [code {}]: {}{}",
                 reqId,
                 errorCode,
-                errorString,
+                readableHTML(errorString),
                 f" for {contract}" if contract else "",
             )
 
