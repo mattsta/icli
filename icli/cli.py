@@ -1676,6 +1676,12 @@ class IBKRCmdlineApp:
 
             return f"{n:>10,.2f}"
 
+        def fmtEquitySpread(n):
+            if isinstance(n, (int, float)):
+                return f"{n:>6,.2f}"
+
+            return f"{n:>5}"
+
         def fmtPriceOpt(n):
             if isinstance(n, (int, float)):
                 # assume trading $0.01 to $99.99 range for options
@@ -2251,7 +2257,7 @@ class IBKRCmdlineApp:
                     f"{trend}",
                     f"{fmtPricePad(e300, decimals=decimals)}",
                     f"({fmtPricePad(e300diff, padding=6, decimals=3)})",
-                    f"{fmtPricePad(usePrice, decimals=decimals)}",
+                    f"{fmtPricePad(usePrice, decimals=decimals)} ±{fmtEquitySpread(c.ask - usePrice) if c.ask >= usePrice else "":<6}",
                     f"({pctUndHigh} {amtUndHigh})",
                     f"({pctUpLow} {amtUpLow})",
                     f"({pctUpClose} {amtUpClose})",
