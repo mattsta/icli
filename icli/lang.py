@@ -2618,18 +2618,20 @@ class IOpPositions(IOp):
                 "totalCost",
             ]
 
-            # fix pandas becoming more strictly typed with every new update making it more difficult to use by the day
-            # (we probably to add more conversions for other columns too)
+            # convert columns to all strings because we format them as nice to read money strings, but pandas
+            # doesn't like replacing strings over numeric-typed columns anymore.
             df[simpleCols] = df[simpleCols].astype(str)
+            df[detailCols] = df[detailCols].astype(str)
 
             df.loc[:, detailCols] = df[detailCols].map(
-                lambda x: fmtPrice(x) if isinstance(x, (int, float)) else x
+                lambda x: fmtPrice(float(x)) if x else x
             )
             df.loc[:, simpleCols] = df[simpleCols].map(lambda x: f"{float(x):,.2f}")
 
             # show fractional shares only if they exist
             defaultG = ["position"]
-            df.loc[:, defaultG] = df[defaultG].map(lambda x: f"{x:,.10g}")
+            df[defaultG] = df[defaultG].astype(str)
+            df.loc[:, defaultG] = df[defaultG].map(lambda x: f"{float(x):,.10g}")
 
         df = df.fillna("")
 
@@ -3128,24 +3130,42 @@ class IOpExecutions(IOp):
         needsPrices = "price shares total commission c_each".split()
         dfByTrade[needsPrices] = dfByTrade[needsPrices].map(fmtPrice)
 
+        def addRowSafe(name, val):
+            """Weird helper to stop a pandas warning.
+
+            Fixes this warning pandas apparently is now making for no reason:
+            FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated.
+                           In a future version, this will no longer exclude empty or all-NA columns when determining
+                           the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation."""
+            return pd.concat(
+                [df, pd.Series(val, name=name).to_frame().T], ignore_index=False
+            )
+
         # this currently has a false pandas warning about "concatenation with empty or all-NA entries is deprecated"
         # but nothing is empty or NA in these columns. Their logic for checking their warning condition is just broken.
         # (or their "FutureWarning" error message is so bad we can't actually see what the problem is)
-        df.loc["sum"] = df[["shares", "price", "commission", "total"]].sum()
-        df.loc["sum-buy"] = df[["shares", "price", "commission", "total"]][
-            df.side == "BOT"
-        ].sum()
-        df.loc["sum-sell"] = df[["shares", "price", "commission", "total"]][
-            df.side == "SLD"
-        ].sum()
+        df = addRowSafe("sum", df[["shares", "price", "commission", "total"]].sum())
+
+        df = addRowSafe(
+            "sum-buy",
+            df[["shares", "price", "commission", "total"]][df.side == "BOT"].sum(),
+        )
+
+        df = addRowSafe(
+            "sum-sell",
+            df[["shares", "price", "commission", "total"]][df.side == "SLD"].sum(),
+        )
+
         df.loc["profit", "total"] = (
             df.loc["sum-sell"]["total"] - df.loc["sum-buy"]["total"]
         )
         df.loc["profit", "price"] = (
             df.loc["sum-sell"]["price"] - df.loc["sum-buy"]["price"]
         )
-        df.loc["med"] = df[["c_each", "shares", "price"]].median()
-        df.loc["mean"] = df[["c_each", "shares", "price"]].mean()
+
+        eachSharePrice = ["c_each", "shares", "price"]
+        df = addRowSafe("med", df[eachSharePrice].median())
+        df = addRowSafe("mean", df[eachSharePrice].mean())
 
         needsPrices = "c_each shares price avgPrice commission realizedPNL RPNL_each total dayProfit".split()
         df[needsPrices] = df[needsPrices].map(fmtPrice)
