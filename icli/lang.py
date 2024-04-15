@@ -111,6 +111,16 @@ ALGOMAP = dict(
 ICLI_CLIENT_ID = int(os.getenv("ICLI_CLIENT_ID", 0))
 
 
+def addRowSafe(df, name, val):
+    """Weird helper to stop a pandas warning.
+
+    Fixes this warning pandas apparently is now making for no reason:
+    FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated.
+                   In a future version, this will no longer exclude empty or all-NA columns when determining
+                   the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation."""
+    return pd.concat([df, pd.Series(val, name=name).to_frame().T], ignore_index=False)
+
+
 def automaticLimitBuffer(contract, isBuying: bool, price: float) -> float:
     """Given a contract and a target price we want to meet, create a limit order bound so we don't slide out of the quote spread.
 
@@ -3009,17 +3019,13 @@ class IOpOrders(IOp):
 
         df = df.set_index("id")
         fmtcols = ["lreturn", "lcost"]
+        df[fmtcols] = df[fmtcols].astype(str)
 
         # logger.info("Types are: {}", df.info())
+        df = addRowSafe(df, "Total", df[fmtcols].sum(axis=0))
 
-        # pre-create the Total row to avoid a pandas warning...
-        df.loc["Total"] = 0.0
-
-        df.loc["Total"] = df[fmtcols].sum(axis=0)
         df = df.fillna("")
-        df.loc[:, fmtcols] = df[fmtcols].map(
-            lambda x: f"{x:,.2f}" if isinstance(x, float) else x
-        )
+        df.loc[:, fmtcols] = df[fmtcols].map(lambda x: f"{float(x):,.2f}" if x else x)
 
         toint = ["qty", "filled", "rem", "clientId"]
         df[toint] = df[toint].map(lambda x: f"{x:,.0f}" if x else "")
@@ -3130,28 +3136,19 @@ class IOpExecutions(IOp):
         needsPrices = "price shares total commission c_each".split()
         dfByTrade[needsPrices] = dfByTrade[needsPrices].map(fmtPrice)
 
-        def addRowSafe(name, val):
-            """Weird helper to stop a pandas warning.
-
-            Fixes this warning pandas apparently is now making for no reason:
-            FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated.
-                           In a future version, this will no longer exclude empty or all-NA columns when determining
-                           the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation."""
-            return pd.concat(
-                [df, pd.Series(val, name=name).to_frame().T], ignore_index=False
-            )
-
         # this currently has a false pandas warning about "concatenation with empty or all-NA entries is deprecated"
         # but nothing is empty or NA in these columns. Their logic for checking their warning condition is just broken.
         # (or their "FutureWarning" error message is so bad we can't actually see what the problem is)
-        df = addRowSafe("sum", df[["shares", "price", "commission", "total"]].sum())
+        df = addRowSafe(df, "sum", df[["shares", "price", "commission", "total"]].sum())
 
         df = addRowSafe(
+            df,
             "sum-buy",
             df[["shares", "price", "commission", "total"]][df.side == "BOT"].sum(),
         )
 
         df = addRowSafe(
+            df,
             "sum-sell",
             df[["shares", "price", "commission", "total"]][df.side == "SLD"].sum(),
         )
@@ -3164,8 +3161,8 @@ class IOpExecutions(IOp):
         )
 
         eachSharePrice = ["c_each", "shares", "price"]
-        df = addRowSafe("med", df[eachSharePrice].median())
-        df = addRowSafe("mean", df[eachSharePrice].mean())
+        df = addRowSafe(df, "med", df[eachSharePrice].median())
+        df = addRowSafe(df, "mean", df[eachSharePrice].mean())
 
         needsPrices = "c_each shares price avgPrice commission realizedPNL RPNL_each total dayProfit".split()
         df[needsPrices] = df[needsPrices].map(fmtPrice)
