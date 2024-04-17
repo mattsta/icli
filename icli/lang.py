@@ -2968,6 +2968,8 @@ class IOpOrders(IOp):
             lmtPrice = float(o.order.lmtPrice or 0)
             totalQuantity = float(o.order.totalQuantity)
             pq = lmtPrice * totalQuantity * multiplier
+            make["lreturn"] = 0
+            make["lcost"] = 0
 
             # record whether this order value is a credit into or debit from the account
             if o.order.action == "SELL":
@@ -3022,10 +3024,18 @@ class IOpOrders(IOp):
         df[fmtcols] = df[fmtcols].astype(str)
 
         # logger.info("Types are: {}", df.info())
-        df = addRowSafe(df, "Total", df[fmtcols].sum(axis=0))
+        df = addRowSafe(df, "Total", df[fmtcols].astype(float).sum(axis=0))
 
         df = df.fillna("")
-        df.loc[:, fmtcols] = df[fmtcols].map(lambda x: f"{float(x):,.2f}" if x else x)
+
+        def tryFormat(what):
+            # need a more complex try/except here due to pandas format-then-unformat issues
+            try:
+                return f"{float(what):,.2f}"
+            except:
+                return what
+
+        df.loc[:, fmtcols] = df[fmtcols].map(tryFormat)
 
         toint = ["qty", "filled", "rem", "clientId"]
         df[toint] = df[toint].map(lambda x: f"{x:,.0f}" if x else "")
