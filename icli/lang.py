@@ -2634,7 +2634,9 @@ class IOpPositions(IOp):
             df[detailCols] = df[detailCols].astype(str)
 
             df.loc[:, detailCols] = (
-                df[detailCols].astype(float).map(lambda x: fmtPrice(x))
+                df[detailCols]
+                .astype(float, errors="ignore")
+                .map(lambda x: fmtPrice(x) if x else x)
             )
             df.loc[:, simpleCols] = (
                 df[simpleCols].astype(float).map(lambda x: f"{x:,.2f}")
