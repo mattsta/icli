@@ -2633,15 +2633,17 @@ class IOpPositions(IOp):
             df[simpleCols] = df[simpleCols].astype(str)
             df[detailCols] = df[detailCols].astype(str)
 
-            df.loc[:, detailCols] = df[detailCols].map(
-                lambda x: fmtPrice(float(x)) if x else x
+            df.loc[:, detailCols] = (
+                df[detailCols].astype(float).map(lambda x: fmtPrice(x))
             )
-            df.loc[:, simpleCols] = df[simpleCols].map(lambda x: f"{float(x):,.2f}")
+            df.loc[:, simpleCols] = (
+                df[simpleCols].astype(float).map(lambda x: f"{x:,.2f}")
+            )
 
             # show fractional shares only if they exist
             defaultG = ["position"]
             df[defaultG] = df[defaultG].astype(str)
-            df.loc[:, defaultG] = df[defaultG].map(lambda x: f"{float(x):,.10g}")
+            df.loc[:, defaultG] = df[defaultG].astype(float).map(lambda x: f"{x:,.10g}")
 
         df = df.fillna("")
 
@@ -3028,14 +3030,7 @@ class IOpOrders(IOp):
 
         df = df.fillna("")
 
-        def tryFormat(what):
-            # need a more complex try/except here due to pandas format-then-unformat issues
-            try:
-                return f"{float(what):,.2f}"
-            except:
-                return what
-
-        df.loc[:, fmtcols] = df[fmtcols].map(tryFormat)
+        df.loc[:, fmtcols] = df[fmtcols].astype(float).map(lambda x: f"{x:,.2f}")
 
         toint = ["qty", "filled", "rem", "clientId"]
         df[toint] = df[toint].map(lambda x: f"{x:,.0f}" if x else "")
