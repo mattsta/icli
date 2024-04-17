@@ -2487,7 +2487,7 @@ class IOpOrderCancel(IOp):
                     "Orders to Cancel",
                     choices=[
                         Choice(
-                            f"{o.order.action} {o.contract.localSymbol} {o.order.totalQuantity} ${o.order.lmtPrice:.2f} == ${o.order.totalQuantity * o.order.lmtPrice * float(o.contract.multiplier or 1):,.6f}",
+                            f"{o.order.action} {o.contract.localSymbol} ({o.order.totalQuantity} * ${o.order.lmtPrice:.2f}) == ${o.order.totalQuantity * o.order.lmtPrice * float(o.contract.multiplier or 1):,.6f}",
                             o.order,
                         )
                         for o in sorted(
