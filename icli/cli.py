@@ -2257,7 +2257,7 @@ class IBKRCmdlineApp:
                     f"{trend}",
                     f"{fmtPricePad(e300, decimals=decimals)}",
                     f"({fmtPricePad(e300diff, padding=6, decimals=3)})",
-                    f"{fmtPricePad(usePrice, decimals=decimals)} ±{fmtEquitySpread(c.ask - usePrice) if c.ask >= usePrice else "":<6}",
+                    f"{fmtPricePad(usePrice, decimals=decimals)} ±{fmtEquitySpread(c.ask - usePrice) if c.ask >= usePrice else '':<6}",
                     f"({pctUndHigh} {amtUndHigh})",
                     f"({pctUpLow} {amtUpLow})",
                     f"({pctUpClose} {amtUpClose})",
