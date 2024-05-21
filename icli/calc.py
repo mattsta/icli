@@ -106,6 +106,8 @@ class CalculatorTransformer(Transformer):
                 value = self.state.accountStatus["NetLiquidation"]
             case "UPL":
                 value = self.state.accountStatus["UnrealizedPnL"]
+            case "OMV":
+                value = self.state.accountStatus["OptionMarketValue"]
             case "RPL":
                 value = self.state.accountStatus["RealizedPnL"]
             case "GPV":
