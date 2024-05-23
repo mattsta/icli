@@ -102,6 +102,10 @@ class CalculatorTransformer(Transformer):
                 value = self.state.accountStatus["BuyingPower3"]
             case "BP2":
                 value = self.state.accountStatus["BuyingPower2"]
+            case "TCV":
+                value = self.state.accountStatus["TotalCashValue"]
+            case "DPL":
+                value = self.state.accountStatus["DailyPnL"]
             case "NL":
                 value = self.state.accountStatus["NetLiquidation"]
             case "UPL":
