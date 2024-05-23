@@ -1204,6 +1204,13 @@ class IOpOrder(IOp):
             )
             return False
 
+        # Also don't run the algo loop if we have a MANUAL price requested:
+        if optionalPrice:
+            logger.warning(
+                "Not running price algo because limit price provided directly..."
+            )
+            return False
+
         order, trade = placed
 
         quoteKey = lookupKey(contract)
