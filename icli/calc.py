@@ -19,7 +19,7 @@ grammar = """
          | ":" CNAME -> portfoliovaluelookup
          | CNAME -> stringlookup
     operation: "(" FUNC expr+ ")"
-    FUNC: "+" | "-" | "*" | "/" | "gains"i | "grow"i | "o"i | "r"i
+    FUNC: "+" | "-" | "*" | "/" | "gains"i | "grow"i | "o"i | "og"i | "r"i
 
 # Use custom 'DIGIT' so we can have underscores as place holders in our numbers
 # (this is why we are rebuilding the entire number/float/int hierarchy here too)
@@ -54,6 +54,7 @@ class CalculatorTransformer(Transformer):
         "/": "div",
         "gains": "gains",
         "o": "optgains",
+        "og": "optgainsdiff",
         "r": "round",
         "grow": "grow",
     }
@@ -207,6 +208,20 @@ class CalculatorTransformer(Transformer):
 
         # we're assuming 100x multiples. ymmv when estimating currencies or other futures.
         return qty * multiplier * target
+
+    def optgainsdiff(self, args):
+        """(og qty contract-price-entry contract-price-exit)
+
+        Just calculates total value between entry and exit prices for a given quantity.
+        This is basically a shorthand for (- (o qty exit) (o qty entry))
+        """
+        qty, entryprice, exitprice, *mul = args
+
+        # TODO: when using symbols for live quotes in calculations, thread the contract through the calculator so we can properly access contract.multiple here!
+        multiplier = mul[0] if mul else 100
+
+        # we're assuming 100x multiples. ymmv when estimating currencies or other futures.
+        return qty * multiplier * (exitprice - entryprice)
 
     def gains(self, args):
         """(gains a b)
