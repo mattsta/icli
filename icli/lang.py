@@ -1141,21 +1141,44 @@ class IOpOrder(IOp):
         # send the order to IBKR
         am = ALGOMAP[self.algo]
 
+        # we're double using 'preview' for actual 'preview' and also an optional '@ $33.22' limit price field,
+        # so this is only a true 'preview' if there is only one element here.
+        optionalPrice = 0
+        isPreview = False
+        if self.preview:
+            # preview is just ["preview"] in self.preview
+            isPreview = len(self.preview) == 1
+
+            # self.preview can *also* be a list with a limit price where we use syntax of ["@", "33.33"]
+            if len(self.preview) >= 2:
+                if self.preview[0] != "@":
+                    logger.warning(
+                        "Syntax broken? Expected '@ <price>' but got: {}", self.preview
+                    )
+
+                optionalPrice = float(self.preview[1])
+
+                # we can *also* optionally append "preview" to the final price for a preview-at-price order like:
+                # buy AAPL 100 AF @ 200.21 preview
+                # (yeah, it's a mess, but it's _our_ mess)
+                if self.preview[-1].startswith("p"):
+                    isPreview = True
+
         # note: limit=0 causes placeOrderForContract to automatically calculate the quote midpoint as starting offer.
         placed = await self.state.placeOrderForContract(
             self.symbol,
             isLong,
             contract,
             qty=self.total,
-            # we are buying by AMOUNT, we don't specify a
-            # limit price since it will be calculated automatically,
+            # if we are buying by AMOUNT, we don't specify a limit price since it will be calculated automatically,
             # then we read the calculated amount to run the auto-price-tracking attempts.
-            limit=0,
+            # if we provide a price, it gets used as the limit price directly.
+            limit=optionalPrice,
             orderType=am,
-            preview=self.preview,
+            preview=isPreview,
         )
 
-        if self.preview:
+        if isPreview:
             # Don't continue trying to update the order if this was just a preview request
             return placed
 
