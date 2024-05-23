@@ -633,7 +633,7 @@ class IBKRCmdlineApp:
         isLong: bool,
         contract: Contract,
         qty: PriceOrQuantity,
-        limit: float,
+        limit: float | bool,
         orderType: str,
         preview: bool = False,
     ):
@@ -653,7 +653,7 @@ class IBKRCmdlineApp:
         if limit:
             limit = comply(contract, limit)
 
-        if qty.is_quantity:
+        if qty.is_quantity and not limit:
             logger.info("[{}] Request to order qty {} at current prices", sym, qty)
         else:
             logger.info(
@@ -691,9 +691,10 @@ class IBKRCmdlineApp:
         if isinstance(contract, Option):
             # Purpose: don't trigger warning about "RTH option has no effect" with options...
             if contract.localSymbol[0:3] not in {"SPX", "VIX"}:
-                # Currently only SPX and VIX options trade outside RTH, but other things don't,
+                # Currently only SPX and VIX options trade outside (extended) RTH, but other things don't,
                 # so turn the flag off so the IBKR Order system doesn't generate a warning
-                # considered "outside RTH"
+                # considered "outside RTH."
+                # For SPY, QQQ, IWM, SMH, and other ETFs, RTH is considered to end at 1615.
                 outsideRth = False
 
         # Note: don't make this an 'else if' to the previous check because this needs to also run again
@@ -711,7 +712,7 @@ class IBKRCmdlineApp:
             # Algos can only operate RTH:
             outsideRth = False
 
-        if not outsideRth:
+        if not (isinstance(contract, Option) or outsideRth):
             logger.warning(
                 "[{}] ALGO NOT SUPPORTED FOR ALL HOURS. ORDER RESTRICTED TO RTH ONLY!",
                 orderType,
@@ -811,7 +812,9 @@ class IBKRCmdlineApp:
                 #       but the goal here is immediate fills at market-adjusted prices anyway.
                 mid = round(((bid + ask) / 2) * (1.005 if isLong else 0.995), 2)
 
-            limit = comply(contract, mid)
+            # only use our automatic-midpoint if we don't already have a limit price
+            if not limit:
+                limit = comply(contract, mid)
 
         # only update qty if this is a money-ask because we also use this limit discovery
         # for quantity-only orders, where we don't want to alter the quantity, obviously.
@@ -1083,15 +1086,18 @@ class IBKRCmdlineApp:
 
                     # don't print if this is a failed preview (this max float value is just the ibkr default way of saying "value does not exist")
                     if isset(trade.initMarginAfter):
+                        # Logic is a bit weird here because we need to account for various circumstances:
+                        #  - equity trades (uses initial margin changes)
+                        #  - option trades (uses reduction in equity change)
+                        #  - option trades when holding equity positions (margin present, but not used for trade)
+                        marginDiff = float(trade.initMarginAfter) - float(
+                            trade.initMarginBefore
+                        )
+                        fundsDiff = marginDiff or abs(float(trade.equityWithLoanChange))
                         logger.info(
                             "[{}] PREVIEW TRADE PERCENTAGE OF AVAILABLE FUNDS: {:,.2f} %",
                             desc,
-                            100
-                            * (
-                                float(trade.initMarginAfter)
-                                or abs(float(trade.equityWithLoanChange))
-                            )
-                            / self.accountStatus["AvailableFunds"],
+                            100 * fundsDiff / self.accountStatus["AvailableFunds"],
                         )
 
             return dict(
