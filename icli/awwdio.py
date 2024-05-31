@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass, field
+from loguru import logger
 
 import httpx
 
@@ -21,9 +22,15 @@ class AwwdioClient:
     async def say(
         self, voice: str = "Alex", say: str = "Hello World", speed: int = 250
     ) -> None:
-        await self.client.get(
-            f"{self.url}/say", params=dict(voice=voice, say=say, speed=speed)
-        )
+        try:
+            await self.client.get(
+                f"{self.url}/say", params=dict(voice=voice, say=say, speed=speed)
+            )
+        except:
+            logger.warning("Speaking failed for: {}", say)
 
     async def sound(self, sound: str = "blip") -> None:
-        await self.client.get(f"{self.url}/play", params=dict(sound=sound))
+        try:
+            await self.client.get(f"{self.url}/play", params=dict(sound=sound))
+        except:
+            logger.warning("Sound failed to send!")
