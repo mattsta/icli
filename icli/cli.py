@@ -2235,6 +2235,29 @@ class IBKRCmdlineApp:
                             # puts
                             itm = "I"
 
+                    # "compensated" is acquisiton price for the underlying if you short this strike.
+                    # basically (strike - premium) == price of underlying if you get assigned.
+                    # (here, "price"  is the "strike price" in the contract)
+                    # provide defaults due to async value population from IBKR (and sometimes we don't have underlying price if we don't have market data)
+                    compdiff = 0
+                    try:
+                        match pc:
+                            case "P":
+                                # for puts, we calculate break-even short prices BELOW the the underlying.
+                                # first calculate the premium difference from the strike price,
+                                compensated = price - mark
+                                # then calculate how far from the underlying for the break-even-at-expiry price.
+                                # (here, underlying is ABOV E the (strike - premium break-even))
+                                compdiff = und - compensated
+                            case "C":
+                                # for calls, we calculate break-even short prices ABOVE the the underlying.
+                                compensated = price + mark
+                                # same as above, but for shorting calls, your break-even is above the underlying.
+                                # (here, underlying is BELOW the (strike + premium break-even))
+                                compdiff = compensated - und
+                    except:
+                        pass
+
                     return " ".join(
                         [
                             rowName,
@@ -2250,6 +2273,7 @@ class IBKRCmdlineApp:
                             f"({pctBigClose} {amtBigClose} {fmtPriceOpt(c.close):>6})",
                             f" {fmtPriceOpt(c.bid):>6} x {b_s}   {fmtPriceOpt(c.ask):>6} x {a_s} ",
                             f"  ({str(ago):>13})  ",
+                            f"(s {fmtPricePad(compensated, padding=8, decimals=2)} @ {compdiff:>6,.2f})",
                             rowNice,
                             f"({when:>3} d)",
                             "HALTED!" if c.halted > 0 else "",
