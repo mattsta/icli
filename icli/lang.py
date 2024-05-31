@@ -807,8 +807,8 @@ class IOpDepth(IOp):
         return [
             DArg("sym"),
             DArg(
-                "count",
-                convert=int,
+                "*count",
+                convert=lambda x: int(x[0]) if x else 3,
                 verify=lambda x: 0 < x < 300,
                 desc="depth checking iterations should be more than zero and less than a lot",
             ),
@@ -853,9 +853,10 @@ class IOpDepth(IOp):
 
             if not (t.domBids or t.domAsks):
                 logger.warning(
-                    "[{}] Depth not populated. Failing depth {}.",
+                    "[{}] Depth not populated. Failing depth {} of {}.",
                     contract.localSymbol,
                     i,
+                    self.count,
                 )
 
             if t.domBids or t.domAsks:
@@ -1222,7 +1223,7 @@ class IOpOrder(IOp):
                 # we can *also* optionally append "preview" to the final price for a preview-at-price order like:
                 # buy AAPL 100 AF @ 200.21 preview
                 # (yeah, it's a mess, but it's _our_ mess)
-                if self.preview[-1].startswith("p"):
+                if self.preview[-1].lower().startswith("p"):
                     isPreview = True
 
         # note: limit=0 causes placeOrderForContract to automatically calculate the quote midpoint as starting offer.
@@ -2668,6 +2669,9 @@ class IOpPositions(IOp):
         return [DArg("*symbols")]
 
     def totalFrame(self, df, costPrice=False):
+        if df.empty:
+            return None
+
         # Add new Total index row as column sum (axis=0 is column sum; axis=1 is row sum)
         totalCols = [
             "position",
@@ -2728,7 +2732,7 @@ class IOpPositions(IOp):
             df.loc[:, detailCols] = (
                 df[detailCols]
                 .astype(float, errors="ignore")
-                .map(lambda x: fmtPrice(x) if x else x)
+                .map(lambda x: fmtPrice(float(x)) if x else x)
             )
             df.loc[:, simpleCols] = (
                 df[simpleCols].astype(float).map(lambda x: f"{x:,.2f}")
@@ -2739,11 +2743,9 @@ class IOpPositions(IOp):
             df[defaultG] = df[defaultG].astype(str)
             df.loc[:, defaultG] = df[defaultG].astype(float).map(lambda x: f"{x:,.10g}")
 
-        df = df.fillna("")
-
         # manually override the string-printed 'nan' from .map() of totalCols
         # for columns we don't want summations of.
-        df.at["Total", "closeOrder"] = ""
+        # df.at["Total", "closeOrder"] = ""
 
         if not costPrice:
             df.at["Total", "marketPrice"] = ""
@@ -2799,7 +2801,7 @@ class IOpPositions(IOp):
             if isinstance(close, list):
                 closingSide = " ".join([str(x) for x in close])
                 make["closeOrderValue"] = " ".join(
-                    [size * price * multiplier for size, price in close]
+                    [str(size * price * multiplier) for size, price in close]
                 )
             else:
                 closingSide = close
@@ -2887,6 +2889,10 @@ class IOpPositions(IOp):
         df.reset_index(drop=True, inplace=True)
 
         allPositions = self.totalFrame(df.copy())
+        if allPositions is None:
+            logger.info("No current positions found!")
+            return None
+
         printFrame(allPositions, "All Positions")
 
         # attempt to find spreads by locating options with the same symbol
@@ -2990,6 +2996,7 @@ class IOpOrders(IOp):
             # make["oca"] = o.order.ocaGroup
             # make["gat"] = o.order.goodAfterTime
             # make["gtd"] = o.order.goodTillDate
+            make["parentId"] = int(o.orderStatus.parentId)
             make["clientId"] = int(o.orderStatus.clientId)
             make["rem"] = o.orderStatus.remaining
             make["filled"] = o.order.totalQuantity - o.orderStatus.remaining
@@ -3098,7 +3105,7 @@ class IOpOrders(IOp):
 
         df = pd.DataFrame(
                 data=populate,
-                columns=["id", "clientId", "action", "sym", 'PC', 'date', 'strike',
+                columns=["id", "parentId", "clientId", "action", "sym", 'PC', 'date', 'strike',
                     "xchange", "orderType",
                     "qty", "cashQty", "filled", "rem", "lmt", "aux", "trail", "tif",
                     "4-8", "lreturn", "lcost", "occ", "legs"],
@@ -3126,7 +3133,7 @@ class IOpOrders(IOp):
 
         df.loc[:, fmtcols] = df[fmtcols].astype(float).map(lambda x: f"{x:,.2f}")
 
-        toint = ["qty", "filled", "rem", "clientId"]
+        toint = ["qty", "filled", "rem", "clientId", "parentId"]
         df[toint] = df[toint].map(lambda x: f"{x:,.0f}" if x else "")
         df[["4-8"]] = df[["4-8"]].map(lambda x: True if x else "")
 
