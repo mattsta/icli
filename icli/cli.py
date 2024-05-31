@@ -982,15 +982,10 @@ class IBKRCmdlineApp:
                 and isset(float(trade.initMarginChange))
                 and previewPrice
             ):
-                margPctInit = (
-                    float(trade.initMarginChange)
-                    / (order.totalQuantity * previewPrice * multiplier)
-                ) * 100
+                baseTotal = order.totalQuantity * previewPrice * multiplier
+                margPctInit = (float(trade.initMarginChange) / baseTotal) * 100
 
-                margPctMaint = (
-                    float(trade.maintMarginChange)
-                    / (order.totalQuantity * previewPrice * multiplier)
-                ) * 100
+                margPctMaint = (float(trade.maintMarginChange) / baseTotal) * 100
 
                 logger.info(
                     "[{}] PREVIEW MARGIN REQUIREMENT INIT: {:.2f} % (${:,.2f})",
