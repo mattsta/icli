@@ -1434,8 +1434,12 @@ class IBKRCmdlineApp:
 
         # if no quote yet (or no prices available), return last seen price...
         if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
-            if q.last == q.last:
-                return q.last, q.last
+            # for now, disable "last" short circuit reporting because it broke
+            # our real time price checks by showing the last closing price of the previous
+            # day instead of the "last live trade" as we expected...
+            if False:
+                if q.last == q.last:
+                    return q.last, q.last
 
             return None
 
