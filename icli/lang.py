@@ -47,6 +47,8 @@ pp.install_extras(["dataclasses"], warn_on_error=False)
 # TODO: also break out Symbol vs LocalSymbol usage
 Symbol = str
 
+OrderExtension = enum.Enum("OrderExtension", "PROFIT LOSS BRACKET NONE")
+
 # The choices map nice user strings to the lookup map in orders.order(orderType)
 # for dynamically returning an order instance based on string name...
 ORDER_TYPE_Q = Q(
@@ -1145,18 +1147,77 @@ class IOpOrder(IOp):
         # so this is only a true 'preview' if there is only one element here.
         optionalPrice = 0
         isPreview = False
+        bracket = None
+
         if self.preview:
             # preview is just ["preview"] in self.preview
             isPreview = len(self.preview) == 1
 
+            pl = len(self.preview)
             # self.preview can *also* be a list with a limit price where we use syntax of ["@", "33.33"]
-            if len(self.preview) >= 2:
+            if pl >= 2:
                 if self.preview[0] != "@":
                     logger.warning(
                         "Syntax broken? Expected '@ <price>' but got: {}", self.preview
                     )
 
                 optionalPrice = float(self.preview[1])
+
+                # if we have EVEN MORE ELEMENTS, user is requesting an auto-attached exit too.
+
+                extension = OrderExtension.NONE
+                extensionPriceProfit = None
+                extensionPriceLoss = None
+                if pl >= 4:
+                    try:
+                        extensionPrice = float(self.preview[3])
+                    except:
+                        logger.error(
+                            "Failed to convert exit price: {} from {}",
+                            self.preview[3],
+                            self.preview,
+                        )
+                        return
+
+                    # We want to submit attached orders, but IBKR only allows attacahed orders as either:
+                    #  - dual side braacket orders
+                    #  - trailing stop limit orders
+
+                    # If short, we need to flip the direction of our math and it's easier to just invert here
+                    if not isLong:
+                        extensionPrice *= -1
+
+                    match self.preview[2]:
+                        case "+":
+                            # Create PROFIT exit at +$A.BC
+                            extension = OrderExtension.PROFIT
+                            extensionPriceProfit = optionalPrice + extensionPrice
+                            extensionPriceLoss = max(
+                                optionalPrice - (extensionPrice * 4), 0.05
+                            )
+                            bracket = Bracket(profitLimit=extensionPriceProfit)
+                        case "-":
+                            # Create LOSS exit at -$X.YZ
+                            extension = OrderExtension.LOSS
+                            extensionPriceLoss = optionalPrice - extensionPrice
+                            bracket = Bracket(lossLimit=extensionPriceLoss)
+                            extensionPriceProfit = optionalPrice + (extensionPrice * 4)
+                        case "±":
+                            # Create BRACKET.
+                            # BRACKET can be submitted with the order ALL AT ONCE as a conditional parent tree order.
+                            extension = OrderExtension.BRACKET
+                            extensionPriceLoss = optionalPrice - extensionPrice
+                            extensionPriceProfit = optionalPrice + extensionPrice
+                            bracket = Bracket(
+                                profitLimit=extensionPriceProfit,
+                                lossLimit=extensionPriceLoss,
+                            )
+                        case _:
+                            logger.error(
+                                "Invalid order exit requested? Expected one of +|-|± but got {}",
+                                self.preview[2],
+                            )
+                            return
 
                 # we can *also* optionally append "preview" to the final price for a preview-at-price order like:
                 # buy AAPL 100 AF @ 200.21 preview
@@ -1176,6 +1237,7 @@ class IOpOrder(IOp):
             limit=optionalPrice,
             orderType=am,
             preview=isPreview,
+            bracket=bracket,
         )
 
         if isPreview:

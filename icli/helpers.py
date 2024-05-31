@@ -74,6 +74,22 @@ FUTS_MONTH_MAPPING = {
 PQ = enum.Enum("PQ", "PRICE QTY")
 
 
+@dataclass(slots=True)
+class Bracket:
+    profitLimit: float | None = None
+    lossLimit: float | None = None
+
+    # Note: IBKR bracket orders must use common exchange order types (no AF, AS, REL, etc)
+    orderProfit: str = "LMT"
+    orderLoss: str = "STP LMT"
+    lossStop: float | None = None
+
+    def __post_init__(self) -> None:
+        # if no stop trigger provided, set stop equal to the liss limit
+        if not self.lossStop:
+            self.lossStop = self.lossLimit
+
+
 def convert_futures_code(code: str):
     """Convert a futures-date-format into IBKR date format.
 

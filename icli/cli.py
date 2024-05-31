@@ -636,6 +636,7 @@ class IBKRCmdlineApp:
         limit: float | bool,
         orderType: str,
         preview: bool = False,
+        bracket: Bracket | None = None,
     ):
         """Place a BUY (isLong) or SELL (!isLong) for qualified 'contract' at qty/price.
 
@@ -846,12 +847,18 @@ class IBKRCmdlineApp:
                 determinedQty * limit * multiplier,
             )
 
+        # declare default values so we can check against them later...
+        profitOrder = None
+        lossOrder = None
+
         try:
-            side = "BUY" if isLong else "SELL"
+            sideOpen = "BUY" if isLong else "SELL"
+            sideClose = "SELL" if isLong else "BUY"
+
             logger.info(
                 "[{} :: {}] {:,.2f} @ ${:,.2f} x {:,.2f} (${:,.2f}) ALL_HOURS={} TIF={}",
                 orderType,
-                side,
+                sideOpen,
                 determinedQty,
                 limit,
                 multiplier,
@@ -859,13 +866,55 @@ class IBKRCmdlineApp:
                 outsideRth,
                 tif,
             )
+
             order = orders.IOrder(
-                side,
+                sideOpen,
                 determinedQty,
                 limit,
                 outsiderth=outsideRth,
                 tif=tif,
             ).order(orderType)
+
+            if bracket:
+                # When creating attached orders, we need manual order IDs because by default they only
+                # get generated during the order placement phase.
+                order.orderId = self.ib.client.getReqId()
+                order.transmit = False
+
+                if bracket.profitLimit is not None:
+                    profitOrder = orders.IOrder(
+                        sideClose,
+                        determinedQty,
+                        bracket.profitLimit,
+                        outsiderth=outsideRth,
+                        tif=tif,
+                    ).order(bracket.orderProfit)
+
+                    profitOrder.orderId = self.ib.client.getReqId()
+                    profitOrder.parentId = order.orderId
+                    profitOrder.transmit = False
+
+                if bracket.lossLimit is not None:
+                    lossOrder = orders.IOrder(
+                        sideClose,
+                        determinedQty,
+                        bracket.lossLimit,
+                        aux=bracket.lossStop,
+                        outsiderth=outsideRth,
+                        tif=tif,
+                    ).order(bracket.orderLoss)
+
+                    lossOrder.orderId = self.ib.client.getReqId()
+                    lossOrder.parentId = order.orderId
+                    lossOrder.transmit = False
+
+                # if loss order exists, it ALWAYS transmits last
+                if lossOrder:
+                    lossOrder.transmit = True
+                elif profitOrder:
+                    # else, only PROFIT ORDER exists, so send it (profit order is ignored)
+                    profitOrder.transmit = True
+
         except:
             logger.exception("ORDER GENERATION FAILED. CANNOT PLACE ORDER!")
             return
@@ -1109,7 +1158,15 @@ class IBKRCmdlineApp:
 
         logger.info("[{}] Ordering {} via {}", desc, contract, order)
 
+        profitTrade = None
+        lossTrade = None
         trade = self.ib.placeOrder(contract, order)
+
+        if profitOrder:
+            profitTrade = self.ib.placeOrder(contract, profitOrder)
+
+        if lossOrder:
+            lossTrade = self.ib.placeOrder(contract, lossOrder)
 
         # TODO: add optional agent-like feature HERE to modify order in steps for buys (+price, -qty)
         #       or for sells (-price).
@@ -1122,6 +1179,24 @@ class IBKRCmdlineApp:
             name,
             pp.pformat(trade),
         )
+
+        if profitOrder:
+            logger.info(
+                "[{} :: {} :: {}] Profit Order Placed: {}",
+                profitTrade.orderStatus.orderId,
+                profitTrade.orderStatus.status,
+                name,
+                pp.pformat(profitTrade),
+            )
+
+        if lossOrder:
+            logger.info(
+                "[{} :: {} :: {}] Loss Order Placed: {}",
+                lossTrade.orderStatus.orderId,
+                lossTrade.orderStatus.status,
+                name,
+                pp.pformat(lossTrade),
+            )
 
         return order, trade
 
