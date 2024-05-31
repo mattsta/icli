@@ -1903,11 +1903,11 @@ class IBKRCmdlineApp:
             ago = (self.now - (c.time or self.now)).as_duration()
             try:
                 percentUnderHigh = (
-                    ((usePrice - c.high) / c.high) * 100 if usePrice <= c.high else 0
+                    ((usePrice - c.high) / c.high) * 100 if c.high == c.high else 0
                 )
 
                 percentUpFromLow = (
-                    ((usePrice - c.low) / c.low) * 100 if usePrice >= c.low else 0
+                    ((usePrice - c.low) / c.low) * 100 if c.low == c.low else 0
                 )
 
                 percentUpFromClose = (
