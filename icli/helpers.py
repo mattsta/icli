@@ -54,7 +54,7 @@ logger.info("Futures Next Roll-Forward Date: {}", futexp)
 FU_DEFAULT = dict(ICLI_FUT_EXP=f"{futexp.year}{futexp.month:02}")  # YM like: 202309
 FU_CONFIG = {**FU_DEFAULT, **dotenv_values(".env.icli"), **os.environ}  # type: ignore
 
-FUT_EXP = FU_CONFIG["ICLI_FUT_EXP"]
+FUT_EXP = FU_DEFAULT["ICLI_FUT_EXP"]
 
 FUTS_MONTH_MAPPING = {
     "F": "01",  # January
@@ -326,6 +326,9 @@ def contractForName(sym, exchange="SMART", currency="USD"):
             elif contractNamespace == "CFD":
                 # things like CFD:XAUUSD
                 contract = CFD(symbol)
+            else:
+                logger.error("Invalid contract type: {}", contractNamespace)
+                contract = None
         else:
             # TODO: warrants, bonds, bills, etc
             contract = Stock(sym, exchange, currency)
