@@ -907,9 +907,9 @@ class IOpDepth(IOp):
                 # for some smaller symbols, bids or asks may not get returned
                 # by the flaky ibkr depth APIs
                 if t.domBids:
+                    adb = pd.DataFrame(t.domBids)
                     fixedBids = (
-                        pd.DataFrame(t.domBids)
-                        .groupby("price", as_index=False)
+                        adb.groupby("price", as_index=False)
                         .agg({"size": "sum", "marketMaker": list})
                         .convert_dtypes()
                         .sort_values(by=["price"], ascending=False)
@@ -918,14 +918,14 @@ class IOpDepth(IOp):
 
                     # format floats as currency strings with proper cent padding.
                     fixedBids["price"] = fixedBids["price"].apply(decimal_formatter)
-                    fixedBids["marketMaker"] = sorted(fixedBids["marketMaker"])
                 else:
                     fixedBids = pd.DataFrame([dict(size=0)])
 
                 if t.domAsks:
+                    adf = pd.DataFrame(t.domAsks)
+                    # logger.info("Asks: {}", adf.to_string())
                     fixedAsks = (
-                        pd.DataFrame(t.domAsks)
-                        .groupby("price", as_index=False)
+                        adf.groupby("price", as_index=False)
                         .agg({"size": "sum", "marketMaker": list})
                         .convert_dtypes()
                         .sort_values(by=["price"], ascending=True)
@@ -933,7 +933,6 @@ class IOpDepth(IOp):
                     )
 
                     fixedAsks["price"] = fixedAsks["price"].apply(decimal_formatter)
-                    fixedAsks["marketMaker"] = sorted(fixedAsks["marketMaker"])
                 else:
                     fixedAsks = pd.DataFrame([dict(size=0)])
 
