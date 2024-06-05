@@ -841,24 +841,30 @@ class IOpDepth(IOp):
             contract, numRows=40, isSmartDepth=useSmart
         )
 
-        # now we read lists of ticker.domBids and ticker.domAsks for the depths
-        # (each having .price, .size, .marketMaker)
-        for i in range(0, self.count):
-            t = self.depthState[contract]
+        t = self.depthState[contract]
+        i = 0
 
-            # loop for up to a second until bids or asks are populated
-            for j in range(0, 100):
-                if not (t.domBids or t.domAsks):
-                    await asyncio.sleep(0)
+        # loop for up to a second until bids or asks are populated
+        while not (t.domBids or t.domAsks):
+            i += 1
+            await asyncio.sleep(0.001)
 
             if not (t.domBids or t.domAsks):
                 logger.warning(
-                    "[{}] Depth not populated. Failing depth {} of {}.",
+                    "[{}] Depth not populated. Failing warm-up check {}.",
                     contract.localSymbol,
                     i,
-                    self.count,
                 )
 
+                if i > 20:
+                    logger.error("Depth not populated in expected time!")
+                    return
+
+                await asyncio.sleep(0.15)
+
+        # now we read lists of ticker.domBids and ticker.domAsks for the depths
+        # (each having .price, .size, .marketMaker)
+        for i in range(0, self.count):
             if t.domBids or t.domAsks:
                 if False:
                     fmt = {
@@ -956,7 +962,7 @@ class IOpDepth(IOp):
 
                 printFrame(
                     both,
-                    f"{contract.symbol} :: {contract.localSymbol} Grouped by Price",
+                    f"{contract.symbol} :: {i} :: {contract.localSymbol} Grouped by Price",
                 )
 
             # Note: the 't.domTicks' field is just the "update feed"
@@ -966,7 +972,7 @@ class IOpDepth(IOp):
 
             if i < self.count - 1:
                 try:
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(1)
                 except:
                     logger.warning("Stopped during sleep!")
                     break
