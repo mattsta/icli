@@ -2915,8 +2915,13 @@ class IBKRCmdlineApp:
                     await self.dispatch.runop(
                         cmd, rest[0] if rest else None, self.opstate
                     )
-                except:
-                    logger.exception("sorry, what now?")
+                except Exception as e:
+                    if "token" in str(e):
+                        # don't show a 100 line stack trace for mistyped inputs.
+                        # Just tell the user it needs to be corrected.
+                        logger.error("Error parsing your input: {}", e)
+                    else:
+                        logger.exception("sorry, what now?")
 
         # The Command Processing REPL
         while True:
