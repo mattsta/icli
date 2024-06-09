@@ -1268,7 +1268,7 @@ class IOpOrder(IOp):
             "MTL",
         } & set(am.split()):
             logger.warning(
-                "Not running price algo because this is a market order or a slower resting order..."
+                "Not running price algo because this is a passive or slower resting order..."
             )
             return False
 
