@@ -644,8 +644,17 @@ class IBKRCmdlineApp:
         """
 
         # Always overwrite the contract cache with our current exchange (and fallback to SMART if none are specified)
-        globalExchange = self.localvars.get("exchange", "SMART")
-        contract.exchange = globalExchange
+        if isinstance(contract, Future):
+            # (for futures, exchange must be routed to the exact futures exchange. "SMART" routing is invalid for any futures.
+            #  this also means we may crash here if the futures symbol isn't in our lookup table cache, so it would need a refresh)
+            fe = FUTS_EXCHANGE[contract.symbol]
+            contract.exchange = fe.exchange
+            logger.info(
+                "[{} :: {}] Using exchange: {}", contract.symbol, fe.name, fe.exchange
+            )
+        else:
+            globalExchange = self.localvars.get("exchange", "SMART")
+            contract.exchange = globalExchange
 
         # Immediately ask to add quote to live quotes for this trade positioning...
         # turn option contract lookup into non-spaced version
