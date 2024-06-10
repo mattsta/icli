@@ -95,22 +95,8 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "B1U": FutureSymbol(
-        symbol="B1U",
-        exchange="CBOT",
-        name="30-Year Deliverable Interest Rate Swap Futures",
-        multiplier="",
-        delayed=False,
-    ),
     "AC": FutureSymbol(
         symbol="AC", exchange="CBOT", name="Ethanol -CME", multiplier="", delayed=False
-    ),
-    "F1U": FutureSymbol(
-        symbol="F1U",
-        exchange="CBOT",
-        name="5-Year Deliverable Interest Rate Swap Futures",
-        multiplier="",
-        delayed=False,
     ),
     "KE": FutureSymbol(
         symbol="KE",
@@ -119,17 +105,17 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "LIT": FutureSymbol(
-        symbol="LIT",
+    "MTN": FutureSymbol(
+        symbol="MTN",
         exchange="CBOT",
-        name="2-Year Eris Swap Futures",
+        name="Micro Ultra 10-Year U.S Treasury Note",
         multiplier="",
         delayed=False,
     ),
-    "LIW": FutureSymbol(
-        symbol="LIW",
+    "MWN": FutureSymbol(
+        symbol="MWN",
         exchange="CBOT",
-        name="5-Year Eris Swap Futures",
+        name="Micro Ultra US Treasury Bond",
         multiplier="",
         delayed=False,
     ),
@@ -140,24 +126,10 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "N1U": FutureSymbol(
-        symbol="N1U",
-        exchange="CBOT",
-        name="10-Year Deliverable Interest Rate Swap Futures",
-        multiplier="",
-        delayed=False,
-    ),
     "DJUSRE": FutureSymbol(
         symbol="DJUSRE",
         exchange="CBOT",
         name="Dow Jones US Real Estate Index",
-        multiplier="",
-        delayed=False,
-    ),
-    "T1U": FutureSymbol(
-        symbol="T1U",
-        exchange="CBOT",
-        name="2-Year Deliverable Interest Rate Swap Futures",
         multiplier="",
         delayed=False,
     ),
@@ -203,6 +175,41 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
+    "YIA": FutureSymbol(
+        symbol="YIA",
+        exchange="CBOT",
+        name="1-Year Eris SOFR Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "YIC": FutureSymbol(
+        symbol="YIC",
+        exchange="CBOT",
+        name="3-Year Eris SOFR Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "YID": FutureSymbol(
+        symbol="YID",
+        exchange="CBOT",
+        name="4-Year Eris SOFR Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "YIT": FutureSymbol(
+        symbol="YIT",
+        exchange="CBOT",
+        name="2-Year Eris SOFR Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
+    "YIW": FutureSymbol(
+        symbol="YIW",
+        exchange="CBOT",
+        name="5-Year Eris SOFR Swap Futures",
+        multiplier="",
+        delayed=False,
+    ),
     "YM": FutureSymbol(
         symbol="YM",
         exchange="CBOT",
@@ -220,7 +227,7 @@ FUTS_EXCHANGE = {
     "ZB": FutureSymbol(
         symbol="ZB",
         exchange="CBOT",
-        name="30 Year US Treasury Bond",
+        name="US Treasury Bond",
         multiplier="",
         delayed=False,
     ),
@@ -347,7 +354,7 @@ FUTS_EXCHANGE = {
     "BRE": FutureSymbol(
         symbol="BRE",
         exchange="CME",
-        name="Brazilian Real in US Dollars",
+        name="Brazilian real",
         multiplier="",
         delayed=False,
     ),
@@ -550,6 +557,13 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
+    "ESTR": FutureSymbol(
+        symbol="ESTR",
+        exchange="CME",
+        name="Euro Short-Term Rate",
+        multiplier="",
+        delayed=False,
+    ),
     "ETHEURRR": FutureSymbol(
         symbol="ETHEURRR",
         exchange="CME",
@@ -578,18 +592,8 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "GE": FutureSymbol(
-        symbol="GE", exchange="CME", name="Euro-Dollar", multiplier="", delayed=False
-    ),
     "GF": FutureSymbol(
         symbol="GF", exchange="CME", name="Feeder Cattle", multiplier="", delayed=False
-    ),
-    "EM": FutureSymbol(
-        symbol="EM",
-        exchange="CME",
-        name="1 Month LIBOR (Int. Rate)",
-        multiplier="",
-        delayed=False,
     ),
     "NF": FutureSymbol(
         symbol="NF",
@@ -618,7 +622,7 @@ FUTS_EXCHANGE = {
     "ILS": FutureSymbol(
         symbol="ILS",
         exchange="CME",
-        name="Israeli Shekel in US Dollar",
+        name="Israeli Shekel",
         multiplier="",
         delayed=False,
     ),
@@ -649,13 +653,6 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "LB": FutureSymbol(
-        symbol="LB",
-        exchange="CME",
-        name="Random Length Lumber",
-        multiplier="",
-        delayed=False,
-    ),
     "LE": FutureSymbol(
         symbol="LE", exchange="CME", name="Live Cattle", multiplier="", delayed=False
     ),
@@ -676,31 +673,10 @@ FUTS_EXCHANGE = {
     "M6B": FutureSymbol(
         symbol="M6B", exchange="CME", name="British pound", multiplier="", delayed=False
     ),
-    "M6C": FutureSymbol(
-        symbol="M6C",
-        exchange="CME",
-        name="United States dollar",
-        multiplier="",
-        delayed=False,
-    ),
     "M6E": FutureSymbol(
         symbol="M6E",
         exchange="CME",
         name="European Monetary Union Euro",
-        multiplier="",
-        delayed=False,
-    ),
-    "M6J": FutureSymbol(
-        symbol="M6J",
-        exchange="CME",
-        name="United States dollar",
-        multiplier="",
-        delayed=False,
-    ),
-    "M6S": FutureSymbol(
-        symbol="M6S",
-        exchange="CME",
-        name="United States dollar",
         multiplier="",
         delayed=False,
     ),
@@ -923,10 +899,10 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "VOLQ": FutureSymbol(
-        symbol="VOLQ",
+    "TBF3": FutureSymbol(
+        symbol="TBF3",
         exchange="CME",
-        name="NASDAQ-100 Volatility Index",
+        name="13-Week US Treasury Bill",
         multiplier="",
         delayed=False,
     ),
@@ -1007,10 +983,10 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
-    "BAKKT": FutureSymbol(
-        symbol="BAKKT",
-        exchange="ICECRYPTO",
-        name="Bakkt Bitcoin",
+    "LRC30APR": FutureSymbol(
+        symbol="LRC30APR",
+        exchange="NYBOT",
+        name="ICE U.S. Conforming 30-yr Fixed Mortgage Rate Lock Weighted APR",
         multiplier="",
         delayed=False,
     ),
@@ -1109,6 +1085,13 @@ FUTS_EXCHANGE = {
         multiplier="",
         delayed=False,
     ),
+    "MHNG": FutureSymbol(
+        symbol="MHNG",
+        exchange="NYMEX",
+        name="Micro Henry Hub Natural Gas",
+        multiplier="",
+        delayed=False,
+    ),
     "MRB": FutureSymbol(
         symbol="MRB",
         exchange="NYMEX",
@@ -1134,13 +1117,6 @@ FUTS_EXCHANGE = {
         symbol="PL",
         exchange="NYMEX",
         name="Platinum Index",
-        multiplier="",
-        delayed=False,
-    ),
-    "PLM": FutureSymbol(
-        symbol="PLM",
-        exchange="NYMEX",
-        name="Micro Platinum",
         multiplier="",
         delayed=False,
     ),
@@ -1192,54 +1168,6 @@ FUTS_EXCHANGE = {
         name="Small 30YR US Treasury Yield",
         multiplier="",
         delayed=False,
-    ),
-    "SP": FutureSymbol(
-        symbol="SP", exchange="GLOBEX", name="S&P 500", multiplier="", delayed=False
-    ),
-    "GC": FutureSymbol(
-        symbol="GC", exchange="NYMEX", name="Gold", multiplier="", delayed=False
-    ),
-    "HG": FutureSymbol(
-        symbol="HG", exchange="NYMEX", name="Copper", multiplier="", delayed=False
-    ),
-    "MGC": FutureSymbol(
-        symbol="MGC",
-        exchange="NYMEX",
-        name="E-Micro Gold",
-        multiplier="",
-        delayed=False,
-    ),
-    "QC": FutureSymbol(
-        symbol="QC", exchange="NYMEX", name="Copper", multiplier="", delayed=False
-    ),
-    "QH": FutureSymbol(
-        symbol="QH",
-        exchange="NYMEX",
-        name="Heating Oil E-Mini",
-        multiplier="",
-        delayed=False,
-    ),
-    "QI": FutureSymbol(
-        symbol="QI", exchange="NYMEX", name="Silver Mini", multiplier="", delayed=False
-    ),
-    "QO": FutureSymbol(
-        symbol="QO", exchange="NYMEX", name="Gold", multiplier="", delayed=False
-    ),
-    "QU": FutureSymbol(
-        symbol="QU",
-        exchange="NYMEX",
-        name="Unleaded Gasoline E-Mini",
-        multiplier="",
-        delayed=False,
-    ),
-    "SI": FutureSymbol(
-        symbol="SI", exchange="NYMEX", name="Silver", multiplier="", delayed=False
-    ),
-    "SIL": FutureSymbol(
-        symbol="SIL", exchange="NYMEX", name="Silver", multiplier="", delayed=False
-    ),
-    "TF": FutureSymbol(
-        symbol="TF", exchange="NYBOT", name="RUSSELL 2000", multiplier="", delayed=False
     ),
 } | {
     # NOTABLE MANUAL EXCEPTIONS TO THE ABOVE:
