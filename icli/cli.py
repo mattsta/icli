@@ -2847,10 +2847,11 @@ class IBKRCmdlineApp:
                 except (
                     ConnectionRefusedError,
                     ConnectionResetError,
+                    OSError,
                     asyncio.exceptions.TimeoutError,
                     asyncio.exceptions.CancelledError,
                 ) as e:
-                    # Don't print exception for just a connection error
+                    # Don't print full network exceptions for just connection errors
                     logger.error(
                         "[{}] Failed to connect to IB Gateway, trying again...", e
                     )
