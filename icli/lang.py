@@ -1064,7 +1064,13 @@ class IOpOrderModify(IOp):
                 ordr = dataclasses.replace(ordr, auxPrice=float(stop))
 
             if qty:
+                # TODO: allow quantity of -1 or "ALL" to use total position?
+                #       We would need to look up the current portfolio holdings to match sizes against here.
                 ordr = dataclasses.replace(ordr, totalQuantity=float(qty))
+
+            if ordr.parentId:
+                logger.warning("Removing parent id from updated order!")
+                ordr = dataclasses.replace(ordr, parentId=0)
 
             # we MUST have replaced the order by now or else the conditions above are broken
             assert ordr != trade.order
