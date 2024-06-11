@@ -2586,12 +2586,15 @@ class IOpOrderCancel(IOp):
     async def run(self):
         # If order ids not provided via command, show a selectable list of all orders
         if not self.orderids:
+            # We need to manually declare the bag multipler of 100, which is assuming the contract is using standard 100 multipler spreads
+            # and not weird things like 40 multipler spreads. ymmv, but it's the best we can do for now without using a lookup table
+            # mapping for matching underlyings to multiplier mappings.
             ords = [
                 CB(
                     "Orders to Cancel",
                     choices=[
                         Choice(
-                            f"{o.order.action} {o.contract.localSymbol} ({o.order.totalQuantity} * ${o.order.lmtPrice:.2f}) == ${o.order.totalQuantity * o.order.lmtPrice * float(o.contract.multiplier or 1):,.6f}",
+                            f"{o.order.action} {o.contract.localSymbol} ({o.order.totalQuantity} * ${o.order.lmtPrice:.2f}) == ${o.order.totalQuantity * o.order.lmtPrice * float(o.contract.multiplier or (100 if isinstance(o.contract, Bag) else 1)):,.6f}",
                             o.order,
                         )
                         for o in sorted(
