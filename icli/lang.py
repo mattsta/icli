@@ -2746,7 +2746,11 @@ class IOpPositions(IOp):
             df.loc[:, detailCols] = (
                 df[detailCols]
                 .astype(float, errors="ignore")
-                .map(lambda x: fmtPrice(float(x)) if x else x)
+                .map(
+                    lambda x: fmtPrice(float(x))
+                    if (x and (isinstance(x, str) and " " not in x))
+                    else x
+                )
             )
             df.loc[:, simpleCols] = (
                 df[simpleCols].astype(float).map(lambda x: f"{x:,.2f}")
@@ -2761,9 +2765,9 @@ class IOpPositions(IOp):
         # for columns we don't want summations of.
         # df.at["Total", "closeOrder"] = ""
 
-        if not costPrice:
-            df.at["Total", "marketPrice"] = ""
-            df.at["Total", "averageCost"] = ""
+        # if not costPrice:
+        #     df.at["Total", "marketPrice"] = ""
+        #     df.at["Total", "averageCost"] = ""
 
         return df
 
@@ -2833,12 +2837,15 @@ class IOpPositions(IOp):
                 if not isset(make["dailyPNL"]):
                     make["dailyPNL"] = -1
             except:
-                logger.warning("No PNL for: {}", pp.pformat(o))
+                logger.warning(
+                    "Subscribing to live PNL updates for: {}",
+                    o.contract.localSymbol or o.contract.symbol,
+                )
 
                 # if we didn't have a PnL, attempt to subscribe it now anyway...
                 # (We can have an unsubscribed PnL if we have live positions created today
                 #  on another client or we have some positions just "show up" like getting assigned
-                #  short options overnight)
+                #  long shares from short puts or getting assigned short shares from short calls)
                 self.state.pnlSingle[o.contract.conId] = self.ib.reqPnLSingle(
                     self.state.accountId, "", o.contract.conId
                 )
@@ -3151,9 +3158,7 @@ class IOpOrders(IOp):
         df[toint] = df[toint].map(lambda x: f"{x:,.0f}" if x else "")
         df[["4-8"]] = df[["4-8"]].map(lambda x: True if x else "")
 
-        printFrame(df)
-
-        # now print the status logs for each current order...
+        # print the status logs for each current order...
 
         for log in logs:
             logger.info("[{} :: {} :: {}] EVENT LOG", log["id"], log["sym"], log["occ"])
@@ -3168,6 +3173,9 @@ class IOpOrders(IOp):
                     l.status,
                     l.message,
                 )
+
+        # now print the actual open orders
+        printFrame(df)
 
 
 @dataclass
