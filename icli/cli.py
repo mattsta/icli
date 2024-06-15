@@ -1879,7 +1879,7 @@ class IBKRCmdlineApp:
                     for leg, quote in zip(c.contract.comboLegs, quotes):
                         # if a quote doesn't exist, we need to abandon trying to generate any part of this synthetic quote
                         # because we don't have all the data we need so just combining partial values would be wrong.
-                        if not quote:
+                        if not quote or (quote.ask == -1 or quote.bid == -1):
                             bid = 0
                             ask = 0
                             bidSize = 0
