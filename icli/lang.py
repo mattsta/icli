@@ -2461,7 +2461,20 @@ class IOpOrderLimit(IOp):
                 contract: Contract = portItem.contract
                 sym: str = contract.symbol
 
-            qty = float(got["Quantity"])
+            qty = got["Quantity"]
+            if qty:
+                # only convert non-empty strings to floats
+                qty = float(got["Quantity"])
+            elif isClose:
+                # else, we have an empty string so assume we want to use ALL position
+                logger.warning("No quantity provided. Using ALL POSITION as quantity!")
+                qty = None
+            else:
+                logger.error(
+                    "No quantity provided and this isn't a closing order, so we can't order anything!"
+                )
+                return
+
             price = float(got["Price"])
             isLong = gotside["Side"].startswith("Buy")
             orderType = got["Order Type"]
