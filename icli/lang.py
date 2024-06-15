@@ -3196,7 +3196,9 @@ class IOpExecutions(IOp):
     """Display all executions including commissions and PnL."""
 
     def argmap(self):
-        return []
+        return [
+            DArg("*symbols", desc="Optional symbols to filter for in result listings")
+        ]
 
     async def run(self):
         # "Fills" has:
@@ -3225,6 +3227,11 @@ class IOpExecutions(IOp):
             if df.empty:
                 logger.info("No {}", name)
             else:
+                # if symbol filter requested, remove non-matching contracts.
+                # NOTE: we filter on SYMBOL and not "localSymbol" so we don't currently match on extended details like OCC symbols.
+                if self.symbols and name == "Contracts":
+                    df = df[df.symbol.isin(self.symbols)]
+
                 use.append((name, df))
 
         if not use:
@@ -3234,6 +3241,10 @@ class IOpExecutions(IOp):
 
         # Goodbye multiindex...
         df.columns = df.columns.droplevel(0)
+
+        # clean up any non-matching values due to symbols filtering
+        if self.symbols:
+            df = df[df.conId.notna()]
 
         # Remove duplicate columns...
         df = df.loc[:, ~df.columns.duplicated()]
@@ -3258,7 +3269,13 @@ class IOpExecutions(IOp):
 
         df["RPNL_each"] = df.realizedPNL / df.shares
 
-        dfByTrade = df.groupby("orderId localSymbol side".split()).agg(
+        # provide a weak calculation of commission as percentage of PNL and of traded value.
+        # this isn't entirely accurate because it doesn't account for the _entry_ commission, we are only
+        # using the exit commission when a realized PNL value is provided.
+        df["c_pct"] = df.commission / (df.total + df.commission)
+        df["c_pct_RPNL"] = df.commission / (df.realizedPNL + df.commission)
+
+        dfByTrade = df.groupby("orderId side localSymbol".split()).agg(
             dict(
                 date=["min"],
                 time=[("start", "min"), ("finish", "max")],
@@ -3266,8 +3283,14 @@ class IOpExecutions(IOp):
                 shares=["sum"],
                 total=["sum"],
                 commission=["sum"],
+                # TODO: we need to calculate a manlal c_each by (total commision / shares) instead of mean of the c_each directly
                 c_each=["mean"],
             )
+        )
+
+        # also show commission percent for traded value per row
+        dfByTrade["c_pct"] = dfByTrade.commission / (
+            dfByTrade.total + dfByTrade.commission
         )
 
         dfByTimeProfit = df.copy().sort_values(
@@ -3305,7 +3328,7 @@ class IOpExecutions(IOp):
         df = addRowSafe(df, "med", df[eachSharePrice].median())
         df = addRowSafe(df, "mean", df[eachSharePrice].mean())
 
-        needsPrices = "c_each shares price avgPrice commission realizedPNL RPNL_each total dayProfit".split()
+        needsPrices = "c_each shares price avgPrice commission realizedPNL RPNL_each total dayProfit c_pct c_pct_RPNL".split()
         df[needsPrices] = df[needsPrices].map(fmtPrice)
 
         # convert contract IDs to integers (and fill in any missing
@@ -3328,7 +3351,7 @@ class IOpExecutions(IOp):
             (
                 """secType conId strike right date exchange symbol tradingClass localSymbol time orderId
          side  shares  cumQty price    total realizedPNL RPNL_each
-         commission c_each dayProfit""".split()
+         commission c_each c_pct c_pct_RPNL dayProfit""".split()
             )
         ]
 
@@ -3353,13 +3376,17 @@ class IOpExecutions(IOp):
         needsPrices = "realizedPNL dayProfit".split()
         profitByHour[needsPrices] = profitByHour[needsPrices].map(fmtPrice)
 
-        printFrame(df, "Execution Summary")
-        printFrame(profitByHour, "Profit by Half Hour")
+        desc = ""
+        if self.symbols:
+            desc = f" Filtered for: {', '.join(self.symbols)}"
+
+        printFrame(df, f"Execution Summary{desc}")
+        printFrame(profitByHour, f"Profit by Half Hour{desc}")
         printFrame(
             dfByTrade.sort_values(
                 by=[("date", "min"), ("time", "start"), "orderId", "localSymbol"]
             ),
-            "Execution Summary by Complete Order",
+            f"Execution Summary by Complete Order{desc}",
         )
 
 
