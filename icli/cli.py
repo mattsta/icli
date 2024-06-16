@@ -76,6 +76,9 @@ from icli.helpers import *  # FUT_EXP and isset() is appearing from here
 import prettyprinter as pp
 import tradeapis.buylang as buylang
 import tradeapis.rounder as rounder
+import tradeapis.cal as mcal
+
+from cachetools import cached, TTLCache
 
 from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
@@ -173,6 +176,51 @@ ATOZTOA_TABLE = str.maketrans(ATOZ, ZTOA)
 
 def invertstr(x):
     return x.translate(ATOZTOA_TABLE)
+
+
+# allow these values to be cached for 10 hours
+@cached(cache=TTLCache(maxsize=128, ttl=60 * 60 * 10))
+def fetchDateTimeOfEndOfMarketDay():
+    """Return the market (start, end) timestamps for the next two market end times."""
+    found = mcal.getMarketCalendar(
+        "NASDAQ",
+        start=pd.Timestamp("now"),
+        stop=pd.Timestamp("now") + pd.Timedelta(7, "D"),
+    )
+
+    # format returned is two columns of [MARKET OPEN, MARKET CLOSE] timestamps per date.
+    soonestStart = found.iat[0, 0]
+    soonestEnd = found.iat[0, 1]
+
+    nextStart = found.iat[1, 0]
+    nextEnd = found.iat[1, 1]
+
+    return [(soonestStart, soonestEnd), (nextStart, nextEnd)]
+
+
+# expire this cache once every 15 minutes so we only have up to 15 minutes of wrong dates after EOD
+@cached(cache=TTLCache(maxsize=128, ttl=60 * 15))
+def fetchEndOfMarketDay():
+    """Return the timestamp of the next end-of-day market timestamp.
+
+    This is currently only used for showing the "end of day" countdown timer in the toolbar,
+    so it's okay if we return an expired date for a little while (the 15 minute cache interval),
+    so the toolbar will just report a negative closing time for up to 15 minutes.
+
+    The cache structure is because the toolbar refresh code is called anywhere from 1 to 10 times
+    _per second_ so we want to minimize as much math and logic overhead as possible for non-changing
+    values.
+
+    We could potentially place an event timer somewhere to manually clear the cache at EOD,
+    but we just aren't doing it yet."""
+    [(soonestStart, soonestEnd), (nextStart, nextEnd)] = fetchDateTimeOfEndOfMarketDay()
+
+    # this logic just helps us across the "next day" barrier when this runs right after a normal 4pm close
+    # so we immediately start ticking down until the next market day close (which could be 3-4 days away depending on holidays!)
+    if soonestEnd > pendulum.now():
+        return pendulum.from_timestamp(soonestEnd.timestamp())
+
+    return pendulum.from_timestamp(nextEnd.timestamp())
 
 
 # Fields updated live for toolbar printing.
@@ -2562,9 +2610,14 @@ class IBKRCmdlineApp:
             executioncount = len(self.ib.fills())
             todayexecutions = f"executions: {executioncount:,}"
 
+            # TODO: We couold also flip this between a "time until market open" vs "time until close" value depending
+            #       on if we are out of market hours or not, but we aren't bothering with the extra logic for now.
+            untilClose = fetchEndOfMarketDay() - self.now
+            todayclose = f"mktclose: {untilClose.in_words()}"
+
             return HTML(
                 # all these spaces look weird, but they (kinda) match the underlying column-based formatting offsets
-                f"""[{ICLI_CLIENT_ID}] {self.now}{onc} [{self.updates:,}]                {spxbreakers}                     {openorders}    {openpositions}    {todayexecutions}\n"""
+                f"""[{ICLI_CLIENT_ID}] {self.now}{onc} [{self.updates:,}]                {spxbreakers}                     {openorders}    {openpositions}    {todayexecutions}      {todayclose}\n"""
                 + "\n".join(
                     [
                         f"{qp:>2}) " + formatTicker(quote)
