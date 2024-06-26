@@ -355,6 +355,20 @@ class IOpSetEnvironment(IOp):
 
 
 @dataclass
+class IOpSay(IOp):
+    """Speak a custom phrase provided as arguments.
+
+    Can be used as a standalone command or combined with scheduled events to create
+    speakable events on a delay."""
+
+    def argmap(self):
+        return [DArg("*what")]
+
+    async def run(self):
+        asyncio.create_task(self.state.speak.say(say=" ".join(self.what)))
+
+
+@dataclass
 class IOpPositionEvict(IOp):
     """Evict a position using automatic MIDPRICE sell order for equity or ADAPTIVE FAST for options and futures.
 
@@ -4102,6 +4116,7 @@ OP_MAP = {
         "info": IOpInfo,
         "expand": IOpExpand,
         "set": IOpSetEnvironment,
+        "say": IOpSay,
     },
     "Schedule Management": {
         # full "named" versions of the commands
