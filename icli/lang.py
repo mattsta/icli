@@ -879,105 +879,104 @@ class IOpDepth(IOp):
         # now we read lists of ticker.domBids and ticker.domAsks for the depths
         # (each having .price, .size, .marketMaker)
         for i in range(0, self.count):
-            if t.domBids or t.domAsks:
-                if False:
-                    fmt = {
-                        "Bids": pd.DataFrame(t.domBids),
-                        "Asks": pd.DataFrame(t.domAsks),
-                    }
-                    printFrame(
-                        pd.concat(fmt, axis=1).fillna(""),
-                        f"{contract.symbol} by Market",
-                    )
-
-                # Also show grouped by price with sizes summed and markets joined
-                # These frames are a bit of a mess:
-                # - Create frame
-                # - Group frame by price so same prices use one row
-                # - Add all sizes for the same price, and concatenate marketMaker cols
-                # - 'convert_dtypes()' so any collapsed rows become None instead of NaN
-                #   (aggregation sum of int + NaN = float, but we want int, so we use
-                #    int + None = int to stop decimals from appearing in the size sums)
-                # - re-sort by price based on side
-                #   - bids: high to low
-                #   - asks: low to high
-                # - Re-index the frame by current sorted positions so the concat joins correctly.
-                #   - 'drop=True' means don't add a new column with the previous index value
-
-                def decimal_formatter(x):
-                    # float(x) to enforce at least one decimal place into existence if this was an integer
-                    str_x = str(float(x))
-                    parts = str_x.split(".")
-
-                    assert (
-                        len(parts) == 2
-                    ), "Why don't you have a decimal number here? What else could this be?"
-
-                    after_decimal_str = parts[1]
-                    decimal_size = len(after_decimal_str)
-
-                    # always print even number of decimals if we reach here
-                    # (i.e. don't print $123.0 next to $123.25 or $1.234 next to $1.2345)
-                    if decimal_size % 2 != 0:
-                        decimal_size += 1
-
-                    return f"{x:,.{decimal_size}f}"
-
-                # condition dataframe reorganization on the input list existing.
-                # for some smaller symbols, bids or asks may not get returned
-                # by the flaky ibkr depth APIs
-                if t.domBids:
-                    adb = pd.DataFrame(t.domBids)
-                    fixedBids = (
-                        adb.groupby("price", as_index=False)
-                        .agg({"size": "sum", "marketMaker": list})
-                        .convert_dtypes()
-                        .sort_values(by=["price"], ascending=False)
-                        .reset_index(drop=True)
-                    )
-
-                    # format floats as currency strings with proper cent padding.
-                    fixedBids["price"] = fixedBids["price"].apply(decimal_formatter)
-                else:
-                    fixedBids = pd.DataFrame([dict(size=0)])
-
-                if t.domAsks:
-                    adf = pd.DataFrame(t.domAsks)
-                    # logger.info("Asks: {}", adf.to_string())
-                    fixedAsks = (
-                        adf.groupby("price", as_index=False)
-                        .agg({"size": "sum", "marketMaker": list})
-                        .convert_dtypes()
-                        .sort_values(by=["price"], ascending=True)
-                        .reset_index(drop=True)
-                    )
-
-                    fixedAsks["price"] = fixedAsks["price"].apply(decimal_formatter)
-                else:
-                    fixedAsks = pd.DataFrame([dict(size=0)])
-
-                # generate a synthetic sum row then add commas to the sums after summing.......
-                fixedBids.loc["sum", "size"] = fixedBids["size"].sum()
-                fixedBids["size"] = fixedBids["size"].apply(lambda x: f"{x:,}")
-
-                fixedAsks.loc["sum", "size"] = fixedAsks["size"].sum()
-                fixedAsks["size"] = fixedAsks["size"].apply(lambda x: f"{x:,}")
-
-                fmtJoined = {"Bids": fixedBids, "Asks": fixedAsks}
-
-                # Create an order book with high bids and low asks first.
-                # Note: due to the aggregations above, the bids and asks
-                #       may have different row counts. Extra rows will be
-                #       marked as <NA> by pandas (and we can't fill them
-                #       as blank because the cols have been coerced to
-                #       specific data types via 'convert_dtypes()')
-                both = pd.concat(fmtJoined, axis=1)
-                both = both.fillna(-1)
-
-                printFrame(
-                    both,
-                    f"{contract.symbol} :: {i} :: {contract.localSymbol} Grouped by Price",
+            if not (t.domBids and t.domAsks):
+                logger.error(
+                    "{} :: {} of {} :: Result Empty...",
+                    contract.symbol,
+                    i + 1,
+                    self.count,
                 )
+                await asyncio.sleep(1)
+                continue
+
+            # Also show grouped by price with sizes summed and markets joined
+            # These frames are a bit of a mess:
+            # - Create frame
+            # - Group frame by price so same prices use one row
+            # - Add all sizes for the same price, and concatenate marketMaker cols
+            # - 'convert_dtypes()' so any collapsed rows become None instead of NaN
+            #   (aggregation sum of int + NaN = float, but we want int, so we use
+            #    int + None = int to stop decimals from appearing in the size sums)
+            # - re-sort by price based on side
+            #   - bids: high to low
+            #   - asks: low to high
+            # - Re-index the frame by current sorted positions so the concat joins correctly.
+            #   - 'drop=True' means don't add a new column with the previous index value
+
+            def decimal_formatter(x):
+                # float(x) to enforce at least one decimal place into existence if this was an integer
+                str_x = str(float(x))
+                parts = str_x.split(".")
+
+                assert (
+                    len(parts) == 2
+                ), "Why don't you have a decimal number here? What else could this be?"
+
+                after_decimal_str = parts[1]
+                decimal_size = len(after_decimal_str)
+
+                # always print even number of decimals if we reach here
+                # (i.e. don't print $123.0 next to $123.25 or $1.234 next to $1.2345)
+                if decimal_size % 2 != 0:
+                    decimal_size += 1
+
+                return f"{x:,.{decimal_size}f}"
+
+            # condition dataframe reorganization on the input list existing.
+            # for some smaller symbols, bids or asks may not get returned
+            # by the flaky ibkr depth APIs
+            if t.domBids:
+                adb = pd.DataFrame(t.domBids)
+                fixedBids = (
+                    adb.groupby("price", as_index=False)
+                    .agg({"size": "sum", "marketMaker": list})
+                    .convert_dtypes()
+                    .sort_values(by=["price"], ascending=False)
+                    .reset_index(drop=True)
+                )
+
+                # format floats as currency strings with proper cent padding.
+                fixedBids["price"] = fixedBids["price"].apply(decimal_formatter)
+            else:
+                fixedBids = pd.DataFrame([dict(size=0)])
+
+            if t.domAsks:
+                adf = pd.DataFrame(t.domAsks)
+                # logger.info("Asks: {}", adf.to_string())
+                fixedAsks = (
+                    adf.groupby("price", as_index=False)
+                    .agg({"size": "sum", "marketMaker": list})
+                    .convert_dtypes()
+                    .sort_values(by=["price"], ascending=True)
+                    .reset_index(drop=True)
+                )
+
+                fixedAsks["price"] = fixedAsks["price"].apply(decimal_formatter)
+            else:
+                fixedAsks = pd.DataFrame([dict(size=0)])
+
+            # generate a synthetic sum row then add commas to the sums after summing.......
+            fixedBids.loc["sum", "size"] = fixedBids["size"].sum()
+            fixedBids["size"] = fixedBids["size"].apply(lambda x: f"{x:,}")
+
+            fixedAsks.loc["sum", "size"] = fixedAsks["size"].sum()
+            fixedAsks["size"] = fixedAsks["size"].apply(lambda x: f"{x:,}")
+
+            fmtJoined = {"Bids": fixedBids, "Asks": fixedAsks}
+
+            # Create an order book with high bids and low asks first.
+            # Note: due to the aggregations above, the bids and asks
+            #       may have different row counts. Extra rows will be
+            #       marked as <NA> by pandas (and we can't fill them
+            #       as blank because the cols have been coerced to
+            #       specific data types via 'convert_dtypes()')
+            both = pd.concat(fmtJoined, axis=1)
+            both = both.fillna(-1)
+
+            printFrame(
+                both,
+                f"{contract.symbol} :: {i + 1} of {self.count} :: {contract.localSymbol} Grouped by Price",
+            )
 
             # Note: the 't.domTicks' field is just the "update feed"
             #       which ib_insync merges into domBids/domAsks
