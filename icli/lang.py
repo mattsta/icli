@@ -2982,7 +2982,7 @@ class IOpOrders(IOp):
     """Show all currently active orders."""
 
     def argmap(self):
-        return []
+        return [DArg("*symbols", convert=set)]
 
     async def run(self):
         # TODO: make new view for these:
@@ -3015,6 +3015,10 @@ class IOpOrders(IOp):
 
             make = {}
             log = {}
+
+            # if symbol filtering requested, only show requested symbols
+            if self.symbols and o.contract.symbol not in self.symbols:
+                continue
 
             def populateSymbolDetails(target):
                 target["id"] = o.order.orderId
@@ -3164,7 +3168,11 @@ class IOpOrders(IOp):
 
         # fmt: on
         if df.empty:
-            logger.info("No open orders exist for client id {}!", ICLI_CLIENT_ID)
+            logger.info(
+                "[{}] No open orders exist for client id {}!",
+                ", ".join(sorted(self.symbols)) or "_ALL_",
+                ICLI_CLIENT_ID,
+            )
             return
 
         df.sort_values(
