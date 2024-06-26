@@ -2706,7 +2706,7 @@ class IOpPositions(IOp):
     """Print datatable of all positions."""
 
     def argmap(self):
-        return [DArg("*symbols")]
+        return [DArg("*symbols", convert=set)]
 
     def totalFrame(self, df, costPrice=False):
         if df.empty:
@@ -2746,46 +2746,43 @@ class IOpPositions(IOp):
             df["w%"] = 0
             df.loc["Total", "w%"] = 0
 
-        if not self.symbols:
-            # give actual price columns more detail for sub-penny prices
-            # but give aggregate columns just two decimal precision
-            detailCols = [
-                "marketPrice",
-                "averageCost",
-                "marketValue",
-                "closeOrderValue",
-                "strike",
-            ]
-            simpleCols = [
-                "%",
-                "w%",
-                "unrealizedPNL",
-                "dailyPNL",
-                "totalCost",
-            ]
+        # give actual price columns more detail for sub-penny prices
+        # but give aggregate columns just two decimal precision
+        detailCols = [
+            "marketPrice",
+            "averageCost",
+            "closeOrderValue",
+            "strike",
+        ]
+        simpleCols = [
+            "%",
+            "w%",
+            "unrealizedPNL",
+            "dailyPNL",
+            "totalCost",
+            "marketValue",
+        ]
 
-            # convert columns to all strings because we format them as nice to read money strings, but pandas
-            # doesn't like replacing strings over numeric-typed columns anymore.
-            df[simpleCols] = df[simpleCols].astype(str)
-            df[detailCols] = df[detailCols].astype(str)
+        # convert columns to all strings because we format them as nice to read money strings, but pandas
+        # doesn't like replacing strings over numeric-typed columns anymore.
+        df[simpleCols] = df[simpleCols].astype(str)
+        df[detailCols] = df[detailCols].astype(str)
 
-            df.loc[:, detailCols] = (
-                df[detailCols]
-                .astype(float, errors="ignore")
-                .map(
-                    lambda x: fmtPrice(float(x))
-                    if (x and (isinstance(x, str) and " " not in x))
-                    else x
-                )
+        df.loc[:, detailCols] = (
+            df[detailCols]
+            .astype(float, errors="ignore")
+            .map(
+                lambda x: fmtPrice(float(x))
+                if (x and (isinstance(x, str) and " " not in x))
+                else x
             )
-            df.loc[:, simpleCols] = (
-                df[simpleCols].astype(float).map(lambda x: f"{x:,.2f}")
-            )
+        )
+        df.loc[:, simpleCols] = df[simpleCols].astype(float).map(lambda x: f"{x:,.2f}")
 
-            # show fractional shares only if they exist
-            defaultG = ["position"]
-            df[defaultG] = df[defaultG].astype(str)
-            df.loc[:, defaultG] = df[defaultG].astype(float).map(lambda x: f"{x:,.10g}")
+        # show fractional shares only if they exist
+        defaultG = ["position"]
+        df[defaultG] = df[defaultG].astype(str)
+        df.loc[:, defaultG] = df[defaultG].astype(float).map(lambda x: f"{x:,.10g}")
 
         # manually override the string-printed 'nan' from .map() of totalCols
         # for columns we don't want summations of.
@@ -2856,6 +2853,9 @@ class IOpPositions(IOp):
             make["totalCost"] = o.averageCost * o.position
             make["unrealizedPNL"] = o.unrealizedPNL
             try:
+                # Note: dailyPnL per-position is only subscribed on the client where the order
+                #       originated, so you may get 'dailyPnL' position errors if you view
+                #       positions on a different client than the original.
                 make["dailyPNL"] = self.state.pnlSingle[o.contract.conId].dailyPnL
 
                 # API issue where it returns the largest value possible if not populated.
@@ -2940,7 +2940,11 @@ class IOpPositions(IOp):
             logger.info("No current positions found!")
             return None
 
-        printFrame(allPositions, "All Positions")
+        desc = "All Positions"
+        if self.symbols:
+            desc += f" for {', '.join(self.symbols)}"
+
+        printFrame(allPositions, desc)
 
         # attempt to find spreads by locating options with the same symbol
         symbolCounts = df.pivot_table(index=["type", "sym"], aggfunc="size")
