@@ -102,13 +102,15 @@ ICLI_AWWDIO_URL = awwdio.ICLI_AWWDIO_URL
 LOGDIR = pathlib.Path(os.getenv("ICLI_LOGDIR", "runlogs"))
 LOGDIR.mkdir(exist_ok=True)
 LOG_FILE_TEMPLATE = str(
-    LOGDIR / f"icli-id={ICLI_CLIENT_ID}-{pendulum.now('US/Eastern')}-"
+    LOGDIR / f"icli-id={ICLI_CLIENT_ID}-{pendulum.now('US/Eastern')}".replace(" ", "_")
 )
 logging.basicConfig(
     level=logging.INFO,
-    filename=LOG_FILE_TEMPLATE + "ibkr.log",
+    filename=LOG_FILE_TEMPLATE + "-ibkr.log",
     format="%(asctime)s %(message)s",
 )
+
+logger.info("Logging this session with prefix: {}", LOG_FILE_TEMPLATE)
 
 
 def asink(x):
@@ -129,9 +131,9 @@ logger.level("ARGS", no=40, color="<blue>")
 # Also configure loguru logger to log all activity to its own log file for historical lookback.
 # also, these are TRACE because we log _user input_ to the TRACE facility, but we don't print
 # it to the console (since the user already typed it in the console)
-logger.add(sink=LOG_FILE_TEMPLATE + "icli.log", level="TRACE", colorize=False)
+logger.add(sink=LOG_FILE_TEMPLATE + "-icli.log", level="TRACE", colorize=False)
 logger.add(
-    sink=LOG_FILE_TEMPLATE + "icli-color.log",
+    sink=LOG_FILE_TEMPLATE + "-icli-color.log",
     level="TRACE",
     colorize=True,
 )
