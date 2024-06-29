@@ -43,10 +43,12 @@ async def initcli():
         # patch entire application with prompt-toolkit-compatible stdout
         with patch_stdout(raw=True):
             try:
-                await app.dorepl()
-            except SystemExit:
+                await app.runall()
+            except (SystemExit, EOFError):
                 # known-good exit condition
-                ...
+                pass
+            except:
+                logger.exception("Major uncaught exception?")
     else:
         logger.error("Attached input isn't a console, so we can't do anything!")
 
