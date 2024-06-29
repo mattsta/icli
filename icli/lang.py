@@ -852,7 +852,7 @@ class IOpDepth(IOp):
             return
 
         self.depthState[contract] = self.ib.reqMktDepth(
-            contract, numRows=40, isSmartDepth=useSmart
+            contract, numRows=55, isSmartDepth=useSmart
         )
 
         t = self.depthState[contract]
@@ -879,13 +879,14 @@ class IOpDepth(IOp):
         # now we read lists of ticker.domBids and ticker.domAsks for the depths
         # (each having .price, .size, .marketMaker)
         for i in range(0, self.count):
-            if not (t.domBids and t.domAsks):
+            if not (t.domBids or t.domAsks):
                 logger.error(
                     "{} :: {} of {} :: Result Empty...",
                     contract.symbol,
                     i + 1,
                     self.count,
                 )
+
                 await asyncio.sleep(1)
                 continue
 
@@ -990,6 +991,7 @@ class IOpDepth(IOp):
                     logger.warning("Stopped during sleep!")
                     break
 
+        # logger.info("Actual depth: {} :: {}", pp.pformat(t.domBidsDict), pp.pformat(t.domAsksDict))
         self.ib.cancelMktDepth(contract, isSmartDepth=useSmart)
         del self.depthState[contract]
 
