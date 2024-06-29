@@ -25,6 +25,7 @@ from loguru import logger
 from mutil.dispatch import DArg
 from mutil.frame import printFrame
 from mutil.numeric import fmtPrice
+from mutil.timer import Timer
 from icli.helpers import *
 import asyncio
 
@@ -189,7 +190,7 @@ class IOp(mutil.dispatch.Op):
         self.ib = self.state.ib
         self.cache = self.state.cache
 
-    def runoplive(self, cmd, args):
+    def runoplive(self, cmd, args=""):
         # wrapper for things like:
         #        strikes = await self.state.dispatch.runop(
         #            "chains", self.symbol, self.state.opstate
@@ -3171,8 +3172,8 @@ class IOpOrders(IOp):
         # fmt: on
         if df.empty:
             logger.info(
-                "[{}] No open orders exist for client id {}!",
-                ", ".join(sorted(self.symbols)) or "_ALL_",
+                "{}No open orders exist for client id {}!",
+                f"[{", ".join(sorted(self.symbols))}] " if self.symbols else "",
                 ICLI_CLIENT_ID,
             )
             return
@@ -3224,7 +3225,11 @@ class IOpExecutions(IOp):
 
     def argmap(self):
         return [
-            DArg("*symbols", desc="Optional symbols to filter for in result listings")
+            DArg(
+                "*symbols",
+                desc="Optional symbols to filter for in result listings",
+                convert=lambda x: set([s.upper() for s in x]),
+            )
         ]
 
     async def run(self):
@@ -3243,6 +3248,14 @@ class IOpExecutions(IOp):
             contracts.append(f.contract)
             executions.append(f.execution)
             commissions.append(f.commissionReport)
+
+        if False:
+            logger.info(
+                "C: {}\nE: {}: CM: {}",
+                pp.pformat(contracts),
+                pp.pformat(executions),
+                pp.pformat(commissions),
+            )
 
         use = []
         for name, l in [
@@ -3454,6 +3467,10 @@ class IOpQuotesAddFromOrderId(IOp):
                     continue
 
                 addTrades.append(useTrade)
+
+        # if we have no orders to add, don't do anything
+        if not addTrades:
+            return
 
         for useTrade in addTrades:
             tickFields = tickFieldsForContract(useTrade.contract)

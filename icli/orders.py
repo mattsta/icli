@@ -150,6 +150,7 @@ class IOrder:
             "LMT": self.limit,
             "MKT": self.market,
             "STP": self.stop,
+            "STP LMT": self.stopLimit,
             "LIT": self.limitIfTouched,
             "MIT": self.marketIfTouched,
             "REL": self.pegPrimary,

@@ -110,7 +110,7 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
 )
 
-logger.info("Logging this session with prefix: {}", LOG_FILE_TEMPLATE)
+logger.info("Logging session with prefix: {}", LOG_FILE_TEMPLATE)
 
 
 def asink(x):
@@ -426,7 +426,7 @@ class IBKRCmdlineApp:
         # provide ourself to the calculator so the calculator can lookup live quote prices and live account values
         self.calc = icli.calc.Calculator(self)
 
-    async def qualify(self, *contracts) -> list[Contract] | None:
+    async def qualify(self, *contracts) -> list[Contract]:
         """Qualify contracts against the IBKR allowed symbols.
 
         Mainly populates .localSymbol and .conId
@@ -581,11 +581,11 @@ class IBKRCmdlineApp:
 
         if oreq.isSingle():
             contract = contractForName(oreq.orders[0].symbol, exchange=exchange)
-            cgot = await self.qualify(contract)
+            cgot: list[Contract] = await self.qualify(contract)
 
             # only return success if the contract validated
-            if contract.conId:
-                return contract
+            if cgot and cgot[0].conId:
+                return cgot[0]
 
             return None
 
@@ -1335,85 +1335,6 @@ class IBKRCmdlineApp:
 
         return qty
 
-    def midpointBracketBuyOrder(
-        self,
-        contract: Contract,
-        isLong: bool,
-        qty: int,
-        ask: float,
-        stopPct: float,
-        profitPts: float = None,
-        stopPts: float = None,
-    ):
-        """Place a 3-sided order:
-        - Market with Protection to buy immediately (long)
-        - Profit taker: TRAIL LIT with trailStopPrice = (current ask + profitPts)
-        - Stop loss: STP PRT with trailStopPrice = (current ask - stopPts)
-        """
-
-        lower, upper = boundsByPercentDifference(ask, stopPct)
-        if isLong:
-            lossPrice = lower
-            trailStop = comply(contract, ask - lower)
-
-            openLimit = ask + 1
-
-            openAction = "BUY"
-            closeAction = "SELL"
-        else:
-            lossPrice = upper
-            trailStop = comply(contract, upper - ask)
-
-            openLimit = ask - 1
-
-            openAction = "SELL"
-            closeAction = "BUY"
-
-        # TODO: up/down One-Cancels-All brackets:
-        #         BUY if +5 pts, TRAIL STOP 3 PTS
-        #         SELL if -5 pts, TRAIL STOP 3 PTS
-        if True:
-            # Note: these orders require MANUAL order ID because by default,
-            #       the order ID is populated on .placeOrder(), but we need to
-            #       reference it here for the seconday order to reference
-            #       the parent order!
-            parent = Order(
-                orderId=self.ib.client.getReqId(),
-                action=openAction,
-                totalQuantity=qty,
-                transmit=False,
-                # orderType="MKT PRT",
-                orderType="LMT",
-                lmtPrice=openLimit,
-                outsideRth=True,
-                tif="GTC",
-            )
-
-            profit = Order(
-                orderId=self.ib.client.getReqId(),
-                action=closeAction,
-                totalQuantity=qty,
-                parentId=parent.orderId,
-                transmit=True,
-                orderType="TRAIL LIMIT",
-                outsideRth=True,
-                tif="GTC",
-                trailStopPrice=lossPrice,  # initial trigger level if price falls immediately
-                lmtPriceOffset=0.75,  # price offset for the limit order when stop triggers
-                auxPrice=trailStop,  # trailing amount before stop triggers
-            )
-
-            loss = Order(
-                action=closeAction,
-                totalQuantity=qty,
-                parentId=parent.orderId,
-                transmit=True,
-                orderType="STP PRT",
-                auxPrice=lossPrice,
-            )
-
-            return [parent, profit]  # , loss]
-
     def orderPriceForSpread(self, contracts: Sequence[Contract], positionSize: int):
         """Given a set of contracts, attempt to find the closing order."""
         ot = self.ib.openTrades()
@@ -1459,7 +1380,7 @@ class IBKRCmdlineApp:
                 ts.append(
                     (
                         int(t.orderStatus.remaining),
-                        np.sign(positionSize) * -1 * t.order.lmtPrice,
+                        float(np.sign(positionSize) * -1 * t.order.lmtPrice),
                     )
                 )
 
@@ -2744,7 +2665,9 @@ class IBKRCmdlineApp:
         qs = set()
         for ordReq, contract in zip(ors, cs):
             if not contract:
-                logger.error("Failed to find live contract for: {}", ordReq)
+                logger.error(
+                    "Failed to find live contract for: {} :: {}", ordReq, contract
+                )
                 continue
 
             symkey = self.addQuoteFromContract(contract)
@@ -3057,8 +2980,8 @@ class IBKRCmdlineApp:
                     ConnectionRefusedError,
                     ConnectionResetError,
                     OSError,
-                    asyncio.exceptions.TimeoutError,
-                    asyncio.exceptions.CancelledError,
+                    asyncio.TimeoutError,
+                    asyncio.CancelledError,
                 ) as e:
                     # Don't print full network exceptions for just connection errors
                     logger.error(
