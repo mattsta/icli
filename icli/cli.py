@@ -419,6 +419,10 @@ class IBKRCmdlineApp:
         default_factory=lambda: diskcache.Cache("./cache-contracts")
     )
 
+    connected: bool = False
+    disableClientQuoteSnapshotting: bool = False
+    loadingCommissions: bool = False
+
     def __post_init__(self) -> None:
         # just use the entire IBKRCmdlineApp as our app state!
         self.opstate = self
@@ -434,61 +438,135 @@ class IBKRCmdlineApp:
         We also cache the results for ease of re-use and for mapping
         contractIds back to names later."""
 
+        # logger.warning("Current full cache: {}", [x for x in self.conIdCache])
+
         # Group contracts into cached and uncached so we can look up uncached contracts
         # all at once but still iterate them in expected order of results.
         cached_contracts = {}
         uncached_contracts = []
 
+        # in order to retain the result in the same order as the input, we map the python id() value of
+        # each contract object to the final contract result itself. Then, at the end, we just iterate
+        # the input 'contracts' collection looking up them by id() for the final result order matching
+        # the input order again.
+        totalResult = {}
+
+        # Our cache operates on two tiers:
+        #  - ideally, we look up contracts by id directly
+        #  - alternatively, we look up contracts by name, but we also need to know the _type_ of the name we are looking up.
+        # So, we check the requested contracts for:
+        #  - if input contract already has a contract id, we look up the conId directly.
+        #  - if input contract doesn't have an id, we generate a lookup key of Class-Symbol like "Future-ES" or "Index-SPX"
+        #    so we can retrieve the correct instrument class combined with the proper symbol from a cached contract.
         for contract in contracts:
-            if cached_contract := self.conIdCache.get(contract.conId):  # type: ignore
-                cached_contracts[contract.conId] = cached_contract
-            else:
-                uncached_contracts.append(contract)
+            cached_contract = None
+            # logger.info("Looking up: {} :: {}", contract, contractToSymbolDescriptor(contract))
 
-        # For uncached, fetch them from external system
-        if uncached_contracts:
             try:
-                got = await asyncio.wait_for(
-                    self.ib.qualifyContractsAsync(*uncached_contracts), timeout=2
-                )
-            except:
-                logger.error(
-                    "Timeout while trying to qualify contracts (sometimes IBKR is slow or the API is offline during nightly restarts)"
-                )
-                return None
-
-            # iterate resolved contracts and save them all
-            for contract in got:
-                # Only cache actually qualified contracts (names with typos still "qualify" but just don't have their fields populated)
+                # only attempt to look up using ID if ID exists, else attempt to lookup by name
                 if contract.conId:
-                    # default 30 day expiration...
-                    # (contracts are just IBKR metadata and should be static? if there's a problem, just delete your cache!)
-                    # DO NOT cache the trade exchange for the contract because it only applies during trade execution and shouldn't
-                    # be assumed to be reused.
-                    originalExchange = contract.exchange
-                    contract.exchange = None
-
-                    # cache by id
-                    self.conIdCache.set(contract.conId, contract, expire=86400 * 30)  # type: ignore
-
-                    # also cache the same thing by the most well defined symbol we have
-                    self.conIdCache.set(
-                        (contract.localSymbol, contract.symbol),
-                        contract,
-                        expire=86400 * 30,
+                    # Attempt first lookup using direct ID, but if ID isn't found try to use the Class-Symbol key format...
+                    cached_contract = self.conIdCache.get(contract.conId)  # type: ignore
+                else:
+                    cached_contract = self.conIdCache.get(
+                        contractToSymbolDescriptor(contract)
                     )  # type: ignore
 
-                    contract.exchange = originalExchange
+                # logger.info("Using cached contract for {}: {} :: {}", contract.conId, cached_contract, contract)
+            except ModuleNotFoundError:
+                # the pickled contract is from another library we don't have loaded in this environment anymore,
+                # so we need to drop the existing bad pickle and re-save it
+                try:
+                    del self.conIdCache[contract.conId]
+                    del self.conIdCache[contractToSymbolDescriptor(contract)]
+                except:
+                    pass
 
-                cached_contracts[contract.conId] = contract
+            # if we _found_ a contract (and the contract has an id (just defensively preventing invalid contracts in the cache)),
+            # then we don't look it up again.
+            if cached_contract and cached_contract.conId:
+                # logger.info("Found in cache: {} for {}", cached_contract, contract)
+                cached_contracts[cached_contract.conId] = cached_contract
+                totalResult[id(contract)] = cached_contract
+            else:
+                # else, we need to look up this contract before returning.
+                # logger.info("Not found in cache: {}", contract)
+                uncached_contracts.append(contract)
 
-        # Return in the same order as the input
-        result = [
-            cached_contracts.get(contract.conId, contract) for contract in contracts
-        ]
+                # also populate unresolved contract for safety in case it can't be resolved
+                # we just return it directly as originally provided
+                totalResult[id(contract)] = contract
+
+        # logger.info("CACHED: {} :: UNCACHED: {}", cached_contracts, uncached_contracts)
+
+        # if we have NO UNCACHED CONTRACTS, then we found all input requests in the cache,
+        # so we can just return the cached contracts found directly (and they are already
+        # in the correct input-return order).
+        if not uncached_contracts:
+            return list(cached_contracts.values())
+
+        # For uncached, fetch them from the IBKR lookup system
+        got = []
+        try:
+            # logger.info("Looking up uncached contracts: {}", uncached_contracts)
+            got = await asyncio.wait_for(
+                self.ib.qualifyContractsAsync(*uncached_contracts), timeout=2
+            )
+        except Exception as e:
+            logger.error(
+                "Timeout while trying to qualify {} contracts (sometimes IBKR is slow or the API is offline during nightly restarts) :: {}",
+                len(uncached_contracts),
+                str(e),
+            )
+
+        # iterate resolved contracts and cache them by multiple lookup keys
+        for contract in got:
+            # the `qualifyContractsAsync` modifies the contracts in-place, so we map their
+            # id to itself since we replaced it directly.
+            # (yes, we _always_ set this even if we didn't resolve a 'conId' because we need
+            #  to return _all_ contracts back to the user in the order of their inputs, so
+            #  we need every input contract to be in the 'totalResult' map regardless of its final
+            #  success/fail resolution value)
+            totalResult[id(contract)] = contract
+
+            # Only cache actually qualified contracts with a full IBKR contract ID
+            if not contract.conId:
+                continue
+
+            cached_contracts[contract.conId] = contract
+
+            # we want Futures contracts to refresh more often because they have
+            # embedded expiration dates which may change over time if we are using
+            # generic symbol names like "ES" for the next main contract.
+            EXPIRATION_DAYS = 2 if isinstance(contract, Future) else 30
+
+            # cache by id
+            # logger.info("Saving {} -> {}", contract.conId, contract)
+            self.conIdCache.set(
+                contract.conId, contract, expire=86400 * EXPIRATION_DAYS
+            )  # type: ignore
+
+            # also set by Class-Symbol designation as key (e.g. "Index-SPX" or "Future-ES")
+            # logger.info("Saving {} -> {}", contractToSymbolDescriptor(contract), contract)
+            self.conIdCache.set(
+                contractToSymbolDescriptor(contract),
+                contract,
+                expire=86400 * EXPIRATION_DAYS,
+            )  # type: ignore
+
+            # also cache the same thing by the most well defined symbol we have
+            self.conIdCache.set(
+                (contract.localSymbol, contract.symbol),
+                contract,
+                expire=86400 * EXPIRATION_DAYS,
+            )  # type: ignore
+
+        # Return in the same order as the input by combining cached and uncached results.
+        # NOTE: we DO NOT MODIFY THE CACHED CONTRACT RESULTS IN-PLACE so you must assign the
+        #       return value of this async call to be your new list of contracts.
+        result = [totalResult[id(c)] for c in contracts]
 
         # logger.info("Returning contracts: {}", result)
-
         return result
 
     def updateGlobalStateVariable(self, key: str, val: str | None) -> None:
@@ -1425,6 +1503,25 @@ class IBKRCmdlineApp:
 
         return q.bid, q.ask
 
+    async def loadExecutions(self) -> None:
+        """Manually fetch all executions from the gateway.
+
+        The IBKR API only sends live push updates for executions on the _current_ client,
+        so to see executions from either _all_ clients or executions before this client started,
+        we need to ask for them all again.
+        """
+
+        logger.info("Fetching full execution history...")
+        try:
+            # manually flag "we are loading historical commissions, so don't run the event handler"
+            self.loadingCommissions = True
+
+            with Timer("Fetched execution history"):
+                await asyncio.wait_for(self.ib.reqExecutionsAsync(), 3)
+        finally:
+            # allow the commission report event handler to run again
+            self.loadingCommissions = False
+
     def updatePosition(self, pos):
         self.position[pos.contract.symbol] = pos
 
@@ -1467,9 +1564,17 @@ class IBKRCmdlineApp:
         logger.warning("Order canceled: {}", err)
 
     def commissionHandler(self, trade, fill, report):
-        # Only report commissions if connected (not when loading startup orders)
-        if not self.connected:
-            logger.warning("Ignoring commission because not connected...")
+        # Only report commissions if not bulk loading them as a refresh
+        # (the bulk load API causes the event handler to fire for each historical fill)
+        if self.loadingCommissions:
+            logger.warning(
+                "[{} :: {} {:>7.2f} of {:>7.2f} :: {}] Ignoring commission because bulk loading history...",
+                fill.execution.clientId,
+                fill.execution.side,
+                fill.execution.shares,
+                fill.execution.cumQty,
+                fill.contract.localSymbol,
+            )
             return
 
         # TODO: different sounds if PNL is a loss?
@@ -2840,12 +2945,6 @@ class IBKRCmdlineApp:
 
         self.dispatch = lang.Dispatch()
 
-        contracts: list[Stock | Future | Index] = [
-            Stock(sym, "SMART", "USD") for sym in stocks
-        ]
-        contracts += futures
-        contracts += idxs
-
         # flip to enable/disable verbose ib_insync library logging
         if False:
             import logging
@@ -2901,18 +3000,37 @@ class IBKRCmdlineApp:
             logger.info("[quotes] Restoring quote state...")
             self.quoteState.clear()
 
-            # run restore and local contracts qualification concurrently
-            await asyncio.gather(
-                self.dispatch.runop("qrestore", "global", self.opstate),
-                self.qualify(*contracts),
-            )
-            logger.info("[quotes] All global quotes resubscribed!")
+            # Note: always restore snapshot state FIRST so the commands further down don't overwrite
+            #       our state with only startup entries.
+            with Timer("[quotes :: snapshot] Restored quote state"):
+                # restore CLIENT ONLY symbols
+                # run the snapshot restore by itself because it hits IBKR rate limits if run with the other restores
+                await self.dispatch.runop("qloadsnapshot", "", self.opstate)
 
-            for contract in contracts:
-                try:
-                    self.addQuoteFromContract(contract)
-                except:
-                    logger.error("Failed to add on startup: {}", contract)
+            contracts: list[Stock | Future | Index] = [
+                Stock(sym, "SMART", "USD") for sym in stocks
+            ]
+            contracts += futures
+            contracts += idxs
+
+            with Timer("[quotes :: global] Restored quote state"):
+                # run restore and local contracts qualification concurrently
+                # logger.info("pre=qualified: {}", contracts)
+                _, contracts = await asyncio.gather(
+                    # restore SHARED global symbols
+                    self.dispatch.runop("qrestore", "global", self.opstate),
+                    # prepare to restore COMMON symbols
+                    self.qualify(*contracts),
+                )
+                # logger.info("post=qualified: {}", contracts)
+
+            with Timer("[quotes :: common] Restored quote state"):
+                for contract in contracts:
+                    try:
+                        # logger.info("Adding quote for: {} via {}", contract, contracts)
+                        self.addQuoteFromContract(contract)
+                    except:
+                        logger.error("Failed to add on startup: {}", contract)
 
         async def reconnect():
             # don't reconnect if an exit is requested
@@ -2935,29 +3053,38 @@ class IBKRCmdlineApp:
                     # orders outside of the API (TWS, web interface, mobile) because
                     # the API treats non-API-created orders differently.
 
+                    # reset cached states on reconnect so we don't show stale data
+                    self.summary.clear()
+                    self.position.clear()
+                    self.order.clear()
+                    self.pnlSingle.clear()
+
                     await self.ib.connectAsync(
                         self.host,
                         self.port,
                         clientId=self.clientId,
                         readonly=False,
                         account=self.accountId,
+                        fetchFields=ib_async.StartupFetchALL
+                        & ~ib_async.StartupFetch.EXECUTIONS,
                     )
 
                     logger.info(
-                        "Connected! Current Request ID: {}", self.ib.client._reqIdSeq
+                        "Connected! Current Request ID for Client {}: {}",
+                        self.clientId,
+                        self.ib.client._reqIdSeq,
                     )
 
                     self.connected = True
 
                     self.ib.reqNewsBulletins(True)
 
-                    await requestMarketData()
+                    # we load executions fully async after the connection happens because
+                    # the fetching during connection causes an extra delay we don't need.
+                    asyncio.create_task(self.loadExecutions())
 
-                    # reset cached states on reconnect so we don't show stale data
-                    self.summary.clear()
-                    self.position.clear()
-                    self.order.clear()
-                    self.pnlSingle.clear()
+                    # also load market data async for quicker non-blocking startup
+                    asyncio.create_task(requestMarketData())
 
                     # request live updates (well, once per second) of account and position values
                     self.ib.reqPnL(self.accountId)

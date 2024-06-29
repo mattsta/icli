@@ -341,6 +341,93 @@ def contractForName(sym, exchange="SMART", currency="USD"):
     return contract
 
 
+def contractToIdDescriptor(contract) -> tuple[str, int]:
+    """Extracts the class name of a contract to return (class name, contract id)"""
+    return (contract.__class__.__name__, contract.conId)
+
+
+def contractToSymbolDescriptor(contract) -> str:
+    """Extracts the class name of a contract to return className-Symbol string"""
+    return f"{contract.__class__.__name__}-{contract.symbol}"
+
+
+def contractFromTypeId(contractType: str, conId: int) -> Contract:
+    """Consume a previously extract contract class name and conId to generate a new proper concrete subclass of Contract"""
+    match contractType:
+        case "Bag":
+            return Bag(conId=conId)
+        case "Bond":
+            return Bond(conId=conId)
+        case "CFD":
+            return CFD(conId=conId)
+        case "ComboLeg":
+            return ComboLeg(conId=conId)
+        case "Commodity":
+            return Commodity(conId=conId)
+        case "ContFuture":
+            return ContFuture(conId=conId)
+        case "Crypto":
+            return Crypto(conId=conId)
+        case "DeltaNeutralContract":
+            return DeltaNeutralContract(conId=conId)
+        case "Forex":
+            return Forex(conId=conId)
+        case "Future":
+            return Future(conId=conId)
+        case "FuturesOption":
+            return FuturesOption(conId=conId)
+        case "Index":
+            return Index(conId=conId)
+        case "MutualFund":
+            return MutualFund(conId=conId)
+        case "Option":
+            return Option(conId=conId)
+        case "Stock":
+            return Stock(conId=conId)
+        case "Warrant":
+            return Warrant(conId=conId)
+        case _:
+            raise ValueError(f"Unsupported contract type: {contractType}")
+
+
+def contractFromSymbolDescriptor(contractType: str, symbol: str):
+    match contractType:
+        case "Bag":
+            return Bag(symbol=symbol)
+        case "Bond":
+            return Bond(symbol=symbol)
+        case "CFD":
+            return CFD(symbol=symbol)
+        case "ComboLeg":
+            return ComboLeg(symbol=symbol)
+        case "Commodity":
+            return Commodity(symbol=symbol)
+        case "ContFuture":
+            return ContFuture(symbol=symbol)
+        case "Crypto":
+            return Crypto(symbol=symbol)
+        case "DeltaNeutralContract":
+            return DeltaNeutralContract(symbol=symbol)
+        case "Forex":
+            return Forex(symbol=symbol)
+        case "Future":
+            return Future(symbol=symbol)
+        case "FuturesOption":
+            return FuturesOption(symbol=symbol)
+        case "Index":
+            return Index(symbol=symbol)
+        case "MutualFund":
+            return MutualFund(symbol=symbol)
+        case "Option":
+            return Option(symbol=symbol)
+        case "Stock":
+            return Stock(symbol=symbol)
+        case "Warrant":
+            return Warrant(symbol=symbol)
+        case _:
+            raise ValueError(f"Unsupported contract type: {contractType}")
+
+
 def tickFieldsForContract(contract) -> str:
     extraFields = []
     if isinstance(contract, Stock):

@@ -3239,6 +3239,22 @@ class IOpExecutions(IOp):
         # - commissionReport (commission and PNL)
         # - time (UTC)
         # .executions() is the same as just the 'execution' value in .fills()
+
+        # the live updating only works for the current client activity, so to fetch _all_
+        # executions for the entire user over all clients, run "exec refresh" or "exec update"
+        # ALSO NOTE: we stopped fetching executions on startup too, so this will restore previous
+        #            executions if you restart your client in the middle of a trading session.
+        REFRESH_CHECK = {":REFRESH", ":UPDATE", ":U", ":R", ":UPD", ":REF"}
+        SELF_CHECK = {":SELF", ":MINE", ":S", ":M"}
+
+        assert (
+            REFRESH_CHECK & SELF_CHECK == set()
+        ), "There are conflicting keywords in REFRESH_CHECK vs SELF_CHECK?"
+
+        if REFRESH_CHECK & self.symbols:
+            self.symbols -= REFRESH_CHECK
+            await self.state.loadExecutions()
+
         fills = self.ib.fills()
         # logger.info("Fills: {}", pp.pformat(fills))
         contracts = []
@@ -3267,11 +3283,6 @@ class IOpExecutions(IOp):
             if df.empty:
                 logger.info("No {}", name)
             else:
-                # if symbol filter requested, remove non-matching contracts.
-                # NOTE: we filter on SYMBOL and not "localSymbol" so we don't currently match on extended details like OCC symbols.
-                if self.symbols and name == "Contracts":
-                    df = df[df.symbol.isin(self.symbols)]
-
                 use.append((name, df))
 
         if not use:
@@ -3281,6 +3292,17 @@ class IOpExecutions(IOp):
 
         # Goodbye multiindex...
         df.columns = df.columns.droplevel(0)
+
+        # show only executions for the current client id
+        # TODO: allow showing only from a specific client id provided as a paramter too?
+        if SELF_CHECK & self.symbols:
+            self.symbols -= SELF_CHECK
+            df = df[df.clientId == self.state.clientId]
+
+        # if symbol filter requested, remove non-matching contracts.
+        # NOTE: we filter on SYMBOL and not "localSymbol" so we don't currently match on extended details like OCC symbols.
+        if self.symbols:
+            df = df[df.symbol.isin(self.symbols)]
 
         # clean up any non-matching values due to symbols filtering
         if self.symbols:
@@ -3297,6 +3319,9 @@ class IOpExecutions(IOp):
         df["time"] = df["time"].dt.strftime("%H:%M:%S")
 
         df["c_each"] = df.commission / df.shares
+
+        tointActual = ["clientId", "orderId"]
+        df[tointActual] = df[tointActual].map(lambda x: f"{int(x)}" if x else "")
 
         # really have to stuff this multiplier change in there due to pandas typing requirements
         df.multiplier = df.multiplier.replace("", 1).fillna(1).astype(float)
@@ -3389,7 +3414,7 @@ class IOpExecutions(IOp):
         # removed: lastLiquidity avgPrice
         df = df[
             (
-                """secType conId strike right date exchange symbol tradingClass localSymbol time orderId
+                """clientId secType conId strike right date exchange symbol tradingClass localSymbol time orderId
          side  shares  cumQty price    total realizedPNL RPNL_each
          commission c_each c_pct c_pct_RPNL dayProfit""".split()
             )
@@ -3438,7 +3463,14 @@ class IOpQuotesAdd(IOp):
         return [DArg("*symbols", convert=lambda x: expand_symbols(x))]
 
     async def run(self):
-        return await self.state.addQuotes(self.symbols)
+        keys = await self.state.addQuotes(self.symbols)
+
+        if keys:
+            # also update current client persistent quote snapshot
+            # (only if we added new quotes...)
+            await self.runoplive("qsnapshot")
+
+        return keys
 
 
 @dataclass
@@ -3489,6 +3521,9 @@ class IOpQuotesAddFromOrderId(IOp):
                     await self.state.qualify(Contract(conId=useTrade.contract.conId))
 
             self.state.addQuoteFromContract(useTrade.contract)
+
+        # also update current client persistent quote snapshot
+        await self.runoplive("qsnapshot")
 
 
 @dataclass
@@ -3931,6 +3966,34 @@ class IOpQuoteSave(IOp):
 
 
 @dataclass
+class IOpQuoteSaveClientSnapshot(IOp):
+    """Save the current live quote state for THIS CLIENT ID only so it auto-reloads on the next startup."""
+
+    def argmap(self):
+        return []
+
+    async def run(self):
+        cacheKey = ("quotes", f"client-{self.state.clientId}")
+        allLiveContracts = [c.contract for c in self.state.quoteState.values()]
+        self.cache.set(cacheKey, {"contracts": allLiveContracts})
+
+        # This log line is nice for debugging but too noisy to run on every snapshot
+        # since every 'add' or 'oadd' is a new snapshot saving event too.
+        if False:
+            logger.info(
+                "[{}] Saved {} contract ids for snapshot: {}",
+                cacheKey,
+                len(allLiveContracts),
+                sorted(
+                    [
+                        (c.contract.localSymbol, c.contract.conId)
+                        for c in self.state.quoteState.values()
+                    ]
+                ),
+            )
+
+
+@dataclass
 class IOpQuoteAppend(IOp):
     def argmap(self):
         return [DArg("group"), DArg("*symbols")]
@@ -4018,6 +4081,33 @@ class IOpQuoteRestore(IOp):
 
 
 @dataclass
+class IOpQuoteLoadSnapshot(IOp):
+    def argmap(self):
+        return []
+
+    async def run(self):
+        cacheKey = ("quotes", f"client-{self.state.clientId}")
+        cons = self.cache.get(cacheKey)
+        if not cons:
+            # if no ids, just don't do anything.
+            # also don't bother with any status/warning message because this runs on startup
+            # and we don't need to know if we didn't restore anything.
+            return
+
+        try:
+            # snapshots are always saved with exact Contract objects, so we can just restore them directly
+            cs = cons.get("contracts", [])
+            for c in cs:
+                self.state.addQuoteFromContract(c)
+
+            logger.info("Restored {} quotes from snapshot", len(cs))
+        except:
+            # logger.exception("Failed?")
+            # format is incorrect, just ignore it
+            pass
+
+
+@dataclass
 class IOpQuoteClean(IOp):
     def argmap(self):
         return [DArg("group")]
@@ -4076,11 +4166,12 @@ class IOpQuoteList(IOp):
         logger.info("Groups: {}", pp.pformat(groups))
 
         for group in groups:
-            logger.info(
-                "[{}] Members: {}",
-                group,
-                pp.pformat(sorted(self.cache.get(("quotes", group), []))),
-            )
+            found = self.cache.get(("quotes", group), [])
+
+            if isinstance(found, list):
+                found = sorted(found)
+
+            logger.info("[{}] Members: {}", group, pp.pformat(found))
 
 
 @dataclass
@@ -4167,6 +4258,8 @@ OP_MAP = {
         "qrestore": IOpQuoteRestore,
         "qclean": IOpQuoteClean,
         "qlist": IOpQuoteList,
+        "qsnapshot": IOpQuoteSaveClientSnapshot,
+        "qloadsnapshot": IOpQuoteLoadSnapshot,
     },
 }
 
