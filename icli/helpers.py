@@ -7,23 +7,28 @@ import locale
 import math
 from dataclasses import dataclass, field
 
-import ib_insync  # just for UNSET_DOUBLE
+import ib_async  # just for UNSET_DOUBLE
 import numpy as np
 import pandas as pd
 import pendulum
 import questionary
 import tradeapis.cal as tcal
 import tradeapis.rounder as rounder
-from ib_insync import (
+from ib_async import (
     Bag,
     Bond,
     CFD,
+    ComboLeg,
+    Commodity,
+    ContFuture,
     Contract,
     Crypto,
+    DeltaNeutralContract,
     Forex,
     Future,
     FuturesOption,
     Index,
+    MutualFund,
     Option,
     Stock,
     Warrant,
@@ -463,7 +468,7 @@ def isset(x: float) -> bool:
 
     So we have to directly compare against another value to see if a returned float
     is a _set_ value or just a placeholder for the default value. le sigh."""
-    return x != ib_insync.util.UNSET_DOUBLE
+    return x != ib_async.util.UNSET_DOUBLE
 
 
 @dataclass

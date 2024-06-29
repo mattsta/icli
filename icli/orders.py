@@ -1,7 +1,7 @@
 """ Common order types with reusable parameter configurations."""
 from dataclasses import dataclass, field
 
-from ib_insync import (
+from ib_async import (
     Contract,
     Order,
     OrderCondition,

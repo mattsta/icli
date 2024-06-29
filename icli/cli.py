@@ -50,10 +50,10 @@ from .tinyalgo import ATRLive
 
 locale.setlocale(locale.LC_ALL, "")
 
-import ib_insync
+import ib_async
 
 import seaborn
-from ib_insync import (
+from ib_async import (
     Bag,
     ComboLeg,
     Contract,
@@ -2927,7 +2927,7 @@ class IBKRCmdlineApp:
         if False:
             import logging
 
-            ib_insync.util.logToConsole(logging.INFO)
+            ib_async.util.logToConsole(logging.INFO)
 
         # Attach IB events *outside* of the reconnect loop because we don't want to
         # add duplicate event handlers on every reconnect!

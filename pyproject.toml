@@ -9,7 +9,8 @@ license = "Apache-2.0"
 python = ">=3.10,<3.13"
 
 # IB API wrapper with better usability than the IBKR-provided libs
-ib-insync = "^0.9.66"
+ib_async = ">=1.0.2"
+# ib_async = { path = "../../ibkr/ib_insync", develop = true }
 
 # nice printing and data manipulation
 pandas = ">2.1.0"

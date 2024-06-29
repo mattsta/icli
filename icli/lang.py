@@ -20,7 +20,7 @@ import numpy as np
 
 import pandas as pd
 
-from ib_insync import Bag, Contract, Order
+from ib_async import Bag, Contract, Order
 from loguru import logger
 from mutil.dispatch import DArg
 from mutil.frame import printFrame
