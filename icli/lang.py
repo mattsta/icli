@@ -2754,7 +2754,6 @@ class IOpPositions(IOp):
         detailCols = [
             "marketPrice",
             "averageCost",
-            "closeOrderValue",
             "strike",
         ]
         simpleCols = [
@@ -2845,11 +2844,11 @@ class IOpPositions(IOp):
             if isinstance(close, list):
                 closingSide = " ".join([str(x) for x in close])
                 make["closeOrderValue"] = " ".join(
-                    [str(size * price * multiplier) for size, price in close]
+                    [f"{size * price * multiplier:,.2f}" for size, price in close]
                 )
             else:
                 closingSide = close
-                make["closeOrderValue"] = close * o.position * multiplier
+                make["closeOrderValue"] = f"{close * o.position * multiplier:,.2f}"
 
             make["closeOrder"] = closingSide
             make["marketValue"] = o.marketValue
