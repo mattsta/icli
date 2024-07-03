@@ -604,8 +604,52 @@ class IOpInfo(IOp):
             else:
                 contracts.append(contractForName(sym))
 
-        await self.state.qualify(*contracts)
-        logger.info("{}", pp.pformat(contracts))
+        contracts = await self.state.qualify(*contracts)
+
+        for contract in contracts:
+            # Only print ticker if we have an active market data feed already subscribed on this client
+            symkey = lookupKey(contract)
+            if ticker := self.state.quoteState.get(symkey, None):
+                # The 'pprint' module doesn't use our nice __repr__ override which removes all nan fileds (sometimes dozens per ticker),
+                # so let's hack around it by printing the formatted dataclass, splitting by comma lines,
+                # removing rows with nan values, then just re-assembling it.
+                prettyTicker = ",".join(
+                    filter(
+                        lambda x: "float('nan')" not in x, pp.pformat(ticker).split(",")
+                    )
+                )
+                logger.info("Ticker:\n{}", prettyTicker)
+
+                # these are filtered to remove None models when they are being populated during startup...
+                greeks = {
+                    k: v
+                    for k, v in {
+                        "bid": ticker.bidGreeks,
+                        "ask": ticker.askGreeks,
+                        "last": ticker.lastGreeks,
+                        "model": ticker.modelGreeks,
+                    }.items()
+                    if v
+                }
+
+                df = pd.DataFrame.from_dict(greeks, orient="index")
+
+                # only print our fancy table if it actually exists
+                if not df.empty:
+                    # make a column for what percentage of theta is the current option price
+                    # (basically: your daily rollover loss percentage if the price doesn't move overnight)
+                    df["theta%"] = round(df.theta / df.optPrice, 2)
+
+                    # remove always empty columns
+                    del df["pvDividend"]
+                    del df["tickAttrib"]
+
+                    min_max_mean = df.agg(["min", "max", "mean"])
+
+                    printFrame(df, "Greeks Table")
+                    printFrame(min_max_mean, "Summary Greeks Table")
+
+            logger.info("Contract:\n{}", pp.pformat(contracts))
 
 
 @dataclass
