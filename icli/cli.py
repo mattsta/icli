@@ -1579,7 +1579,7 @@ class IBKRCmdlineApp:
         # (the bulk load API causes the event handler to fire for each historical fill)
         if self.loadingCommissions:
             logger.warning(
-                "[{} :: {} {:>7.2f} of {:>7.2f} :: {}] Ignoring commission because bulk loading history...",
+                "Ignoring commission because bulk loading history: [{} :: {} {:>7.2f} of {:>7.2f} :: {}]",
                 fill.execution.clientId,
                 fill.execution.side,
                 fill.execution.shares,
