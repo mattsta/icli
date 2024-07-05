@@ -347,8 +347,23 @@ def contractToIdDescriptor(contract) -> tuple[str, int]:
 
 
 def contractToSymbolDescriptor(contract) -> str:
-    """Extracts the class name of a contract to return className-Symbol string"""
-    return f"{contract.__class__.__name__}-{contract.symbol}"
+    """Extracts the class name of a contract to return className-Symbol globally unique string"""
+
+    # We need the input contract request to generate a strong enough primary key where it doesn't conflict
+    # with other contracts. So we can't just do "Class-Symbol" because every option would be e.g. "Option-MSFT",
+    # but we don't have '.localSymbol' before a contract is qualified, so here we construct a large unique primary
+    # key for our lookup cache using the most specific data we have for pre-qualified contracts.
+    # NOTE: just remember to only include "user lookup fields" in the primary key. The user isn't populating things like
+    #       'tradingClass' so we don't want to use it in the primary key even though it does get populated after the qualify.
+    # The cache storage is looked up using UNQUALIFIED contracts then stored using the QUALIFIED contracts.
+    parts = (
+        contract.__class__.__name__,
+        contract.symbol,
+        contract.lastTradeDateOrContractMonth or "NoDate",
+        contract.right or "NoRight",
+        str(contract.strike or "NoStrike"),
+    )
+    return "-".join(parts)
 
 
 def contractFromTypeId(contractType: str, conId: int) -> Contract:

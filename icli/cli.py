@@ -460,19 +460,19 @@ class IBKRCmdlineApp:
         #    so we can retrieve the correct instrument class combined with the proper symbol from a cached contract.
         for contract in contracts:
             cached_contract = None
-            # logger.info("Looking up: {} :: {}", contract, contractToSymbolDescriptor(contract))
 
+            key = None
             try:
                 # only attempt to look up using ID if ID exists, else attempt to lookup by name
                 if contract.conId:
                     # Attempt first lookup using direct ID, but if ID isn't found try to use the Class-Symbol key format...
                     cached_contract = self.conIdCache.get(contract.conId)  # type: ignore
                 else:
-                    cached_contract = self.conIdCache.get(
-                        contractToSymbolDescriptor(contract)
-                    )  # type: ignore
+                    key = contractToSymbolDescriptor(contract)
+                    # logger.info("Looking up: {} :: {}", contract, key)
+                    cached_contract = self.conIdCache.get(key)  # type: ignore
 
-                # logger.info("Using cached contract for {}: {} :: {}", contract.conId, cached_contract, contract)
+                # logger.info("Using cached contract for {}: [cached {}] :: [requested {}]", contract.conId, cached_contract, contract)
             except ModuleNotFoundError:
                 # the pickled contract is from another library we don't have loaded in this environment anymore,
                 # so we need to drop the existing bad pickle and re-save it
@@ -491,7 +491,16 @@ class IBKRCmdlineApp:
             else:
                 # else, we need to look up this contract before returning.
                 # logger.info("Not found in cache: {}", contract)
-                uncached_contracts.append(contract)
+                # Also, save the ORIGINAL LOOK UP KEY along with the uncached contract so we can
+                # _correctly_ map the lookup key to the resolved contract (the resolved contract
+                # can (and _will_ have more details than the lookup contract, but we only want to
+                # generate the lookup key using the INPUT DETAILS and not the FULL DETAILS because
+                # we are going from VAGUE DETAILS -> SPECIFIC DETAILS, and if we use the specific
+                # details as the cache key, we can't look it up again because we only have more
+                # vague details to start (like: lookup future with YM expiration, but qualify
+                # converts YM into YMD, but we didn't look up YMD at first, so we must not cache
+                # by using YMD details in the key, etc).
+                uncached_contracts.append((key, contract))
 
                 # also populate unresolved contract for safety in case it can't be resolved
                 # we just return it directly as originally provided
@@ -510,7 +519,8 @@ class IBKRCmdlineApp:
         try:
             # logger.info("Looking up uncached contracts: {}", uncached_contracts)
             got = await asyncio.wait_for(
-                self.ib.qualifyContractsAsync(*uncached_contracts), timeout=2
+                self.ib.qualifyContractsAsync(*[c for (k, c) in uncached_contracts]),
+                timeout=5,
             )
         except Exception as e:
             logger.error(
@@ -520,7 +530,7 @@ class IBKRCmdlineApp:
             )
 
         # iterate resolved contracts and cache them by multiple lookup keys
-        for contract in got:
+        for (originalContractKey, _), contract in zip(uncached_contracts, got):
             # the `qualifyContractsAsync` modifies the contracts in-place, so we map their
             # id to itself since we replaced it directly.
             # (yes, we _always_ set this even if we didn't resolve a 'conId' because we need
@@ -540,16 +550,17 @@ class IBKRCmdlineApp:
             # generic symbol names like "ES" for the next main contract.
             EXPIRATION_DAYS = 2 if isinstance(contract, Future) else 30
 
-            # cache by id
             # logger.info("Saving {} -> {}", contract.conId, contract)
+            # logger.info("Saving {} -> {}", originalContractKey, contract)
+
+            # cache by id
             self.conIdCache.set(
                 contract.conId, contract, expire=86400 * EXPIRATION_DAYS
             )  # type: ignore
 
             # also set by Class-Symbol designation as key (e.g. "Index-SPX" or "Future-ES")
-            # logger.info("Saving {} -> {}", contractToSymbolDescriptor(contract), contract)
             self.conIdCache.set(
-                contractToSymbolDescriptor(contract),
+                originalContractKey,
                 contract,
                 expire=86400 * EXPIRATION_DAYS,
             )  # type: ignore
