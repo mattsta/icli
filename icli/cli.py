@@ -3123,7 +3123,9 @@ class IBKRCmdlineApp:
                 ) as e:
                     # Don't print full network exceptions for just connection errors
                     logger.error(
-                        "[{}] Failed to connect to IB Gateway, trying again...", e
+                        "[{}] Failed to connect to IB Gateway, trying again... (also check this client id ({}) isn't already connected)",
+                        str(e),
+                        self.clientId,
                     )
                 except:
                     # Do print exception for any unhandled or unexpected errors while connecting.
