@@ -912,13 +912,13 @@ class IOpDepth(IOp):
 
             if not (t.domBids or t.domAsks):
                 logger.warning(
-                    "[{}] Depth not populated. Failing warm-up check {}.",
+                    "[{}] Depth not populated. Failing warm-up check {}",
                     contract.localSymbol,
                     i,
                 )
 
                 if i > 20:
-                    logger.error("Depth not populated in expected time!")
+                    logger.error("Depth not populated in expected time?")
                     return
 
                 await asyncio.sleep(0.15)
