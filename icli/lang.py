@@ -621,6 +621,54 @@ class IOpInfo(IOp):
                 )
                 logger.info("Ticker:\n{}", prettyTicker)
 
+                if ticker.histVolatility == ticker.histVolatility:
+                    logger.info(
+                        "[{}] Historical Volatility: {:,.4f}",
+                        ticker.contract.localSymbol,
+                        ticker.histVolatility,
+                    )
+                    logger.info(
+                        "[{}] Implied Volatility: {:,.4f}",
+                        ticker.contract.localSymbol,
+                        ticker.impliedVolatility,
+                    )
+                    if ticker.histVolatility < ticker.impliedVolatility:
+                        logger.info(
+                            "[{}] Volatility: RISING ({:,.2f}%)",
+                            ticker.contract.localSymbol,
+                            100
+                            * ((ticker.impliedVolatility / ticker.histVolatility) - 1),
+                        )
+                    else:
+                        logger.info(
+                            "[{}] Volatility: FALLING ({:,.2f}%)",
+                            ticker.contract.localSymbol,
+                            100
+                            * ((ticker.histVolatility / ticker.impliedVolatility) - 1),
+                        )
+
+                if ticker.last == ticker.last:
+                    logger.info(
+                        "[{}] Last: ${:,.4f} x {}",
+                        ticker.contract.localSymbol,
+                        ticker.last,
+                        int(ticker.lastSize)
+                        if int(ticker.lastSize) == ticker.lastSize
+                        else ticker.lastSize,
+                    )
+
+                # protect against ask being -1 or NaN thanks to weird IBKR data issues when markets aren't live
+                if ticker.ask > 0 and ticker.ask == ticker.ask:
+                    logger.info(
+                        "[{}] Spread: ${:,.4f} (± ${:,.4f})",
+                        ticker.contract.localSymbol,
+                        ticker.ask - ticker.bid,
+                        (ticker.ask - ticker.bid) / 2,
+                    )
+
+                if ticker.halted > 0 and ticker.halted == ticker.halted:
+                    logger.warning("[{}] IS HALTED!", ticker.contract.localSymbol)
+
                 # these are filtered to remove None models when they are being populated during startup...
                 greeks = {
                     k: v
@@ -651,7 +699,7 @@ class IOpInfo(IOp):
                     printFrame(df, "Greeks Table")
                     printFrame(min_max_mean, "Summary Greeks Table")
 
-            logger.info("Contract:\n{}", pp.pformat(contracts))
+        logger.info("Contract:\n{}", pp.pformat(contracts))
 
 
 @dataclass
