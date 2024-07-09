@@ -640,6 +640,7 @@ class IOpInfo(IOp):
                     # make a column for what percentage of theta is the current option price
                     # (basically: your daily rollover loss percentage if the price doesn't move overnight)
                     df["theta%"] = round(df.theta / df.optPrice, 2)
+                    df["delta%"] = round(df.delta / df.optPrice, 2)
 
                     # remove always empty columns
                     del df["pvDividend"]
