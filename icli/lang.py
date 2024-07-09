@@ -212,7 +212,7 @@ class IOpQQuote(IOp):
 
         contracts = [contractForName(sym) for sym in self.symbols]
 
-        await self.state.qualify(*contracts)
+        contracts = await self.state.qualify(*contracts)
 
         if not all(c.conId for c in contracts):
             logger.error("Not all contracts reported successful lookup!")
@@ -442,7 +442,7 @@ class IOpPositionEvict(IOp):
 
             # we only need to qualify if the ID doesn't exist
             if not contract.conId:
-                await self.state.qualify(contract)
+                (contract,) = await self.state.qualify(contract)
 
             algo = "MIDPRICE"
 
@@ -604,7 +604,8 @@ class IOpInfo(IOp):
             else:
                 contracts.append(contractForName(sym))
 
-        contracts = await self.state.qualify(*contracts)
+        # If any lookups fail above, remove 'None' results before we fetch full contracts.
+        contracts = await self.state.qualify(*filter(None, contracts))
 
         for contract in contracts:
             # Only print ticker if we have an active market data feed already subscribed on this client
@@ -880,7 +881,7 @@ class IOpDepth(IOp):
                 assert self.sym
             else:
                 contract = contractForName(self.sym)
-                await self.state.qualify(contract)
+                (contract,) = await self.state.qualify(contract)
 
             assert contract.localSymbol
         except:
@@ -1208,7 +1209,7 @@ class IOpOrder(IOp):
 
         if not isinstance(contract, Bag):
             # spreads are qualified when they are initially populated so we never qualify a bag directly
-            await self.state.qualify(contract)
+            (contract,) = await self.state.qualify(contract)
 
         isLong = self.total.is_long
 
@@ -1515,7 +1516,7 @@ class IOpOrderStraddle(IOp):
             prefix = "I:" if self.symbol in {"SPX", "NQ", "VX"} else ""
             contract = contractForName(f"{prefix}{self.symbol}")
 
-            await self.state.qualify(contract)
+            (contract,) = await self.state.qualify(contract)
             logger.info("[{}] Found contract: {}", self.symbol, contract)
 
         if not isinstance(contract, (Stock, Future, Index)):
@@ -2611,7 +2612,7 @@ class IOpOrderLimit(IOp):
 
         if not isButterflyClose:
             # butterfly spread is already qualified when created above
-            await self.state.qualify(contract)
+            (contract,) = await self.state.qualify(contract)
 
         return await self.state.placeOrderForContract(
             sym,
@@ -3114,7 +3115,7 @@ class IOpOrders(IOp):
 
                     # if ID -> Name not in the cache, create it
                     if not xcontract:
-                        xcontract = await self.state.qualify(Contract(conId=x.conId))
+                        (xcontract,) = await self.state.qualify(Contract(conId=x.conId))
 
                     totalMultiplier += float(xcontract.multiplier or 1)
 

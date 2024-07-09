@@ -670,11 +670,11 @@ class IBKRCmdlineApp:
 
         if oreq.isSingle():
             contract = contractForName(oreq.orders[0].symbol, exchange=exchange)
-            cgot: list[Contract] = await self.qualify(contract)
+            (contract,) = await self.qualify(contract)
 
             # only return success if the contract validated
-            if cgot and cgot[0].conId:
-                return cgot[0]
+            if contract.conId:
+                return contract
 
             return None
 
@@ -699,10 +699,10 @@ class IBKRCmdlineApp:
             contractForName(s.symbol, exchange=exchange, currency=currency)
             for s in oreq.orders
         ]
-        await self.qualify(*contracts)
+        contracts = await self.qualify(*contracts)
 
         if not all([c.conId for c in contracts]):
-            logger.error("Not all contracts qualified!")
+            logger.error("Not all contracts qualified! Got: {}", contracts)
             return None
 
         # trying to match logic described at https://interactivebrokers.github.io/tws-api/spread_contracts.html
