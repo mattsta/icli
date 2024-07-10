@@ -3266,7 +3266,7 @@ class IOpOrders(IOp):
         if df.empty:
             logger.info(
                 "{}No open orders exist for client id {}!",
-                f"[{", ".join(sorted(self.symbols))}] " if self.symbols else "",
+                f"[{', '.join(sorted(self.symbols))}] " if self.symbols else "",
                 ICLI_CLIENT_ID,
             )
             return
