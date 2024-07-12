@@ -2174,15 +2174,15 @@ class IBKRCmdlineApp:
                         ],
                     )
 
-                if c.lastGreeks and c.lastGreeks.undPrice:
-                    und = c.lastGreeks.undPrice
+                if c.modelGreeks and c.modelGreeks.undPrice:
+                    und = c.modelGreeks.undPrice
                     strike = c.contract.strike
                     underlyingStrikeDifference = -(strike - und) / und * 100
-                    iv = c.lastGreeks.impliedVol
+                    iv = c.modelGreeks.impliedVol
                     # for our buying and selling, we want greeks based on the live floating
                     # bid/ask spread and not the last price (could be out of date) and not
                     # the direct bid or ask (too biased while buying and selling)
-                    delta = c.modelGreeks.delta if c.modelGreeks else None
+                    delta = c.modelGreeks.delta
                 else:
                     und = None
                     underlyingStrikeDifference = None
