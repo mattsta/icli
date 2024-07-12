@@ -690,12 +690,18 @@ class IOpInfo(IOp):
                     df["theta%"] = round(df.theta / df.optPrice, 2)
                     df["delta%"] = round(df.delta / df.optPrice, 2)
 
+                    # theta/delta tells you how much the underlying must go up the next day to compensate
+                    # for the theta decay.
+                    # e.g. delta 0.10 and theta -0.05 means the underlying must go up $0.50 the next day to remain flat.
+                    #      delta 0.03 and theta -0.14 means the underlying must go up $5 the next day to remain flat.
+                    df["Θ/Δ"] = round(-df.theta / df.delta, 2)
+
                     # provide rough (ROUGH) estimates for 3 days into the future accounting for theta
                     # (note: theta is negative, so we just add it. also note: theta doesn't decay linearly,
                     #        so these calculations are not _exact_, but it serves as a mental checkpoint to compare against).
-                    df["day+1"] = round(df.optPrice + df.theta, 2)
-                    df["day+2"] = round(df.optPrice + df.theta * 2, 2)
-                    df["day+3"] = round(df.optPrice + df.theta * 3, 2)
+                    df["day+1"] = round(df.optPrice + df.theta, 2).clip(lower=0)
+                    df["day+2"] = round(df.optPrice + df.theta * 2, 2).clip(lower=0)
+                    df["day+3"] = round(df.optPrice + df.theta * 3, 2).clip(lower=0)
 
                     # remove always empty columns
                     del df["pvDividend"]
