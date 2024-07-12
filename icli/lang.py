@@ -634,14 +634,14 @@ class IOpInfo(IOp):
                     )
                     if ticker.histVolatility < ticker.impliedVolatility:
                         logger.info(
-                            "[{}] Volatility: RISING ({:,.2f}%)",
+                            "[{}] Volatility: RISING ({:,.2f} %)",
                             ticker.contract.localSymbol,
                             100
                             * ((ticker.impliedVolatility / ticker.histVolatility) - 1),
                         )
                     else:
                         logger.info(
-                            "[{}] Volatility: FALLING ({:,.2f}%)",
+                            "[{}] Volatility: FALLING ({:,.2f} %)",
                             ticker.contract.localSymbol,
                             100
                             * ((ticker.histVolatility / ticker.impliedVolatility) - 1),
@@ -689,6 +689,13 @@ class IOpInfo(IOp):
                     # (basically: your daily rollover loss percentage if the price doesn't move overnight)
                     df["theta%"] = round(df.theta / df.optPrice, 2)
                     df["delta%"] = round(df.delta / df.optPrice, 2)
+
+                    # provide rough (ROUGH) estimates for 3 days into the future accounting for theta
+                    # (note: theta is negative, so we just add it. also note: theta doesn't decay linearly,
+                    #        so these calculations are not _exact_, but it serves as a mental checkpoint to compare against).
+                    df["day+1"] = round(df.optPrice + df.theta, 2)
+                    df["day+2"] = round(df.optPrice + df.theta * 2, 2)
+                    df["day+3"] = round(df.optPrice + df.theta * 3, 2)
 
                     # remove always empty columns
                     del df["pvDividend"]
