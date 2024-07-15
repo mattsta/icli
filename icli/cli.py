@@ -2174,23 +2174,25 @@ class IBKRCmdlineApp:
                         ],
                     )
 
-                if c.modelGreeks and c.modelGreeks.undPrice:
-                    und = c.modelGreeks.undPrice
-                    strike = c.contract.strike
-                    underlyingStrikeDifference = -(strike - und) / und * 100
+                und = None
+                underlyingStrikeDifference = None
+                iv = None
+                delta = None
+                try:
                     iv = c.modelGreeks.impliedVol
-                    # for our buying and selling, we want greeks based on the live floating
-                    # bid/ask spread and not the last price (could be out of date) and not
-                    # the direct bid or ask (too biased while buying and selling)
                     delta = c.modelGreeks.delta
-                else:
-                    und = None
-                    underlyingStrikeDifference = None
-                    iv = None
-                    delta = None
+
+                    # Note: keep underlyingStrikeDifference the LAST attempt here because if the user doesn't
+                    #       have live market data for this option, then 'und' is 0 and this math breaks,
+                    #       but if it breaks _last_ then the greeks above still work properly.
+                    strike = c.contract.strike
+                    und = c.modelGreeks.undPrice
+                    underlyingStrikeDifference = -(strike - und) / und * 100
+                except:
+                    pass
 
                 # Note: we omit OPEN price because IBKR doesn't report it (for some reason?)
-                # greeks available as .bidGreeks, .askGreeks, .lastGreeks, .modelGreeks each as an OptionComputation named tuple
+                # greeks available as .bidGreeks, .askGreeks, .lastGreeks, .modelGreeks each as an OptionComputation named tuple.
                 # '.halted' is either nan or 0 if NOT halted, so 'halted > 0' should be a safe check.
                 rowName: str
 
@@ -2357,7 +2359,7 @@ class IBKRCmdlineApp:
                     return " ".join(
                         [
                             rowName,
-                            f"[u {fmtPricePad(und, padding=8, decimals=2)} ({itm:<1} {underlyingStrikeDifference or -0:>7,.2f}%)]",
+                            f"[u {fmtPricePad(und, padding=8, decimals=2)} ({itm:<1} {underlyingStrikeDifference or np.nan:>7,.2f}%)]",
                             f"[iv {iv or 0:.2f}]",
                             f"[d {delta or 0:>5.2f}]",
                             f"{fmtPriceOpt(e100):>6}",
