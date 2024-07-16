@@ -30,6 +30,7 @@ import orjson
 import pandas as pd
 import pendulum
 
+from pandas.tseries.offsets import MonthEnd, YearEnd
 from prompt_toolkit import Application, print_formatted_text, PromptSession
 from prompt_toolkit.application import get_app
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -198,6 +199,29 @@ def fetchDateTimeOfEndOfMarketDay():
     nextEnd = found.iat[1, 1]
 
     return [(soonestStart, soonestEnd), (nextStart, nextEnd)]
+
+
+@cached(cache=TTLCache(maxsize=128, ttl=60 * 60 * 90))
+def tradingDaysRemainingInMonth():
+    """Return how many trading days until the month ends..."""
+    found = mcal.getMarketCalendar(
+        "NASDAQ", start=pd.Timestamp("now"), stop=pd.Timestamp("now") + MonthEnd(0)
+    )
+
+    # just length because the 'found' calendar has one row for each market day in the result set...
+    distance = len(found)
+    return distance
+
+
+@cached(cache=TTLCache(maxsize=128, ttl=60 * 60 * 90))
+def tradingDaysRemainingInYear():
+    """Return how many trading days until the year ends..."""
+    found = mcal.getMarketCalendar(
+        "NASDAQ", start=pd.Timestamp("now"), stop=pd.Timestamp("now") + YearEnd(0)
+    )
+
+    distance = len(found)
+    return distance
 
 
 # expire this cache once every 15 minutes so we only have up to 15 minutes of wrong dates after EOD
@@ -2655,10 +2679,12 @@ class IBKRCmdlineApp:
             #       on if we are out of market hours or not, but we aren't bothering with the extra logic for now.
             untilClose = fetchEndOfMarketDay() - self.now
             todayclose = f"mktclose: {untilClose.in_words()}"
+            daysInMonth = f"dim: {tradingDaysRemainingInMonth()}"
+            daysInYear = f"diy: {tradingDaysRemainingInYear()}"
 
             return HTML(
                 # all these spaces look weird, but they (kinda) match the underlying column-based formatting offsets
-                f"""[{ICLI_CLIENT_ID}] {self.now}{onc} [{self.updates:,}]                {spxbreakers}                     {openorders}    {openpositions}    {todayexecutions}      {todayclose}\n"""
+                f"""[{ICLI_CLIENT_ID}] {self.now}{onc} [{self.updates:,}]                {spxbreakers}                     {openorders}    {openpositions}    {todayexecutions}      {todayclose}   ({daysInMonth} :: {daysInYear})\n"""
                 + "\n".join(
                     [
                         f"{qp:>2}) " + formatTicker(quote)
