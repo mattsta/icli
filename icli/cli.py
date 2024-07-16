@@ -1802,7 +1802,7 @@ class IBKRCmdlineApp:
 
                         # Also combine realized+unrealized to show the current daily total PnL percentage because
                         # maybe we have 12% realized profit but -12% unrealized and we're actually flat...
-                        update["DayPnL%"] = (
+                        update["TotalPnL%"] = (
                             update["RealizedPnL%"] + update["UnrealizedPnL%"]
                         )
                     case _:
