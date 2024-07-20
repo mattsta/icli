@@ -3435,6 +3435,9 @@ class IOpExecutions(IOp):
         # Goodbye multiindex...
         df.columns = df.columns.droplevel(0)
 
+        # enforce the dataframe is ordered from oldest executions to newest executions as defined by full original timestamp order.
+        df.sort_values(by=["time", "clientId"], inplace=True)
+
         # show only executions for the current client id
         # TODO: allow showing only from a specific client id provided as a paramter too?
         if SELF_CHECK & self.symbols:
@@ -3477,10 +3480,12 @@ class IOpExecutions(IOp):
         df["RPNL_each"] = df.realizedPNL / df.shares
 
         # provide a weak calculation of commission as percentage of PNL and of traded value.
-        # this isn't entirely accurate because it doesn't account for the _entry_ commission, we are only
-        # using the exit commission when a realized PNL value is provided.
+        # Note: we estimate the entry commission by just doubling the exit commission (which isn't 100% accurate, but
+        #       if the opening trade was more than 1 day ago, we don't have the opening matching executions to read
+        #       the execution from (and we aren't keeping a local fullly logged execution history, but maybe we should
+        #       add logged execution history as a feature in the future?)
         df["c_pct"] = df.commission / (df.total + df.commission)
-        df["c_pct_RPNL"] = df.commission / (df.realizedPNL + df.commission)
+        df["c_pct_RPNL"] = (df.commission * 2) / (df.realizedPNL + (df.commission * 2))
 
         dfByTrade = df.groupby("orderId side localSymbol".split()).agg(
             dict(
@@ -3494,6 +3499,17 @@ class IOpExecutions(IOp):
                 c_each=["mean"],
             )
         )
+
+        # also show if the order occurred via multiple executions over time
+        # (single executions will have zero duration, etc)
+        dfByTrade["duration"] = pd.to_datetime(
+            dfByTrade["time"]["finish"]
+        ) - pd.to_datetime(dfByTrade["time"]["start"])
+
+        # convert the default pandas datetime difference just into a number of seconds per row
+        # (the returned "Series" from the subtraction above doesn't allow .seconds to be applied
+        #  as a column operation, so we apply it row-element-wise here instead)
+        dfByTrade["duration"] = dfByTrade.duration.apply(lambda x: x.seconds)
 
         # also show commission percent for traded value per row
         dfByTrade["c_pct"] = dfByTrade.commission / (
@@ -3550,13 +3566,13 @@ class IOpExecutions(IOp):
         # display anything NaN as empty strings so it doesn't clutter the interface
         df.fillna("", inplace=True)
 
-        df.rename(columns={"lastTradeDateOrContractMonth": "date"}, inplace=True)
+        df.rename(columns={"lastTradeDateOrContractMonth": "conDate"}, inplace=True)
         # ignoring: "execId" (long string for execution recall) and "permId" (???)
 
         # removed: lastLiquidity avgPrice
         df = df[
             (
-                """clientId secType conId strike right date exchange symbol tradingClass localSymbol time orderId
+                """clientId secType conId symbol conDate right strike date exchange tradingClass localSymbol time orderId
          side  shares  cumQty price    total realizedPNL RPNL_each
          commission c_each c_pct c_pct_RPNL dayProfit""".split()
             )
