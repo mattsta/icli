@@ -1316,7 +1316,14 @@ class IOpOrder(IOp):
                         "Syntax broken? Expected '@ <price>' but got: {}", self.preview
                     )
 
-                optionalPrice = float(self.preview[1])
+                try:
+                    optionalPrice = float(self.preview[1])
+                except:
+                    logger.error(
+                        "Optional price isn't a number? Failed to read as price: {}",
+                        self.preview[1],
+                    )
+                    return None
 
                 # if we have EVEN MORE ELEMENTS, user is requesting an auto-attached exit too.
 
