@@ -84,6 +84,10 @@ from cachetools import cached, TTLCache
 from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
 
+# increase calendar cache duration since we provide exact inputs each time,
+# so we know the cache doesn't need to self-invalidate to update new values.
+mcal.CALENDAR_CACHE_SECONDS = 60 * 60 * 60
+
 warnings.filterwarnings("ignore", category=bs4.MarkupResemblesLocatorWarning)
 pp.install_extras(["dataclasses"], warn_on_error=False)
 
@@ -182,13 +186,14 @@ def invertstr(x):
 
 
 # allow these values to be cached for 10 hours
-@cached(cache=TTLCache(maxsize=128, ttl=60 * 60 * 10))
+@cached(cache=TTLCache(maxsize=1, ttl=60 * 60 * 10))
 def fetchDateTimeOfEndOfMarketDay():
     """Return the market (start, end) timestamps for the next two market end times."""
+    now = pd.Timestamp("now")
     found = mcal.getMarketCalendar(
         "NASDAQ",
-        start=pd.Timestamp("now"),
-        stop=pd.Timestamp("now") + pd.Timedelta(7, "D"),
+        start=now,
+        stop=now + pd.Timedelta(7, "D"),
     )
 
     # format returned is two columns of [MARKET OPEN, MARKET CLOSE] timestamps per date.
@@ -201,11 +206,30 @@ def fetchDateTimeOfEndOfMarketDay():
     return [(soonestStart, soonestEnd), (nextStart, nextEnd)]
 
 
-@cached(cache=TTLCache(maxsize=128, ttl=60 * 60 * 90))
+def goodCalendarDate():
+    """Return the start calendar date we should use for market date lookups.
+
+    Basically, use TODAY if the current time is before liquid hours market close, else use TOMORROW."""
+    now = pd.Timestamp("now", tz="US/Eastern")
+
+    # if EARLIER than 4pm, use today.
+    if now.hour < 16:
+        now = now.floor("D")
+    else:
+        # else, use tomorrow
+        now = now.ceil("D")
+
+    return now
+
+
+@cached(cache=TTLCache(maxsize=1, ttl=60 * 90))
 def tradingDaysRemainingInMonth():
     """Return how many trading days until the month ends..."""
+    now = goodCalendarDate()
     found = mcal.getMarketCalendar(
-        "NASDAQ", start=pd.Timestamp("now"), stop=pd.Timestamp("now") + MonthEnd(0)
+        "NASDAQ",
+        start=now,
+        stop=now + MonthEnd(0),
     )
 
     # just length because the 'found' calendar has one row for each market day in the result set...
@@ -213,11 +237,14 @@ def tradingDaysRemainingInMonth():
     return distance
 
 
-@cached(cache=TTLCache(maxsize=128, ttl=60 * 60 * 90))
+@cached(cache=TTLCache(maxsize=1, ttl=60 * 90))
 def tradingDaysRemainingInYear():
     """Return how many trading days until the year ends..."""
+    now = goodCalendarDate()
     found = mcal.getMarketCalendar(
-        "NASDAQ", start=pd.Timestamp("now"), stop=pd.Timestamp("now") + YearEnd(0)
+        "NASDAQ",
+        start=now,
+        stop=now + YearEnd(0),
     )
 
     distance = len(found)
