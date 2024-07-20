@@ -1493,14 +1493,23 @@ class IOpOrder(IOp):
                 #       remember to DO NOT reduce quantity when chasing closing orders because we want to close a whole position.
                 if isLong:
                     # if this is a BUY LONG order, we want to close the gap between our initial price guess and the actual ask.
-                    newPrice = automaticLimitBuffer(
-                        trade.contract, isLong, (currentPrice + ask) / 2
-                    )
+                    newPrice = (currentPrice + ask) / 2
                 else:
                     # else, this is a SELL SHORT (or close long) order, so we want to start at our price and chase the bid closer.
-                    newPrice = automaticLimitBuffer(
-                        trade.contract, isLong, (currentPrice + bid) / 2
-                    )
+                    newPrice = (currentPrice + bid) / 2
+
+                if isinstance(trade.contract, (Option, FuturesOption, Future)):
+                    newPrice = comply(contract, newPrice)
+
+                # crypto and forex can round to 8 places, everything else is 2 places.
+                if isinstance(trade.contract, (Forex, Crypto)):
+                    newPrice = round(newPrice, 8)
+                else:
+                    newPrice = round(newPrice, 2)
+                    # if price DID NOT CHANGE, we still need to modify the price increment for an order update in our intended direction.
+                    # (there's no sense in updating an order price to the same value, plus IBKR outright rejects updates if the price or quantity doesn't change)
+                    if newPrice == currentPrice:
+                        currentPrice += 0.01 if isLong else -0.01
 
                 logger.info(
                     "Price changing from {} to {} (difference {}) for spending ${:,.2f}",
