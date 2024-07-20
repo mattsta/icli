@@ -657,6 +657,26 @@ class IOpInfo(IOp):
                         else ticker.lastSize,
                     )
 
+                def tickTickBoom(current, prev, name):
+                    if current == current and prev == prev:
+                        udl = "FLAT"
+                        amt = current - prev
+                        if amt > 0:
+                            udl = "UP"
+                        elif amt < 0:
+                            udl = "DOWN"
+
+                        logger.info(
+                            "[{}] {} tick {} (${:,.4f})",
+                            ticker.contract.localSymbol,
+                            name,
+                            udl,
+                            amt,
+                        )
+
+                tickTickBoom(ticker.bid, ticker.prevBid, "BID")
+                tickTickBoom(ticker.ask, ticker.prevAsk, "ASK")
+
                 # protect against ask being -1 or NaN thanks to weird IBKR data issues when markets aren't live
                 if ticker.ask > 0 and ticker.ask == ticker.ask:
                     logger.info(
