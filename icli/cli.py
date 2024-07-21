@@ -2416,7 +2416,7 @@ class IBKRCmdlineApp:
                             f"{fmtPriceOpt(e100):>6}",
                             f"{trend}",
                             f"{fmtPriceOpt(e300):>6}",
-                            f"{fmtPriceOpt(mark):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
+                            f"{fmtPriceOpt(mark or (c.modelGreeks.optPrice if c.modelGreeks else 0)):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
                             f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
                             f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low):>6})",
                             f"({pctBigClose} {amtBigClose} {fmtPriceOpt(c.close):>6})",
