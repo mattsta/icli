@@ -585,6 +585,49 @@ class IOpCalculator(IOp):
 
 
 @dataclass
+class IOpDetails(IOp):
+    """Show the IBKR contract market details for a symbol.
+
+    This is useful to check names/industries/trade dates/algos/exchanges/etc.
+
+    Note: this is _NOT_ included as part of `info` output because `details` requires a
+          slower server-side data fetch for the larger market details (which can be big and
+          introduce pacing violations if run too much at once).
+    """
+
+    def argmap(self):
+        return [DArg("*symbols", desc="Symbols to check for contract details")]
+
+    async def run(self):
+        contracts = []
+
+        for sym in self.symbols:
+            # yet another in-line hack for :N lookups because we still haven't created a central abstraction yet...
+            if sym[0] == ":":
+                contracts.append(self.state.quoteResolve(sym)[1])
+            else:
+                contracts.append(contractForName(sym))
+
+        # If any lookups fail above, remove 'None' results before we fetch full contracts.
+        contracts = await self.state.qualify(*filter(None, contracts))
+
+        # TODO: we should actually cache these detail results and have them expire at the end of every
+        #       day (the details include day-changing quantities like next N day lookahead trading sessions,
+        #       so the details _do_ change over time, but they _do not_ change within a single day).
+        for contract in contracts:
+            (detail,) = await self.ib.reqContractDetailsAsync(contract)
+            # Only print ticker if we have an active market data feed already subscribed on this client
+            logger.info(
+                "[{}] Details: {}", detail.contract.localSymbol, pp.pformat(detail)
+            )
+            logger.info(
+                "[{}] Trading Sessions: {}",
+                detail.contract.localSymbol,
+                pp.pformat(detail.tradingSessions()),
+            )
+
+
+@dataclass
 class IOpInfo(IOp):
     """Show the underlying IBKR contract object for a symbol.
 
@@ -4393,6 +4436,7 @@ OP_MAP = {
         "calendar": IOpCalendar,
         "math": IOpCalculator,
         "info": IOpInfo,
+        "details": IOpDetails,
         "expand": IOpExpand,
         "set": IOpSetEnvironment,
         "say": IOpSay,
