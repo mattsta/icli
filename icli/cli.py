@@ -2995,6 +2995,11 @@ class IBKRCmdlineApp:
         return runnables
 
     async def runall(self):
+        logger.info(
+            "Using ib_async version: {} :: {}",
+            ib_async.version.__version__,
+            ib_async.version.__version_info__,
+        )
         await self.prepare()
         while not self.exiting:
             try:
