@@ -719,6 +719,7 @@ class IOpInfo(IOp):
 
                 tickTickBoom(ticker.bid, ticker.prevBid, "BID")
                 tickTickBoom(ticker.ask, ticker.prevAsk, "ASK")
+                tickTickBoom(ticker.last, ticker.prevLast, "LAST")
 
                 # protect against ask being -1 or NaN thanks to weird IBKR data issues when markets aren't live
                 if ticker.ask > 0 and ticker.ask == ticker.ask:
