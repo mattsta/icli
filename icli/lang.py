@@ -585,6 +585,49 @@ class IOpCalculator(IOp):
 
 
 @dataclass
+class IOpDetails(IOp):
+    """Show the IBKR contract market details for a symbol.
+
+    This is useful to check names/industries/trade dates/algos/exchanges/etc.
+
+    Note: this is _NOT_ included as part of `info` output because `details` requires a
+          slower server-side data fetch for the larger market details (which can be big and
+          introduce pacing violations if run too much at once).
+    """
+
+    def argmap(self):
+        return [DArg("*symbols", desc="Symbols to check for contract details")]
+
+    async def run(self):
+        contracts = []
+
+        for sym in self.symbols:
+            # yet another in-line hack for :N lookups because we still haven't created a central abstraction yet...
+            if sym[0] == ":":
+                contracts.append(self.state.quoteResolve(sym)[1])
+            else:
+                contracts.append(contractForName(sym))
+
+        # If any lookups fail above, remove 'None' results before we fetch full contracts.
+        contracts = await self.state.qualify(*filter(None, contracts))
+
+        # TODO: we should actually cache these detail results and have them expire at the end of every
+        #       day (the details include day-changing quantities like next N day lookahead trading sessions,
+        #       so the details _do_ change over time, but they _do not_ change within a single day).
+        for contract in contracts:
+            (detail,) = await self.ib.reqContractDetailsAsync(contract)
+            # Only print ticker if we have an active market data feed already subscribed on this client
+            logger.info(
+                "[{}] Details: {}", detail.contract.localSymbol, pp.pformat(detail)
+            )
+            logger.info(
+                "[{}] Trading Sessions: {}",
+                detail.contract.localSymbol,
+                pp.pformat(detail.tradingSessions()),
+            )
+
+
+@dataclass
 class IOpInfo(IOp):
     """Show the underlying IBKR contract object for a symbol.
 
@@ -634,14 +677,14 @@ class IOpInfo(IOp):
                     )
                     if ticker.histVolatility < ticker.impliedVolatility:
                         logger.info(
-                            "[{}] Volatility: RISING ({:,.2f}%)",
+                            "[{}] Volatility: RISING ({:,.2f} %)",
                             ticker.contract.localSymbol,
                             100
                             * ((ticker.impliedVolatility / ticker.histVolatility) - 1),
                         )
                     else:
                         logger.info(
-                            "[{}] Volatility: FALLING ({:,.2f}%)",
+                            "[{}] Volatility: FALLING ({:,.2f} %)",
                             ticker.contract.localSymbol,
                             100
                             * ((ticker.histVolatility / ticker.impliedVolatility) - 1),
@@ -656,6 +699,27 @@ class IOpInfo(IOp):
                         if int(ticker.lastSize) == ticker.lastSize
                         else ticker.lastSize,
                     )
+
+                def tickTickBoom(current, prev, name):
+                    if current == current and prev == prev:
+                        udl = "FLAT"
+                        amt = current - prev
+                        if amt > 0:
+                            udl = "UP"
+                        elif amt < 0:
+                            udl = "DOWN"
+
+                        logger.info(
+                            "[{}] {} tick {} (${:,.4f})",
+                            ticker.contract.localSymbol,
+                            name,
+                            udl,
+                            amt,
+                        )
+
+                tickTickBoom(ticker.bid, ticker.prevBid, "BID")
+                tickTickBoom(ticker.ask, ticker.prevAsk, "ASK")
+                tickTickBoom(ticker.last, ticker.prevLast, "LAST")
 
                 # protect against ask being -1 or NaN thanks to weird IBKR data issues when markets aren't live
                 if ticker.ask > 0 and ticker.ask == ticker.ask:
@@ -689,6 +753,19 @@ class IOpInfo(IOp):
                     # (basically: your daily rollover loss percentage if the price doesn't move overnight)
                     df["theta%"] = round(df.theta / df.optPrice, 2)
                     df["delta%"] = round(df.delta / df.optPrice, 2)
+
+                    # theta/delta tells you how much the underlying must go up the next day to compensate
+                    # for the theta decay.
+                    # e.g. delta 0.10 and theta -0.05 means the underlying must go up $0.50 the next day to remain flat.
+                    #      delta 0.03 and theta -0.14 means the underlying must go up $5 the next day to remain flat.
+                    df["Θ/Δ"] = round(-df.theta / df.delta, 2)
+
+                    # provide rough (ROUGH) estimates for 3 days into the future accounting for theta
+                    # (note: theta is negative, so we just add it. also note: theta doesn't decay linearly,
+                    #        so these calculations are not _exact_, but it serves as a mental checkpoint to compare against).
+                    df["day+1"] = round(df.optPrice + df.theta, 2).clip(lower=0)
+                    df["day+2"] = round(df.optPrice + df.theta * 2, 2).clip(lower=0)
+                    df["day+3"] = round(df.optPrice + df.theta * 3, 2).clip(lower=0)
 
                     # remove always empty columns
                     del df["pvDividend"]
@@ -1283,7 +1360,14 @@ class IOpOrder(IOp):
                         "Syntax broken? Expected '@ <price>' but got: {}", self.preview
                     )
 
-                optionalPrice = float(self.preview[1])
+                try:
+                    optionalPrice = float(self.preview[1])
+                except:
+                    logger.error(
+                        "Optional price isn't a number? Failed to read as price: {}",
+                        self.preview[1],
+                    )
+                    return None
 
                 # if we have EVEN MORE ELEMENTS, user is requesting an auto-attached exit too.
 
@@ -1453,14 +1537,23 @@ class IOpOrder(IOp):
                 #       remember to DO NOT reduce quantity when chasing closing orders because we want to close a whole position.
                 if isLong:
                     # if this is a BUY LONG order, we want to close the gap between our initial price guess and the actual ask.
-                    newPrice = automaticLimitBuffer(
-                        trade.contract, isLong, (currentPrice + ask) / 2
-                    )
+                    newPrice = (currentPrice + ask) / 2
                 else:
                     # else, this is a SELL SHORT (or close long) order, so we want to start at our price and chase the bid closer.
-                    newPrice = automaticLimitBuffer(
-                        trade.contract, isLong, (currentPrice + bid) / 2
-                    )
+                    newPrice = (currentPrice + bid) / 2
+
+                if isinstance(trade.contract, (Option, FuturesOption, Future)):
+                    newPrice = comply(contract, newPrice)
+
+                # crypto and forex can round to 8 places, everything else is 2 places.
+                if isinstance(trade.contract, (Forex, Crypto)):
+                    newPrice = round(newPrice, 8)
+                else:
+                    newPrice = round(newPrice, 2)
+                    # if price DID NOT CHANGE, we still need to modify the price increment for an order update in our intended direction.
+                    # (there's no sense in updating an order price to the same value, plus IBKR outright rejects updates if the price or quantity doesn't change)
+                    if newPrice == currentPrice:
+                        currentPrice += 0.01 if isLong else -0.01
 
                 logger.info(
                     "Price changing from {} to {} (difference {}) for spending ${:,.2f}",
@@ -3386,6 +3479,9 @@ class IOpExecutions(IOp):
         # Goodbye multiindex...
         df.columns = df.columns.droplevel(0)
 
+        # enforce the dataframe is ordered from oldest executions to newest executions as defined by full original timestamp order.
+        df.sort_values(by=["time", "clientId"], inplace=True)
+
         # show only executions for the current client id
         # TODO: allow showing only from a specific client id provided as a paramter too?
         if SELF_CHECK & self.symbols:
@@ -3428,10 +3524,12 @@ class IOpExecutions(IOp):
         df["RPNL_each"] = df.realizedPNL / df.shares
 
         # provide a weak calculation of commission as percentage of PNL and of traded value.
-        # this isn't entirely accurate because it doesn't account for the _entry_ commission, we are only
-        # using the exit commission when a realized PNL value is provided.
+        # Note: we estimate the entry commission by just doubling the exit commission (which isn't 100% accurate, but
+        #       if the opening trade was more than 1 day ago, we don't have the opening matching executions to read
+        #       the execution from (and we aren't keeping a local fullly logged execution history, but maybe we should
+        #       add logged execution history as a feature in the future?)
         df["c_pct"] = df.commission / (df.total + df.commission)
-        df["c_pct_RPNL"] = df.commission / (df.realizedPNL + df.commission)
+        df["c_pct_RPNL"] = (df.commission * 2) / (df.realizedPNL + (df.commission * 2))
 
         dfByTrade = df.groupby("orderId side localSymbol".split()).agg(
             dict(
@@ -3445,6 +3543,17 @@ class IOpExecutions(IOp):
                 c_each=["mean"],
             )
         )
+
+        # also show if the order occurred via multiple executions over time
+        # (single executions will have zero duration, etc)
+        dfByTrade["duration"] = pd.to_datetime(
+            dfByTrade["time"]["finish"]
+        ) - pd.to_datetime(dfByTrade["time"]["start"])
+
+        # convert the default pandas datetime difference just into a number of seconds per row
+        # (the returned "Series" from the subtraction above doesn't allow .seconds to be applied
+        #  as a column operation, so we apply it row-element-wise here instead)
+        dfByTrade["duration"] = dfByTrade.duration.apply(lambda x: x.seconds)
 
         # also show commission percent for traded value per row
         dfByTrade["c_pct"] = dfByTrade.commission / (
@@ -3501,13 +3610,13 @@ class IOpExecutions(IOp):
         # display anything NaN as empty strings so it doesn't clutter the interface
         df.fillna("", inplace=True)
 
-        df.rename(columns={"lastTradeDateOrContractMonth": "date"}, inplace=True)
+        df.rename(columns={"lastTradeDateOrContractMonth": "conDate"}, inplace=True)
         # ignoring: "execId" (long string for execution recall) and "permId" (???)
 
         # removed: lastLiquidity avgPrice
         df = df[
             (
-                """clientId secType conId strike right date exchange symbol tradingClass localSymbol time orderId
+                """clientId secType conId symbol conDate right strike date exchange tradingClass localSymbol time orderId
          side  shares  cumQty price    total realizedPNL RPNL_each
          commission c_each c_pct c_pct_RPNL dayProfit""".split()
             )
@@ -4328,6 +4437,7 @@ OP_MAP = {
         "calendar": IOpCalendar,
         "math": IOpCalculator,
         "info": IOpInfo,
+        "details": IOpDetails,
         "expand": IOpExpand,
         "set": IOpSetEnvironment,
         "say": IOpSay,

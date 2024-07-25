@@ -30,6 +30,7 @@ import orjson
 import pandas as pd
 import pendulum
 
+from pandas.tseries.offsets import MonthEnd, YearEnd
 from prompt_toolkit import Application, print_formatted_text, PromptSession
 from prompt_toolkit.application import get_app
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -82,6 +83,10 @@ from cachetools import cached, TTLCache
 
 from mutil.numeric import fmtPrice, fmtPricePad
 from mutil.timer import Timer
+
+# increase calendar cache duration since we provide exact inputs each time,
+# so we know the cache doesn't need to self-invalidate to update new values.
+mcal.CALENDAR_CACHE_SECONDS = 60 * 60 * 60
 
 warnings.filterwarnings("ignore", category=bs4.MarkupResemblesLocatorWarning)
 pp.install_extras(["dataclasses"], warn_on_error=False)
@@ -181,13 +186,14 @@ def invertstr(x):
 
 
 # allow these values to be cached for 10 hours
-@cached(cache=TTLCache(maxsize=128, ttl=60 * 60 * 10))
+@cached(cache=TTLCache(maxsize=1, ttl=60 * 60 * 10))
 def fetchDateTimeOfEndOfMarketDay():
     """Return the market (start, end) timestamps for the next two market end times."""
+    now = pd.Timestamp("now")
     found = mcal.getMarketCalendar(
         "NASDAQ",
-        start=pd.Timestamp("now"),
-        stop=pd.Timestamp("now") + pd.Timedelta(7, "D"),
+        start=now,
+        stop=now + pd.Timedelta(7, "D"),
     )
 
     # format returned is two columns of [MARKET OPEN, MARKET CLOSE] timestamps per date.
@@ -198,6 +204,51 @@ def fetchDateTimeOfEndOfMarketDay():
     nextEnd = found.iat[1, 1]
 
     return [(soonestStart, soonestEnd), (nextStart, nextEnd)]
+
+
+def goodCalendarDate():
+    """Return the start calendar date we should use for market date lookups.
+
+    Basically, use TODAY if the current time is before liquid hours market close, else use TOMORROW."""
+    now = pd.Timestamp("now", tz="US/Eastern")
+
+    # if EARLIER than 4pm, use today.
+    if now.hour < 16:
+        now = now.floor("D")
+    else:
+        # else, use tomorrow
+        now = now.ceil("D")
+
+    return now
+
+
+@cached(cache=TTLCache(maxsize=1, ttl=60 * 90))
+def tradingDaysRemainingInMonth():
+    """Return how many trading days until the month ends..."""
+    now = goodCalendarDate()
+    found = mcal.getMarketCalendar(
+        "NASDAQ",
+        start=now,
+        stop=now + MonthEnd(0),
+    )
+
+    # just length because the 'found' calendar has one row for each market day in the result set...
+    distance = len(found)
+    return distance
+
+
+@cached(cache=TTLCache(maxsize=1, ttl=60 * 90))
+def tradingDaysRemainingInYear():
+    """Return how many trading days until the year ends..."""
+    now = goodCalendarDate()
+    found = mcal.getMarketCalendar(
+        "NASDAQ",
+        start=now,
+        stop=now + YearEnd(0),
+    )
+
+    distance = len(found)
+    return distance
 
 
 # expire this cache once every 15 minutes so we only have up to 15 minutes of wrong dates after EOD
@@ -1501,18 +1552,20 @@ class IBKRCmdlineApp:
             ]
             logger.info("    ".join(show))
 
+        # updated price picking logic: if we have a live bid/ask, return them.
+        # else, if we don't have a bid/ask, use the last reported price (if it exists).
+        # else else, return nothing because there's no actual price we can read anywhere.
+
         # if no quote yet (or no prices available), return last seen price...
-        if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
-            # for now, disable "last" short circuit reporting because it broke
-            # our real time price checks by showing the last closing price of the previous
-            # day instead of the "last live trade" as we expected...
-            if False:
-                if q.last == q.last:
-                    return q.last, q.last
+        if q.bid == q.bid and q.ask == q.ask and q.bid > 0 and q.ask > 0:
+            return q.bid, q.ask
 
-            return None
+        # if last exists, use it.
+        if q.last == q.last:
+            return q.last, q.last
 
-        return q.bid, q.ask
+        # else, we found no valid price option here.
+        return None
 
     async def loadExecutions(self) -> None:
         """Manually fetch all executions from the gateway.
@@ -1778,7 +1831,7 @@ class IBKRCmdlineApp:
 
                         # Also combine realized+unrealized to show the current daily total PnL percentage because
                         # maybe we have 12% realized profit but -12% unrealized and we're actually flat...
-                        update["DayPnL%"] = (
+                        update["TotalPnL%"] = (
                             update["RealizedPnL%"] + update["UnrealizedPnL%"]
                         )
                     case _:
@@ -1871,6 +1924,11 @@ class IBKRCmdlineApp:
             # if no price, don't update (but allow negative prices if this is a credit quote)
             if (not price) or (longOnly and (price < 0)) or (price != price):
                 # logger.info("Skipping EMA update for: {} because {}", sym, price)
+
+                # We had some invalid price data here, so reset everything to zero (if not already zero)
+                if sym in self.ema:
+                    del self.ema[sym]
+
                 return
 
             # Normalize the EMAs s so they are in TIME and not "updates per ICLI_REFRESH interval"
@@ -1904,6 +1962,9 @@ class IBKRCmdlineApp:
 
         # Fields described at:
         # https://ib-insync.readthedocs.io/api.html#module-ib_insync.ticker
+
+        useLast = self.localvars.get("last")
+
         def formatTicker(c):
             ls = lookupKey(c.contract)
 
@@ -1928,6 +1989,7 @@ class IBKRCmdlineApp:
             # for some decisions.
             bid = c.bid
             ask = c.ask
+            last = c.last
             bidSize = c.bidSize
             askSize = c.askSize
             decimals = 2
@@ -1936,10 +1998,15 @@ class IBKRCmdlineApp:
                 decimals = 5
 
             if bid > 0 and bid == bid and ask > 0 and ask == ask:
-                if isinstance(c.contract, Future):
-                    usePrice = rounder.round("/" + c.contract.symbol, (bid + ask) / 2)
+                if useLast:
+                    usePrice = last
                 else:
-                    usePrice = round((bid + ask) / 2, decimals)
+                    if isinstance(c.contract, Future):
+                        usePrice = rounder.round(
+                            "/" + c.contract.symbol, (bid + ask) / 2
+                        )
+                    else:
+                        usePrice = round((bid + ask) / 2, decimals)
             elif isinstance(c.contract, Bag):
                 if (bid != 0 and ask != 0) and (bid == bid) and (ask == ask):
                     # bags are allowed to have negative prices because they can be credit quotes
@@ -1993,8 +2060,13 @@ class IBKRCmdlineApp:
                 # else, bid/ask is currently offline or broken or just not on the symbol, so use the last traded price.
                 usePrice = c.last if c.last == c.last else c.close
 
-            # update EMA using current midpoint estimate (and allow Bag/spread quotes to have negative EMA due to credit spreads)
-            updateEMA(ls, usePrice, not isinstance(c.contract, Bag))
+            # update EMA using current midpoint estimate (and allow Bag/spread quotes to have negative EMA due to credit spreads).
+            # Also allow TICK to trend negative since it's a metric and not a price.
+            updateEMA(
+                ls,
+                usePrice,
+                (not isinstance(c.contract, Bag) and not (ls == "TICK-NYSE")),
+            )
 
             ago = (self.now - (c.time or self.now)).as_duration()
             try:
@@ -2174,23 +2246,25 @@ class IBKRCmdlineApp:
                         ],
                     )
 
-                if c.lastGreeks and c.lastGreeks.undPrice:
-                    und = c.lastGreeks.undPrice
+                und = None
+                underlyingStrikeDifference = None
+                iv = None
+                delta = None
+                try:
+                    iv = c.modelGreeks.impliedVol
+                    delta = c.modelGreeks.delta
+
+                    # Note: keep underlyingStrikeDifference the LAST attempt here because if the user doesn't
+                    #       have live market data for this option, then 'und' is 0 and this math breaks,
+                    #       but if it breaks _last_ then the greeks above still work properly.
                     strike = c.contract.strike
+                    und = c.modelGreeks.undPrice
                     underlyingStrikeDifference = -(strike - und) / und * 100
-                    iv = c.lastGreeks.impliedVol
-                    # for our buying and selling, we want greeks based on the live floating
-                    # bid/ask spread and not the last price (could be out of date) and not
-                    # the direct bid or ask (too biased while buying and selling)
-                    delta = c.modelGreeks.delta if c.modelGreeks else None
-                else:
-                    und = None
-                    underlyingStrikeDifference = None
-                    iv = None
-                    delta = None
+                except:
+                    pass
 
                 # Note: we omit OPEN price because IBKR doesn't report it (for some reason?)
-                # greeks available as .bidGreeks, .askGreeks, .lastGreeks, .modelGreeks each as an OptionComputation named tuple
+                # greeks available as .bidGreeks, .askGreeks, .lastGreeks, .modelGreeks each as an OptionComputation named tuple.
                 # '.halted' is either nan or 0 if NOT halted, so 'halted > 0' should be a safe check.
                 rowName: str
 
@@ -2357,13 +2431,13 @@ class IBKRCmdlineApp:
                     return " ".join(
                         [
                             rowName,
-                            f"[u {fmtPricePad(und, padding=8, decimals=2)} ({itm:<1} {underlyingStrikeDifference or -0:>7,.2f}%)]",
+                            f"[u {fmtPricePad(und, padding=8, decimals=2)} ({itm:<1} {underlyingStrikeDifference or np.nan:>7,.2f}%)]",
                             f"[iv {iv or 0:.2f}]",
                             f"[d {delta or 0:>5.2f}]",
                             f"{fmtPriceOpt(e100):>6}",
                             f"{trend}",
                             f"{fmtPriceOpt(e300):>6}",
-                            f"{fmtPriceOpt(mark):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
+                            f"{fmtPriceOpt(mark or (c.modelGreeks.optPrice if c.modelGreeks else 0)):>6} ±{fmtPriceOpt(c.ask - mark):<4}",
                             f"({pctBigHigh} {amtBigHigh} {fmtPriceOpt(c.high):>6})",
                             f"({pctBigLow} {amtBigLow} {fmtPriceOpt(c.low):>6})",
                             f"({pctBigClose} {amtBigClose} {fmtPriceOpt(c.close):>6})",
@@ -2457,7 +2531,7 @@ class IBKRCmdlineApp:
                     f"{trend}",
                     f"{fmtPricePad(e300, decimals=decimals)}",
                     f"({fmtPricePad(e300diff, padding=6, decimals=3)})",
-                    f"{fmtPricePad(usePrice, decimals=decimals)} ±{fmtEquitySpread(c.ask - usePrice) if c.ask >= usePrice else '':<6}",
+                    f"{fmtPricePad(usePrice, decimals=decimals)} ±{fmtEquitySpread(c.ask - usePrice) if (c.ask > 0 and c.ask >= usePrice) else '':<6}",
                     f"({pctUndHigh} {amtUndHigh})",
                     f"({pctUpLow} {amtUpLow})",
                     f"({pctUpClose} {amtUpClose})",
@@ -2520,7 +2594,11 @@ class IBKRCmdlineApp:
 
                 vlen = len(value)
                 # "+ 4" because of the "    " in the row entry join
-                if (currentrowlen + vlen + 4) < rowlen:
+                # ALSO, limit each row to 7 elements MAX so we always have the same status block
+                # alignment regardless of console width (well, if consoles are wide enough for six or seven columns
+                # at least; if your terminal is smaller than six status columns the entire UI is probably truncated anyway).
+                totLen = currentrowlen + vlen + 4
+                if (totLen < rowlen) and (totLen < 271):
                     # append to current row
                     rowvals[-1].append(value)
                     currentrowlen += vlen + 4
@@ -2529,7 +2607,7 @@ class IBKRCmdlineApp:
                     rowvals.append([value])
                     currentrowlen = vlen
 
-            balrows = "\n".join("    ".join(x) for x in rowvals)
+            balrows = "\n".join(["    ".join(x) for x in rowvals])
 
             def sortQuotes(x):
                 """Comparison function to sort quotes by specific types we want grouped together."""
@@ -2653,10 +2731,12 @@ class IBKRCmdlineApp:
             #       on if we are out of market hours or not, but we aren't bothering with the extra logic for now.
             untilClose = fetchEndOfMarketDay() - self.now
             todayclose = f"mktclose: {untilClose.in_words()}"
+            daysInMonth = f"dim: {tradingDaysRemainingInMonth()}"
+            daysInYear = f"diy: {tradingDaysRemainingInYear()}"
 
             return HTML(
                 # all these spaces look weird, but they (kinda) match the underlying column-based formatting offsets
-                f"""[{ICLI_CLIENT_ID}] {self.now}{onc} [{self.updates:,}]                {spxbreakers}                     {openorders}    {openpositions}    {todayexecutions}      {todayclose}\n"""
+                f"""[{ICLI_CLIENT_ID}] {self.now}{onc} [{self.updates:,}]                {spxbreakers}                     {openorders}    {openpositions}    {todayexecutions}      {todayclose}   ({daysInMonth} :: {daysInYear})\n"""
                 + "\n".join(
                     [
                         f"{qp:>2}) " + formatTicker(quote)
@@ -2940,6 +3020,11 @@ class IBKRCmdlineApp:
         return runnables
 
     async def runall(self):
+        logger.info(
+            "Using ib_async version: {} :: {}",
+            ib_async.version.__version__,
+            ib_async.version.__version_info__,
+        )
         await self.prepare()
         while not self.exiting:
             try:

@@ -303,6 +303,7 @@ def contractForName(sym, exchange="SMART", currency="USD"):
         #   - B: - bond
         #   - S: - stock (or no contract namespace)
         #   - I: - an index value (VIX, VIN, SPX, etc)
+        #   - K: - a direct IBKR contract id to populate into a contract
         # Note: futures and future options are prefixed with /
         #       equity options are the full OCC symbol with no prefix
         namespaceParts = sym.split(":")
@@ -331,6 +332,8 @@ def contractForName(sym, exchange="SMART", currency="USD"):
             elif contractNamespace == "CFD":
                 # things like CFD:XAUUSD
                 contract = CFD(symbol)
+            elif contractNamespace == "K":
+                contract = Contract(conId=int(symbol))
             else:
                 logger.error("Invalid contract type: {}", contractNamespace)
                 contract = None

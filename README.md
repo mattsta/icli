@@ -11,6 +11,8 @@ Watch the console replay demo below to see a paper trading account where we add 
 
 [![asciicast](https://asciinema.org/a/424814.svg)](https://asciinema.org/a/424814)
 
+Note: the capture preview is a couple years old at this point and we should make a new one. The interface has improved since then, so try it out from a recent clone and join us here in the future.
+
 ## Overview
 
 Welcome to `icli`! You can use `icli` to manage manual and automated trading using your IBKR account for stocks, futures, currencies, and options.
@@ -31,6 +33,12 @@ Some helpful advanced commands only available in `icli`:
   - See `expand?` and `evict?` and `buy?` for more details of how it all works.
 - The price format also supports negative prices for shorts or sells, so you can do `buy AAPL 100 MID` to buy then `buy AAPL -100 MID` to sell. You can buy and sell by any combination of price and quantity: `buy MSFT $10_000 AF`, `buy MSFT -10 MKT` etc.
 - The price format also doubles as a share count format if you don't include `$`, so `buy AAPL 100 AF` will buy 100 shares of AAPL at the current market price using IBKR's Adaptive Fast order algo type. Price or Quantity values can be positive or negative: `buy AAPL 100 AF`, `buy AAPL $10_000 AF`, `buy AAPL -20 AF`, `buy AAPL -$40_000 AF`. You can append `preview` to `buy` orders to get an estimate of margin impact and other account-based order details too.
+- The text buy format also supports exact limit prices and automatic brackets or sells via:
+  - `buy AAPL 100 AF @ 233.33` — submit buy order for 100 shares but with user-specified limit price of $233.33
+  - `buy AAPL 100 AF @ 233.33 preview` — preview the margin impact and cost estimation without executing an order
+  - `buy AAPL 100 AF @ 233.33 + 10` — same buy order as above, but automatically attach a "take profit" order $10 higher
+  - `buy AAPL 100 AF @ 233.33 - 10` — same buy order as above, but automatically attach a "stop loss" order $10 lower
+  - `buy AAPL 100 AF @ 233.33 ± 10` — same buy order as above, but automatically attach a "take profit" $10 high _and_ a "stop loss" $10 lower simultaenously (when one executes, the other is automatically cancelled by the IBKR system)
 - The cli also supports running any commands concurrently or sequentially. This will run both `buy` commands concurrently then show your portfolio holdings after they complete:
   - `buy AAPL 100 AF preview&; buy MSFT 100 AF preview&; ls`.
   - Basically: append `&` to your commands to run them concurrently then split commands with `;`, and you can also run any commands sequentially with just `;` as well like: `ls; ord; bal SMA`
@@ -80,23 +88,24 @@ For tracking feature updates, check the full commit history and you can always r
 - the positions CLI view also shows matched closing orders for each currently owned symbol
 - helper shorthands, like an `EVICT [symbol] [quantity]` command to immediately yeet an entire equity position into a [MidPrice](https://www.interactivebrokers.com/en/index.php?f=36735) order with no extra steps
     - for closing any position, you can enter `-1` as the quantity to use full quantity held
-- support for showing depth-of-market requests for a quick glance at market composition (`dom` command)
-    - though, IBKR DOM is awful because even if you do pay the extra $300+/month to get full access, it only returns 5 levels on each side. If you want DOM, I'd recommend WeBull's TotalView discount package for $1.99/month and for options use futu/moomoo "Option Order Book Depth" quote pack (which includes real time options quotes) for $3.99/month (though, futu/momo is still pseudo-dom because it just shows top-of-book for each exchange instead of actual depth at any exchange).
-- easy order modifications/updates
-    - though, IBKR recommends you only modify order quantity and price, otherwise the order should be canceled and placed again if other fields need to be adjusted.
-- real time notification of order executions
-    - also plays [the best song ever](https://www.youtube.com/watch?v=VwEnx_NMZ4I&t=5s) when any trade is successfully executed as buy or sell
+- support for showing depth-of-market requests for a quick glance at underlying market supply/demand distributions (`depth` command)
+- easy order modifications for price or quantity updates
+- real time notification of order executions via spoken events
 - quick order cancellation—need to bail on one or more orders ASAP before they try to execute? we got u fam
     - `cancel` command with no arguments will bring up a menu for you to select one or more live orders to immediately cancel.
+    - also accepts wildcards so:
+      - `cancel *` removes all orders for the current client
+      - `cancel AAPL2*` removes all orders for AAPL contracts, etc
     - `cancel order1 order2 ... orderN` command with arguments will also cancel each requested order id immediately.
         - order ids are viewable in the `orders` command output table
 - quick helper to add all waiting orders to your live real time quote view (`oadd`: add all order symbols to quote view)
 - you can add individual symbols to the live quote view (equity, option, future, even spreads) (`add [symbols...]`: add symbols to quote view, quoted symbols can be spreads like `add AAPL QQQ "buy 1 AAPL210716C00160000 sell 1 AAPL210716C00155000"` to quote a credit spread and two equity symbols)
+- automatically remembers your added quote symbols across restarts
 - you can also check quotes without adding them to the persistent live updating quote view with `qquote [symbols...]`
     - the individual quote request process is annoyingly slow because of how IBKR reports quotes, but it still works
 - view your trade execution history for the current day (`executions` command)
     - includes per-execution commission cost (or credit!)
-    - also shows the sum total of your commissions for the day
+    - also shows the sum total of your commissions for the day and executions reports in multiple formats/views
 
 ### Streaming Quote View
 
