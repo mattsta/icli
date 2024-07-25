@@ -1552,18 +1552,20 @@ class IBKRCmdlineApp:
             ]
             logger.info("    ".join(show))
 
+        # updated price picking logic: if we have a live bid/ask, return them.
+        # else, if we don't have a bid/ask, use the last reported price (if it exists).
+        # else else, return nothing because there's no actual price we can read anywhere.
+
         # if no quote yet (or no prices available), return last seen price...
-        if all(np.isnan([q.bid, q.ask])) or (q.bid <= 0 and q.ask <= 0):
-            # for now, disable "last" short circuit reporting because it broke
-            # our real time price checks by showing the last closing price of the previous
-            # day instead of the "last live trade" as we expected...
-            if False:
-                if q.last == q.last:
-                    return q.last, q.last
+        if q.bid == q.bid and q.ask == q.ask and q.bid > 0 and q.ask > 0:
+            return q.bid, q.ask
 
-            return None
+        # if last exists, use it.
+        if q.last == q.last:
+            return q.last, q.last
 
-        return q.bid, q.ask
+        # else, we found no valid price option here.
+        return None
 
     async def loadExecutions(self) -> None:
         """Manually fetch all executions from the gateway.
