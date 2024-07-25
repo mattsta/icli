@@ -2585,7 +2585,11 @@ class IBKRCmdlineApp:
 
                 vlen = len(value)
                 # "+ 4" because of the "    " in the row entry join
-                if (currentrowlen + vlen + 4) < rowlen:
+                # ALSO, limit each row to 7 elements MAX so we always have the same status block
+                # alignment regardless of console width (well, if consoles are wide enough for six or seven columns
+                # at least; if your terminal is smaller than six status columns the entire UI is probably truncated anyway).
+                totLen = currentrowlen + vlen + 4
+                if (totLen < rowlen) and (totLen < 271):
                     # append to current row
                     rowvals[-1].append(value)
                     currentrowlen += vlen + 4
@@ -2594,7 +2598,7 @@ class IBKRCmdlineApp:
                     rowvals.append([value])
                     currentrowlen = vlen
 
-            balrows = "\n".join("    ".join(x) for x in rowvals)
+            balrows = "\n".join(["    ".join(x) for x in rowvals])
 
             def sortQuotes(x):
                 """Comparison function to sort quotes by specific types we want grouped together."""
