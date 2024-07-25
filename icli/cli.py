@@ -1924,6 +1924,11 @@ class IBKRCmdlineApp:
             # if no price, don't update (but allow negative prices if this is a credit quote)
             if (not price) or (longOnly and (price < 0)) or (price != price):
                 # logger.info("Skipping EMA update for: {} because {}", sym, price)
+
+                # We had some invalid price data here, so reset everything to zero (if not already zero)
+                if sym in self.ema:
+                    del self.ema[sym]
+
                 return
 
             # Normalize the EMAs s so they are in TIME and not "updates per ICLI_REFRESH interval"
@@ -2046,8 +2051,13 @@ class IBKRCmdlineApp:
                 # else, bid/ask is currently offline or broken or just not on the symbol, so use the last traded price.
                 usePrice = c.last if c.last == c.last else c.close
 
-            # update EMA using current midpoint estimate (and allow Bag/spread quotes to have negative EMA due to credit spreads)
-            updateEMA(ls, usePrice, not isinstance(c.contract, Bag))
+            # update EMA using current midpoint estimate (and allow Bag/spread quotes to have negative EMA due to credit spreads).
+            # Also allow TICK to trend negative since it's a metric and not a price.
+            updateEMA(
+                ls,
+                usePrice,
+                (not isinstance(c.contract, Bag) and not (ls == "TICK-NYSE")),
+            )
 
             ago = (self.now - (c.time or self.now)).as_duration()
             try:
@@ -2512,7 +2522,7 @@ class IBKRCmdlineApp:
                     f"{trend}",
                     f"{fmtPricePad(e300, decimals=decimals)}",
                     f"({fmtPricePad(e300diff, padding=6, decimals=3)})",
-                    f"{fmtPricePad(usePrice, decimals=decimals)} ±{fmtEquitySpread(c.ask - usePrice) if c.ask >= usePrice else '':<6}",
+                    f"{fmtPricePad(usePrice, decimals=decimals)} ±{fmtEquitySpread(c.ask - usePrice) if (c.ask > 0 and c.ask >= usePrice) else '':<6}",
                     f"({pctUndHigh} {amtUndHigh})",
                     f"({pctUpLow} {amtUpLow})",
                     f"({pctUpClose} {amtUpClose})",
