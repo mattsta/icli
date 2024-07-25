@@ -1962,6 +1962,9 @@ class IBKRCmdlineApp:
 
         # Fields described at:
         # https://ib-insync.readthedocs.io/api.html#module-ib_insync.ticker
+
+        useLast = self.localvars.get("last")
+
         def formatTicker(c):
             ls = lookupKey(c.contract)
 
@@ -1986,6 +1989,7 @@ class IBKRCmdlineApp:
             # for some decisions.
             bid = c.bid
             ask = c.ask
+            last = c.last
             bidSize = c.bidSize
             askSize = c.askSize
             decimals = 2
@@ -1994,10 +1998,15 @@ class IBKRCmdlineApp:
                 decimals = 5
 
             if bid > 0 and bid == bid and ask > 0 and ask == ask:
-                if isinstance(c.contract, Future):
-                    usePrice = rounder.round("/" + c.contract.symbol, (bid + ask) / 2)
+                if useLast:
+                    usePrice = last
                 else:
-                    usePrice = round((bid + ask) / 2, decimals)
+                    if isinstance(c.contract, Future):
+                        usePrice = rounder.round(
+                            "/" + c.contract.symbol, (bid + ask) / 2
+                        )
+                    else:
+                        usePrice = round((bid + ask) / 2, decimals)
             elif isinstance(c.contract, Bag):
                 if (bid != 0 and ask != 0) and (bid == bid) and (ask == ask):
                     # bags are allowed to have negative prices because they can be credit quotes
