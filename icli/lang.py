@@ -615,7 +615,12 @@ class IOpDetails(IOp):
         #       day (the details include day-changing quantities like next N day lookahead trading sessions,
         #       so the details _do_ change over time, but they _do not_ change within a single day).
         for contract in contracts:
-            (detail,) = await self.ib.reqContractDetailsAsync(contract)
+            try:
+                (detail,) = await self.ib.reqContractDetailsAsync(contract)
+            except:
+                logger.error("Contract details not found for: {}", contract)
+                continue
+
             # Only print ticker if we have an active market data feed already subscribed on this client
             logger.info(
                 "[{}] Details: {}", detail.contract.localSymbol, pp.pformat(detail)
