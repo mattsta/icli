@@ -721,11 +721,12 @@ class IBKRCmdlineApp:
 
         if oreq.isSingle():
             contract = contractForName(oreq.orders[0].symbol, exchange=exchange)
-            (contract,) = await self.qualify(contract)
+            if contract:
+                (contract,) = await self.qualify(contract)
 
-            # only return success if the contract validated
-            if contract.conId:
-                return contract
+                # only return success if the contract validated
+                if contract.conId:
+                    return contract
 
             return None
 

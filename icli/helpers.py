@@ -251,7 +251,12 @@ def contractForName(sym, exchange="SMART", currency="USD"):
                 endsWithDigit = True
                 sym = sym[:-2]
 
-            fxchg = FUTS_EXCHANGE[sym]
+            try:
+                fxchg = FUTS_EXCHANGE[sym]
+            except:
+                logger.error("[{}] Symbol not in our futures database mapping!", sym)
+                return None
+
             contract = Future(
                 currency=currency,
                 symbol=fxchg.symbol,
