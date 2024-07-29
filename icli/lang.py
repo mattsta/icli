@@ -3637,12 +3637,26 @@ class IOpExecutions(IOp):
             "realizedPNL"
         ]
 
+        # using "PNL == 0" to determine an open order should work _most_ of the time, but if you
+        # somehow get exactly a $0.00 PNL on a close, it will be counted incorrectly here.
+        dfByTimeProfit["opening"] = dfByTimeProfit.where(
+            dfByTimeProfit.realizedPNL == 0
+        )["orderId"]
+        dfByTimeProfit["closing"] = dfByTimeProfit.where(
+            dfByTimeProfit.realizedPNL != 0
+        )["orderId"]
+
         profitByHour = dfByTimeProfit.resample("30Min").agg(
-            dict(realizedPNL="sum", orderId="count", profit="count", loss="count")
+            dict(
+                realizedPNL="sum",
+                orderId=[("orders", "nunique"), ("executions", "count")],
+                profit="count",
+                loss="count",
+                opening="nunique",
+                closing="nunique",
+            )
         )
 
-        # TODO: format realizedPNL and dayProfit as prices for profitByHour
-        profitByHour.rename(columns=dict(orderId="executions"), inplace=True)
         profitByHour["dayProfit"] = profitByHour.realizedPNL.cumsum()
 
         needsPrices = "realizedPNL dayProfit".split()
