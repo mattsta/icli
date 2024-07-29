@@ -2444,8 +2444,8 @@ class IBKRCmdlineApp:
                             f" {fmtPriceOpt(c.bid):>6} x {b_s}   {fmtPriceOpt(c.ask):>6} x {a_s} ",
                             f"  ({str(ago):>13})  ",
                             f"(s {fmtPricePad(compensated, padding=8, decimals=2)} @ {compdiff:>6,.2f})",
-                            rowNice,
                             f"({when:>3} d)",
+                            rowNice,
                             "HALTED!" if c.halted > 0 else "",
                         ]
                     )
