@@ -3552,8 +3552,8 @@ class IOpExecutions(IOp):
         # also show if the order occurred via multiple executions over time
         # (single executions will have zero duration, etc)
         dfByTrade["duration"] = pd.to_datetime(
-            dfByTrade["time"]["finish"]
-        ) - pd.to_datetime(dfByTrade["time"]["start"])
+            dfByTrade["time"]["finish"], format="%H:%M:%S"
+        ) - pd.to_datetime(dfByTrade["time"]["start"], format="%H:%M:%S")
 
         # convert the default pandas datetime difference just into a number of seconds per row
         # (the returned "Series" from the subtraction above doesn't allow .seconds to be applied
