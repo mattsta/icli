@@ -43,7 +43,12 @@ async def initcli():
         # patch entire application with prompt-toolkit-compatible stdout
         with patch_stdout(raw=True):
             try:
-                await app.runall()
+                if len(sys.argv) > 1:
+                    # just add quotes to the first arg to get 1 parameter
+                    cmds = sys.argv[1]
+                else:
+                    cmds = None
+                await app.runall(cmds)
             except (SystemExit, EOFError):
                 # known-good exit condition
                 pass

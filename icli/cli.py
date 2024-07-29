@@ -3019,19 +3019,45 @@ class IBKRCmdlineApp:
 
         return runnables
 
-    async def runall(self):
+    async def runall(self, cmds=None):
         logger.info(
             "Using ib_async version: {} :: {}",
             ib_async.version.__version__,
             ib_async.version.__version_info__,
         )
         await self.prepare()
-        while not self.exiting:
-            try:
-                await self.dorepl()
-            except:
-                logger.exception("Uncaught exception in repl? Restarting...")
-                continue
+
+        if cmds is not None:
+            # just execute the given args as as command(s) and exit
+
+            # 'runnables' is the list of all commands to run after we collect them
+            runnables = self.buildRunnablesFromCommandRequest(cmds)
+
+            # if no commands, just draw the prompt again
+            if not runnables:
+                return
+
+            if len(runnables) == 1:
+                # if only one command, don't run with an extra Timer() report like we do below
+                # with multiple commands (individual commands always report their individual timing)
+                await runnables[0]
+            else:
+                # only show the "All commands" timer if we have multiple commands to run
+                with Timer("All commands"):
+                    for run in runnables:
+                        try:
+                            # run a COLLECTIVE COMMAND GROUP we previously created
+                            await run
+                        except:
+                            logger.exception("[{}] Runnable failed?", run)
+            self.exiting = True
+        else:
+            while not self.exiting:
+                try:
+                    await self.dorepl()
+                except:
+                    logger.exception("Uncaught exception in repl? Restarting...")
+                    continue
 
     async def prepare(self):
         # Setup...
