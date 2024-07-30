@@ -2180,7 +2180,7 @@ class IBKRCmdlineApp:
                 e100 = getEMA(ls, "1m")
                 e300 = getEMA(ls, "3m")
                 # logger.info("[{}] Got EMA for OPT: {} -> {}", ls, e100, e300)
-                e100diff = (mark - e100) if e100 else None
+                e100diff = (mark - e100) if e100 else 0
 
                 ediff = e100 - e300
                 if ediff > 0:
@@ -2432,7 +2432,7 @@ class IBKRCmdlineApp:
                     return " ".join(
                         [
                             rowName,
-                            f"[u {fmtPricePad(und, padding=8, decimals=2)} ({itm:<1} {underlyingStrikeDifference or np.nan:>7,.2f}%)]",
+                            f"[u {und or 0:>8,.2f} ({itm:<1} {underlyingStrikeDifference or np.nan:>7,.2f}%)]",
                             f"[iv {iv or 0:.2f}]",
                             f"[d {delta or 0:>5.2f}]",
                             f"{fmtPriceOpt(e100):>6}",
@@ -2444,7 +2444,7 @@ class IBKRCmdlineApp:
                             f"({pctBigClose} {amtBigClose} {fmtPriceOpt(c.close):>6})",
                             f" {fmtPriceOpt(c.bid):>6} x {b_s}   {fmtPriceOpt(c.ask):>6} x {a_s} ",
                             f"  ({str(ago):>13})  ",
-                            f"(s {fmtPricePad(compensated, padding=8, decimals=2)} @ {compdiff:>6,.2f})",
+                            f"(s {compensated:>8,.2f} @ {compdiff:>6,.2f})",
                             f"({when:>3} d)",
                             rowNice,
                             "HALTED!" if c.halted > 0 else "",
@@ -2455,7 +2455,6 @@ class IBKRCmdlineApp:
             #       not populated during those sessions.
             #       this also means during after-hours session, the high and low are fixed to what they
             #       were during RTH and are no longer valid. Should this have a time check too?
-            # TODO: replace these fixed 6.2 and 8.2 formats with fmtPricePad() with proper decimal extension for forex values instead.
             pctUndHigh, amtUndHigh = mkPctColor(
                 percentUnderHigh,
                 [
@@ -2515,11 +2514,11 @@ class IBKRCmdlineApp:
             #      difference which is actually a profit if it were LONG'd in the past)
             # also don't show differences for TICK because it's not really a useful number (and it's too big breaking formatting)
             if ls == "TICK-NYSE":
-                e100diff = np.nan
-                e300diff = np.nan
+                e100diff = 0
+                e300diff = 0
             else:
-                e100diff = (usePrice - e100) if e100 else None
-                e300diff = (usePrice - e300) if e300 else None
+                e100diff = (usePrice - e100) if e100 else 0
+                e300diff = (usePrice - e300) if e300 else 0
             # logger.info("[{}] e100 e300: {} {} {} {}", ls, e100, e300, e100diff, e300diff)
 
             # also add a marker for if the short term trend (1m) is GT, LT, or EQ to the longer term trend (3m)
@@ -2534,21 +2533,21 @@ class IBKRCmdlineApp:
             return " ".join(
                 [
                     f"{ls:<9}",
-                    f"{fmtPricePad(e100, decimals=decimals)}",
-                    f"({fmtPricePad(e100diff, padding=6, decimals=3)})",
+                    f"{e100:>10,.{decimals}f}",
+                    f"({e100diff:>6,.2f})" if e100diff else "(      )",
                     f"{trend}",
-                    f"{fmtPricePad(e300, decimals=decimals)}",
-                    f"({fmtPricePad(e300diff, padding=6, decimals=3)})",
-                    f"{fmtPricePad(usePrice, decimals=decimals)} ±{fmtEquitySpread(c.ask - usePrice) if (c.ask > 0 and c.ask >= usePrice) else '':<6}",
+                    f"{e300:>10,.{decimals}f}",
+                    f"({e300diff:>6,.2f})" if e300diff else "(      )",
+                    f"{usePrice:>10,.{decimals}f} ±{fmtEquitySpread(c.ask - usePrice) if (c.ask > 0 and c.ask >= usePrice) else '':<6}",
                     f"({pctUndHigh} {amtUndHigh})",
                     f"({pctUpLow} {amtUpLow})",
                     f"({pctUpClose} {amtUpClose})",
-                    f"{fmtPricePad(c.high, decimals=decimals)}",
-                    f"{fmtPricePad(c.low, decimals=decimals)}",
-                    f"<aaa bg='purple'>{fmtPricePad(c.bid, decimals=decimals)} x {b_s} {fmtPricePad(c.ask, decimals=decimals)} x {a_s}</aaa>",
+                    f"{c.high:>10,.{decimals}f}",
+                    f"{c.low:>10,.{decimals}f}",
+                    f"<aaa bg='purple'>{c.bid:>10,.{decimals}f} x {b_s} {c.ask:>10,.{decimals}f} x {a_s}</aaa>",
                     f"({atr})",
-                    f"{fmtPricePad(c.open, decimals=decimals)}",
-                    f"{fmtPricePad(c.close, decimals=decimals)}",
+                    f"{c.open:>10,.{decimals}f}",
+                    f"{c.close:>10,.{decimals}f}",
                     f"({str(ago)})",
                     "     HALTED!" if c.halted > 0 else "",
                 ]
