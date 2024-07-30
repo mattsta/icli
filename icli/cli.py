@@ -2489,8 +2489,6 @@ class IBKRCmdlineApp:
 
             atr = f"{atrval:>5.2f}"
 
-            roundto = 2
-            mt = c.minTick
             match c.minTick:
                 case 0.0001:
                     # currency quotes
