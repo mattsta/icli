@@ -2491,10 +2491,17 @@ class IBKRCmdlineApp:
             atr = f"{atrval:>5.2f}"
 
             roundto = 2
-            # symbol exceptions for things we want bigger (GBP is a future and not a Forex...)
-            # TODO: fix for 3-decimal futures too.
-            if ls in {"GBP"}:
-                decimals = 4
+            mt = c.minTick
+            match c.minTick:
+                case 0.0001:
+                    # currency quotes
+                    decimals = 4
+                case 0.001:
+                    # yield quotes
+                    decimals = 3
+                case _:
+                    # default, just two:
+                    decimals = 2
 
             e100 = getEMA(ls, "1m", decimals)
             e300 = getEMA(ls, "3m", decimals)
