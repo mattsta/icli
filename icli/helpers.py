@@ -239,23 +239,34 @@ def contractForName(sym, exchange="SMART", currency="USD"):
                 lastTradeDateOrContractMonth=date,
             )
         else:
-            # else, is regular future
+            # else, is regular future (or quote-like thing we treat as a future)
 
             # our symbol lookup table is the unqualified contract name like "ES" but
             # when trading, the month and year gets added like "ESZ3", so if we have
             # a symbol ending in a digit here, remove the "expiration/year" designation
             # from the string to lookup the actual name.
-            endsWithDigit = False
+            dateForContract = FUT_EXP
             if sym[-1].isdigit():
                 fullsym = sym
-                endsWithDigit = True
                 sym = sym[:-2]
+
+                # if we have an EXACT date syntax requested, populate it instead of the default "current next main future expiration quarter"
+                dateForContract = convert_futures_code(fullsym[-2:])
 
             try:
                 fxchg = FUTS_EXCHANGE[sym]
             except:
                 logger.error("[{}] Symbol not in our futures database mapping!", sym)
                 return None
+
+            if dateForContract == FUT_EXP and fxchg.name.endswith("Yield"):
+                # "Yield" products expire MONTHLY and not quarterly, so do big end-of-month smash here
+                # (if you want a *specific* forward month (usually only listed current and next 2 months at once), you
+                # can use the more common futures codes like /10YN4 to mean July 2024 etc. By default you'll get THIS MONTH expiry.
+                # TODO: technically the "is Yield type" should be a property of the futures mapping instead of this
+                #       more hacky "if name ends in Yield, it's a yield quote, so use monthly expirations..."
+                now = datetime.datetime.now().date()
+                dateForContract = f"{now.year}{now.month:02}"
 
             contract = Future(
                 currency=currency,
@@ -264,9 +275,7 @@ def contractForName(sym, exchange="SMART", currency="USD"):
                 multiplier=fxchg.multiplier,
                 # if it looks like our symbol ends in a futures date code, convert the futures
                 # date code to IBKR date format. else, use our default continuous next-expiry futures calculation.
-                lastTradeDateOrContractMonth=convert_futures_code(fullsym[-2:])
-                if endsWithDigit
-                else FUT_EXP,
+                lastTradeDateOrContractMonth=dateForContract,
             )
     elif len(sym) > 15:
         # looks like: COIN210430C00320000
