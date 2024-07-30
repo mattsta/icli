@@ -714,16 +714,35 @@ class IOpInfo(IOp):
                         elif amt < 0:
                             udl = "DOWN"
 
+                        xchangeDetails = ""
+
+                        if xchanges:
+                            sz = int(xsize) if int(xsize) == xsize else xsize
+                            xchangeDetails = f" @ ${current:,.4f} x {sz:,} on {len(xchanges)} exchanges"
+
                         logger.info(
-                            "[{}] {} tick {} (${:,.4f})",
+                            "[{}] {} tick {} (${:,.4f}){}",
                             ticker.contract.localSymbol,
                             name,
                             udl,
                             amt,
+                            xchangeDetails,
                         )
 
-                tickTickBoom(ticker.bid, ticker.prevBid, "BID")
-                tickTickBoom(ticker.ask, ticker.prevAsk, "ASK")
+                tickTickBoom(
+                    ticker.bid,
+                    ticker.prevBid,
+                    "BID",
+                    ticker.bidExchange,
+                    ticker.bidSize,
+                )
+                tickTickBoom(
+                    ticker.ask,
+                    ticker.prevAsk,
+                    "ASK",
+                    ticker.askExchange,
+                    ticker.askSize,
+                )
                 tickTickBoom(ticker.last, ticker.prevLast, "LAST")
 
                 # protect against ask being -1 or NaN thanks to weird IBKR data issues when markets aren't live
