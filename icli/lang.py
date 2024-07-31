@@ -1130,42 +1130,42 @@ class IOpDepth(IOp):
             # condition dataframe reorganization on the input list existing.
             # for some smaller symbols, bids or asks may not get returned
             # by the flaky ibkr depth APIs
-            if t.domBids:
-                adb = pd.DataFrame(t.domBids)
-                fixedBids = (
-                    adb.groupby("price", as_index=False)
-                    .agg({"size": "sum", "marketMaker": list})
-                    .convert_dtypes()
-                    .sort_values(by=["price"], ascending=False)
-                    .reset_index(drop=True)
-                )
 
-                # format floats as currency strings with proper cent padding.
-                fixedBids["price"] = fixedBids["price"].apply(decimal_formatter)
-            else:
-                fixedBids = pd.DataFrame([dict(size=0)])
+            def becomeDepth(side, sortHighToLowPrice: bool):
+                if side:
+                    df = pd.DataFrame(side)
 
-            if t.domAsks:
-                adf = pd.DataFrame(t.domAsks)
-                # logger.info("Asks: {}", adf.to_string())
-                fixedAsks = (
-                    adf.groupby("price", as_index=False)
-                    .agg({"size": "sum", "marketMaker": list})
-                    .convert_dtypes()
-                    .sort_values(by=["price"], ascending=True)
-                    .reset_index(drop=True)
-                )
+                    # count how many exchanges are behind the total volume as well
+                    # (the IBKR DOM only gives top of book for each exchange at each price level,
+                    #  so we can't actually see underlying "market-by-order" here)
+                    # This is essentially just len(marketMaker) for each row.
+                    df["xchanges"] = df.groupby("price")["price"].transform("size")
 
-                fixedAsks["price"] = fixedAsks["price"].apply(decimal_formatter)
-            else:
-                fixedAsks = pd.DataFrame([dict(size=0)])
+                    aggCommon = dict(size="sum", xchanges="last", marketMaker=list)
+                    df = (
+                        df.groupby("price", as_index=False)
+                        .agg(aggCommon)
+                        .convert_dtypes()
+                        .sort_values(by=["price"], ascending=sortHighToLowPrice)
+                        .reset_index(drop=True)
+                    )
 
-            # generate a synthetic sum row then add commas to the sums after summing.......
-            fixedBids.loc["sum", "size"] = fixedBids["size"].sum()
-            fixedBids["size"] = fixedBids["size"].apply(lambda x: f"{x:,}")
+                    # format floats as currency strings with proper cent padding.
+                    df["price"] = df["price"].apply(decimal_formatter)
 
-            fixedAsks.loc["sum", "size"] = fixedAsks["size"].sum()
-            fixedAsks["size"] = fixedAsks["size"].apply(lambda x: f"{x:,}")
+                    # generate a synthetic sum row then add commas to the sums after summing.......
+                    df.loc["sum", "size"] = df["size"].sum()
+                    df["size"] = df["size"].apply(lambda x: f"{x:,}")
+
+                    return df
+
+                return pd.DataFrame([dict(size=0)])
+
+            # bids are sorted HIGHEST PRICE to LOWEST OFFER
+            fixedBids = becomeDepth(t.domBids, False)
+
+            # asks are sorted LOWEST OFFER to HIGHEST PRICE
+            fixedAsks = becomeDepth(t.domAsks, True)
 
             fmtJoined = {"Bids": fixedBids, "Asks": fixedAsks}
 
