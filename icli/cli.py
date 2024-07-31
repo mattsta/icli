@@ -1993,10 +1993,17 @@ class IBKRCmdlineApp:
             last = c.last
             bidSize = c.bidSize
             askSize = c.askSize
-            decimals = 2
 
-            if isinstance(c.contract, Forex):
-                decimals = 5
+            match c.minTick:
+                case 0.0001:
+                    # currency quotes
+                    decimals = 4
+                case 0.001:
+                    # yield quotes
+                    decimals = 3
+                case _:
+                    # default, just two:
+                    decimals = 2
 
             if bid > 0 and bid == bid and ask > 0 and ask == ask:
                 if useLast:
@@ -2459,14 +2466,16 @@ class IBKRCmdlineApp:
                 percentUnderHigh,
                 [
                     f"{percentUnderHigh:>6.2f}%",
-                    f"{amtHigh:>8.2f}" if amtHigh < 1000 else f"{amtHigh:>8.0f}",
+                    f"{amtHigh:>8.{decimals}f}"
+                    if amtHigh < 1000
+                    else f"{amtHigh:>8.0f}",
                 ],
             )
             pctUpLow, amtUpLow = mkPctColor(
                 percentUpFromLow,
                 [
                     f"{percentUpFromLow:>5.2f}%",
-                    f"{amtLow:>6.2f}" if amtLow < 1000 else f"{amtLow:>6.0f}",
+                    f"{amtLow:>6.{decimals}f}" if amtLow < 1000 else f"{amtLow:>6.0f}",
                 ],
             )
 
@@ -2476,7 +2485,7 @@ class IBKRCmdlineApp:
                 percentUpFromClose,
                 [
                     f"{percentUpFromClose:>6.2f}%",
-                    f"{amtClose:>8.2f}"
+                    f"{amtClose:>8.{decimals}f}"
                     if (amtLow != amtLow) or amtLow < 1000
                     else f"{amtClose:>8.0f}",
                 ],
@@ -2488,17 +2497,6 @@ class IBKRCmdlineApp:
                 atrval = atrr.atr.current
 
             atr = f"{atrval:>5.2f}"
-
-            match c.minTick:
-                case 0.0001:
-                    # currency quotes
-                    decimals = 4
-                case 0.001:
-                    # yield quotes
-                    decimals = 3
-                case _:
-                    # default, just two:
-                    decimals = 2
 
             e100 = getEMA(ls, "1m", decimals)
             e300 = getEMA(ls, "3m", decimals)
