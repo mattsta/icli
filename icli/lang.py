@@ -705,29 +705,37 @@ class IOpInfo(IOp):
                         else ticker.lastSize,
                     )
 
-                def tickTickBoom(current, prev, name):
-                    if current == current and prev == prev:
-                        udl = "FLAT"
-                        amt = current - prev
-                        if amt > 0:
-                            udl = "UP"
-                        elif amt < 0:
-                            udl = "DOWN"
+                def tickTickBoom(current, prev, name, xchanges=None, xsize=None):
+                    # don't print anything if our data is invalid.
+                    # invalid can be: NaNs, after hours prices of -1 or 0, etc.
+                    if not (
+                        current == current and prev == prev and current > 0 and prev > 0
+                    ):
+                        return
 
-                        xchangeDetails = ""
+                    udl = "FLAT"
+                    amt = current - prev
+                    if amt > 0:
+                        udl = "UP"
+                    elif amt < 0:
+                        udl = "DOWN"
 
-                        if xchanges:
-                            sz = int(xsize) if int(xsize) == xsize else xsize
-                            xchangeDetails = f" @ ${current:,.4f} x {sz:,} on {len(xchanges)} exchanges"
+                    xchangeDetails = ""
 
-                        logger.info(
-                            "[{}] {} tick {} (${:,.4f}){}",
-                            ticker.contract.localSymbol,
-                            name,
-                            udl,
-                            amt,
-                            xchangeDetails,
+                    if xchanges:
+                        sz = int(xsize) if int(xsize) == xsize else xsize
+                        xchangeDetails = (
+                            f" @ ${current:,.4f} x {sz:,} on {len(xchanges)} exchanges"
                         )
+
+                    logger.info(
+                        "[{}] {} tick {} (${:,.4f}){}",
+                        ticker.contract.localSymbol,
+                        name,
+                        udl,
+                        amt,
+                        xchangeDetails,
+                    )
 
                 tickTickBoom(
                     ticker.bid,
