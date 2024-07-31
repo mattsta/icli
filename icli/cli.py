@@ -1995,14 +1995,34 @@ class IBKRCmdlineApp:
             askSize = c.askSize
 
             match c.minTick:
+                case 0.01:
+                    # common case, just regular dollars 'n cents
+                    decimals = 2
                 case 0.0001:
                     # currency quotes
                     decimals = 4
                 case 0.001:
                     # yield quotes
                     decimals = 3
+                case 0.00025:
+                    # other more specific futures quotes.
+                    # e.g. /LE is quoted with a 40,000 multiplier because the unit is "cents per pound" but
+                    #      prices are shown pre-adjusted to dollars-per-pound, so even though the
+                    #      minTick is 0.00025, that's in "cents/pound" but our quotes are "$/pound" which is 100x higher...
+                    #      Long story short, a 0.00025 minTick is actually 3 decimal places.
+                    #      If there are other exceptions to the "tick vs cents vs dollars vs multiplier" problem, we haven't found them yet.
+                    decimals = 3
+                case 0.03125:
+                    # futures bonds are quoted in "1/32 of one point (0.03125)"
+                    decimals = 5
+                case 0.00390625:
+                    # other futures bonds are quoted in "1/8 of 1/32 of one point (0.00390625)"
+                    decimals = 8
+                case 0.0025:
+                    # CORN "1/4 of one cent (0.0025) per bushel"
+                    decimals = 4
                 case _:
-                    # default, just two:
+                    # default, just two too
                     decimals = 2
 
             if bid > 0 and bid == bid and ask > 0 and ask == ask:
