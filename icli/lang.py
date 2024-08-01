@@ -675,11 +675,18 @@ class IOpInfo(IOp):
                         ticker.contract.localSymbol,
                         ticker.histVolatility,
                     )
+
+                if ticker.impliedVolatility == ticker.impliedVolatility:
                     logger.info(
                         "[{}] Implied Volatility: {:,.4f}",
                         ticker.contract.localSymbol,
                         ticker.impliedVolatility,
                     )
+
+                if (
+                    ticker.histVolatility == ticker.histVolatility
+                    and ticker.impliedVolatility == ticker.impliedVolatility
+                ):
                     if ticker.histVolatility < ticker.impliedVolatility:
                         logger.info(
                             "[{}] Volatility: RISING ({:,.2f} %)",
