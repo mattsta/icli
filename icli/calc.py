@@ -78,11 +78,18 @@ class CalculatorTransformer(Transformer):
         q = ticker[1]
 
         # during "regular times" there's a bid/ask spread
-        if q.bidSize and q.askSize:
+        if (
+            q.bidSize == q.bidSize
+            and q.askSize == q.askSize
+            and q.bidSize > 0
+            and q.askSize > 0
+            and q.bid > 0
+            and q.ask > 0
+        ):
             mark = (q.bid + q.ask) / 2
         else:
             # else, over weekends and shutdown times, there's either the last price or the close price
-            mark = q.last if q.last == q.last else q.close
+            mark = q.last if q.last == q.last and q.last > 0 else q.close
 
         logger.info(
             "[:{} -> {}] Using value: {:,.6f}", key, q.contract.localSymbol, mark
