@@ -4232,7 +4232,18 @@ class IOpOptionChain(IOp):
                 )
 
                 # TODO: replace with reqSecDefOptParams()?
-                chainsExact = await self.ib.reqContractDetailsAsync(contractExact)
+                try:
+                    # long timeout here because these get delayed by "pacing backoff" API limits sometimes.
+                    chainsExact = await asyncio.wait_for(
+                        self.ib.reqContractDetailsAsync(contractExact), timeout=180
+                    )
+                except:
+                    logger.error(
+                        "[{}{}] Timeout while fetching contract details...",
+                        symbol,
+                        contractExact.lastTradeDateOrContractMonth,
+                    )
+                    continue
 
                 # logger.info("Full result: {}", chainsExact)
 
