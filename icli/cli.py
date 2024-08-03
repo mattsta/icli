@@ -2564,7 +2564,12 @@ class IBKRCmdlineApp:
             if atrr := self.atrs.get(ls):
                 atrval = atrr.atr.current
 
-            atr = f"{atrval:>5.2f}"
+            # if ATR > 100, omit cents so it fits in the narrow column easier
+            if atrval > 100:
+                atr = f"{atrval:>5.0f}"
+            else:
+                # else, we can print a full width value since it will fit in the 5 character width column
+                atr = f"{atrval:>5.2f}"
 
             e100 = getEMA(ls, "1m", decimals)
             e300 = getEMA(ls, "3m", decimals)
