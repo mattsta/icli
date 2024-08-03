@@ -3419,17 +3419,23 @@ class IOpOrders(IOp):
             # extract common fields for re-use below
             multiplier = totalMultiplier or float(o.contract.multiplier or 1)
             lmtPrice = float(o.order.lmtPrice or 0)
+            auxPrice = float(o.order.auxPrice or 0)
             totalQuantity = float(o.order.totalQuantity)
-            pq = lmtPrice * totalQuantity * multiplier
+
+            # auxPrice overrides lmtPrice if both exists (e.g. for stops, IBKR seems to auto-fill the limit price
+            # as the near-term market price even though it isn't used. Only the aux price is used for stops, and other
+            # order types have lmtPrice but no auxPrice, so this should work...)
+            pq = (auxPrice or lmtPrice) * totalQuantity * multiplier
             make["lreturn"] = 0
             make["lcost"] = 0
 
             # record whether this order value is a credit into or debit from the account
             if o.order.action == "SELL":
-                # IBKR 'sell' prices are always positive and represents a credit back to the account when executed
+                # IBKR 'sell' prices are always positive and represents a credit back to the account when executed.
+                # We must have at least one populated lmt or aux price for a sell to be valid.
                 assert (
-                    lmtPrice > 0
-                ), f"How is your order selling price negative? Order: {o.order}"
+                    lmtPrice > 0 or auxPrice > 0
+                ), f"How is your order trigger price negative? Order: {o.order}"
 
                 make["lreturn"] = pq
             else:
