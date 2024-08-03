@@ -1314,7 +1314,9 @@ class IBKRCmdlineApp:
             # (if trade isn't valid, trade is an empty list, so only print valid objects...)
             if trade:
                 # sigh, these are strings of course.
-                excess = float(trade.equityWithLoanAfter) - float(trade.initMarginAfter)
+                excess = float(trade.equityWithLoanBefore) - float(
+                    trade.initMarginAfter
+                )
                 if excess < 0:
                     logger.warning(
                         "[{}] TRADE NOT VIABLE. MISSING EQUITY: ${:,.2f}",
@@ -1338,6 +1340,11 @@ class IBKRCmdlineApp:
                             trade.initMarginBefore
                         )
                         fundsDiff = marginDiff or abs(float(trade.equityWithLoanChange))
+                        logger.info(
+                            "[{}] PREVIEW REMAINING CASH AFTER TRADE: ${:,.2f}",
+                            desc,
+                            excess,
+                        )
                         logger.info(
                             "[{}] PREVIEW TRADE PERCENTAGE OF AVAILABLE FUNDS: {:,.2f} %",
                             desc,
