@@ -604,12 +604,21 @@ class IOpDetails(IOp):
         for sym in self.symbols:
             # yet another in-line hack for :N lookups because we still haven't created a central abstraction yet...
             if sym[0] == ":":
-                contracts.append(self.state.quoteResolve(sym)[1])
+                (_name, c) = self.state.quoteResolve(sym)
             else:
-                contracts.append(contractForName(sym))
+                c = contractForName(sym)
+
+            # don't allow meta-contracts (or failed lookups) into the detail request queue
+            if isinstance(c, Bag) or not c:
+                logger.warning(
+                    "[{}] Contract not usable for detail request: {}", sym, c
+                )
+                continue
+
+            contracts.append(c)
 
         # If any lookups fail above, remove 'None' results before we fetch full contracts.
-        contracts = await self.state.qualify(*filter(None, contracts))
+        contracts = await self.state.qualify(*contracts)
 
         # TODO: we should actually cache these detail results and have them expire at the end of every
         #       day (the details include day-changing quantities like next N day lookahead trading sessions,
