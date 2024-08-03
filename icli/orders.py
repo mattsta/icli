@@ -270,7 +270,10 @@ class IOrder:
             action=self.action,
             totalQuantity=self.qty,
             orderType="STOP PRT",
-            auxPrice=self.aux,  # the stop price for when to trigger the market-with-protection order
+            # the stop price for when to trigger the market-with-protection order.
+            # for ease of inter-op, we allow the order limit price to be the stop price here since many of our interfaces
+            # only allow a limit price as entry (and stop prt ONLY has the stop price, no limit price, so there's no danger in re-using it here)
+            auxPrice=self.aux or self.lmt,
             **self.commonArgs(),
         )
 
