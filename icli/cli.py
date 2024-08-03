@@ -2306,6 +2306,44 @@ class IBKRCmdlineApp:
                 # For all combos, we cache the ID to original symbol mapping
                 # after the contractId is resolved.
                 if c.contract.comboLegs:
+                    collectiveIV = 0
+                    collectiveDelta = 0
+                    collectiveTheta = 0
+
+                    # fetch live quotes for each leg (not included in the BAG ticker, but we may be subscribed to each leg individually...)
+                    contractIds = [x.conId for x in c.contract.comboLegs]
+                    quotes = [
+                        # .get() because MAYBE THIS QUOTE DOESN'T EXIST EITHER, so we can't even generate a synthetic bag quote. sad.
+                        self.quoteState.get(quotekey)
+                        for quotekey in [
+                            self.contractIdsToQuoteKeysMappings.get(x)
+                            for x in contractIds
+                        ]
+                    ]
+
+                    # only populate these if we found ALL the quotes (so the data isn't invalid)
+                    if len(c.contract.comboLegs) == len(quotes):
+                        try:
+                            for leg, quote in zip(c.contract.comboLegs, quotes):
+                                # round these because the IBKR values are very long and we end up with
+                                # bad artifacts like -0.00 due to math being different in far out decimal plaes.
+                                qiv = round(quote.modelGreeks.impliedVol, 2)
+                                qd = round(quote.modelGreeks.delta, 2)
+                                qt = round(quote.modelGreeks.theta, 2)
+                                match leg.action:
+                                    case "BUY":
+                                        collectiveIV += qiv
+                                        collectiveDelta += qd
+                                        collectiveTheta += qt
+                                    case "SELL":
+                                        collectiveIV -= qiv
+                                        collectiveDelta -= qd
+                                        collectiveTheta -= qt
+                        except:
+                            # sometimes the model isn't populated when quote is first added (IBKR async populates everything),
+                            # so just ignore invalid math when a spread is first added to the quotes display.
+                            pass
+
                     # generate rows to look like:
                     # B  1 AAPL212121C000...
                     # S  2 ....
@@ -2381,6 +2419,9 @@ class IBKRCmdlineApp:
                     return " ".join(
                         [
                             rowName,
+                            f"[iv {collectiveIV or 0:>5.2f}]",
+                            f"[d {collectiveDelta or 0:>5.2f}]",
+                            f"[t {collectiveTheta or 0:>5.2f}]",
                             f"{fmtPriceOpt(e100):>6}",
                             f"{trend}",
                             f"{fmtPriceOpt(e300):>6}",
