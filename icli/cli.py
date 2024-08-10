@@ -439,7 +439,6 @@ class IBKRCmdlineApp:
     depthState: dict[Contract, Ticker] = field(default_factory=dict)
     summary: dict[str, float] = field(default_factory=dict)
     position: dict[str, float] = field(default_factory=dict)
-    order: dict[str, float] = field(default_factory=dict)
     liveBars: dict[str, RealTimeBarList] = field(default_factory=dict)
     pnlSingle: dict[int, PnLSingle] = field(default_factory=dict)
     exiting: bool = False
@@ -1614,8 +1613,6 @@ class IBKRCmdlineApp:
         self.position[pos.contract.symbol] = pos
 
     def updateOrder(self, trade):
-        self.order[trade.contract.symbol] = trade
-
         # Only print update if this is regular runtime and not
         # the "load all trades on startup" cycle
         if self.connected:
