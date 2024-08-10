@@ -133,6 +133,12 @@ class CalculatorTransformer(Transformer):
             case "ELV" | "EWL" | "EWLV":
                 # allow as ELV or EWLV
                 value = self.state.accountStatus["EquityWithLoanValue"]
+            case "DIM":
+                # read trading days remaining in month
+                value = self.state.dim
+            case "DIY":
+                # read trading days remaining in year
+                value = self.state.diy
             case _:
                 logger.error(
                     "[{}] Invalid account variable requested! Calculation can't continue!",

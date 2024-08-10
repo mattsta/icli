@@ -474,6 +474,16 @@ class IBKRCmdlineApp:
     disableClientQuoteSnapshotting: bool = False
     loadingCommissions: bool = False
 
+    @property
+    def diy(self) -> int:
+        """Return remaining trading days in year"""
+        return tradingDaysRemainingInYear()
+
+    @property
+    def dim(self) -> int:
+        """Return remaining trading days in month"""
+        return tradingDaysRemainingInMonth()
+
     def __post_init__(self) -> None:
         # just use the entire IBKRCmdlineApp as our app state!
         self.opstate = self
