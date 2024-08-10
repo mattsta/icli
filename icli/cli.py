@@ -187,6 +187,99 @@ ZTOA = ATOZ[::-1]
 ATOZTOA_TABLE = str.maketrans(ATOZ, ZTOA)
 
 
+def mkcolor(n: float, vals: str | list[str], colorRanges: list[str]) -> str | list[str]:
+    def colorRange(x):
+        buckets = len(MONEY_COLORS) // len(colorRanges)
+        for idx, crLow in enumerate(colorRanges):
+            if x <= crLow:
+                return MONEY_COLORS[idx * buckets]
+
+        # else, on the high end of the range, so use highest color
+        return MONEY_COLORS[-1]
+
+    # no style if no value (or if nan%)
+    if n == 0 or n != n:
+        return vals
+
+    # override for high values
+    if n >= 0.98:
+        useColor = "ansibrightblue"
+    else:
+        useColor = colorRange(n)
+
+    if isinstance(vals, list):
+        return [f"<aaa bg='{useColor}'>{v}</aaa>" for v in vals]
+
+    # else, single thing we can print
+    return f"<aaa bg='{useColor}'>{vals}</aaa>"
+
+
+def mkPctColor(a, b):
+    # fmt: off
+    colorRanges = [-0.98, -0.61, -0.33, -0.13, 0, 0.13, 0.33, 0.61, 0.98]
+    # fmt: on
+    return mkcolor(a, b, colorRanges)
+
+
+def sortQuotes(x):
+    """Comparison function to sort quotes by specific types we want grouped together."""
+    sym, quote = x
+    c = quote.contract
+
+    # We want to sort futures first, and sort MES, MNQ, etc first.
+    # (also Indexes and Index ETFs first too)
+    # This double symbol check is so we don't accidentially sort market ETF options
+    # inside the regular equity section.
+    if c.secType in {"FUT", "IND"} or (
+        (c.symbol == c.localSymbol)
+        and (
+            c.symbol
+            in {
+                "SPY",
+                "UPRO",
+                "SPXL",
+                "SOXL",
+                "SOXS",
+                "QQQ",
+                "TQQQ",
+                "SQQQ",
+                "IWM",
+                "DIA",
+            }
+        )
+    ):
+        priority = FUT_ORD[c.symbol] if c.symbol in FUT_ORD else 0
+        return (0, priority, c.secType, c.symbol)
+
+    # draw crypto and forex/cash quotes under futures quotes
+    if c.secType in {"CRYPTO", "CASH"}:
+        priority = 0
+        return (0, priority, c.secType, c.symbol)
+
+    if c.secType == "OPT":
+        # options are medium last because they are wide
+        priority = 0
+        return (2, priority, c.secType, c.localSymbol)
+
+    if c.secType == "FOP":
+        # future options are above other options...
+        priority = -1
+        return (2, priority, c.secType, c.localSymbol)
+
+    if c.secType == "BAG":
+        # bags are last because their descriptions are big
+        priority = 0
+        return (3, priority, c.secType, c.symbol)
+
+    # else, just by name.
+    # BUT we do these in REVERSE order since they
+    # are at the end of the table!
+    # (We create "reverse order" by translating all
+    #  letters into their "inverse" where a == z, b == y, etc).
+    priority = 0
+    return (1, priority, c.secType, invertstr(c.symbol.lower()))
+
+
 def invertstr(x):
     return x.translate(ATOZTOA_TABLE)
 
@@ -2133,27 +2226,6 @@ class IBKRCmdlineApp:
                 percentUpFromLow = 0
                 percentUpFromClose = 0
 
-            def mkcolor(
-                n: float, vals: str | list[str], colorRanges: list[str]
-            ) -> str | list[str]:
-                def colorRange(x):
-                    buckets = len(MONEY_COLORS) // len(colorRanges)
-                    for idx, crLow in enumerate(colorRanges):
-                        if x <= crLow:
-                            return MONEY_COLORS[idx * buckets]
-
-                    # else, on the high end of the range, so use highest color
-                    return MONEY_COLORS[-1]
-
-                # no style if no value (or if nan%)
-                if n == 0 or n != n:
-                    return vals
-
-                # override for high values
-                if n >= 0.98:
-                    useColor = "ansibrightblue"
-                else:
-                    useColor = colorRange(n)
 
                 if isinstance(vals, list):
                     return [f"<aaa bg='{useColor}'>{v}</aaa>" for v in vals]
@@ -2161,11 +2233,6 @@ class IBKRCmdlineApp:
                 # else, single thing we can print
                 return f"<aaa bg='{useColor}'>{vals}</aaa>"
 
-            def mkPctColor(a, b):
-                # fmt: off
-                colorRanges = [-0.98, -0.61, -0.33, -0.13, 0, 0.13, 0.33, 0.61, 0.98]
-                # fmt: on
-                return mkcolor(a, b, colorRanges)
 
             amtHigh = usePrice - c.high
             amtLow = usePrice - c.low
@@ -2696,64 +2763,6 @@ class IBKRCmdlineApp:
                     currentrowlen = vlen
 
             balrows = "\n".join(["    ".join(x) for x in rowvals])
-
-            def sortQuotes(x):
-                """Comparison function to sort quotes by specific types we want grouped together."""
-                sym, quote = x
-                c = quote.contract
-
-                # We want to sort futures first, and sort MES, MNQ, etc first.
-                # (also Indexes and Index ETFs first too)
-                # This double symbol check is so we don't accidentially sort market ETF options
-                # inside the regular equity section.
-                if c.secType in {"FUT", "IND"} or (
-                    (c.symbol == c.localSymbol)
-                    and (
-                        c.symbol
-                        in {
-                            "SPY",
-                            "UPRO",
-                            "SPXL",
-                            "SOXL",
-                            "SOXS",
-                            "QQQ",
-                            "TQQQ",
-                            "SQQQ",
-                            "IWM",
-                            "DIA",
-                        }
-                    )
-                ):
-                    priority = FUT_ORD[c.symbol] if c.symbol in FUT_ORD else 0
-                    return (0, priority, c.secType, c.symbol)
-
-                # draw crypto and forex/cash quotes under futures quotes
-                if c.secType in {"CRYPTO", "CASH"}:
-                    priority = 0
-                    return (0, priority, c.secType, c.symbol)
-
-                if c.secType == "OPT":
-                    # options are medium last because they are wide
-                    priority = 0
-                    return (2, priority, c.secType, c.localSymbol)
-
-                if c.secType == "FOP":
-                    # future options are above other options...
-                    priority = -1
-                    return (2, priority, c.secType, c.localSymbol)
-
-                if c.secType == "BAG":
-                    # bags are last because their descriptions are big
-                    priority = 0
-                    return (3, priority, c.secType, c.symbol)
-
-                # else, just by name.
-                # BUT we do these in REVERSE order since they
-                # are at the end of the table!
-                # (We create "reverse order" by translating all
-                #  letters into their "inverse" where a == z, b == y, etc).
-                priority = 0
-                return (1, priority, c.secType, invertstr(c.symbol.lower()))
 
             # RegT overnight margin means your current margin balance must be less than your SMA value.
             # Your SMA account increases with deposits and when your positions grow profit, so the minimum
