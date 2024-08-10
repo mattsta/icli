@@ -1627,19 +1627,18 @@ class IBKRCmdlineApp:
     def errorHandler(self, reqId, errorCode, errorString, contract):
         # Official error code list:
         # https://interactivebrokers.github.io/tws-api/message_codes.html
-        if errorCode in {1102, 2104, 2106, 2158, 202}:
+        if errorCode in {1102, 2104, 2106, 2158}:
             # non-error status codes on startup
             # also we ignore reqId here because it is always -1
             logger.info(
-                "API Status {}[code {}]: {}",
-                f"[orderId {reqId}] " if reqId else "",
+                "API Status [code {}]: {}",
                 errorCode,
                 errorString,
             )
         else:
             logger.opt(depth=1).error(
-                "API Error [orderId {}] [code {}]: {}{}",
-                reqId,
+                "{} [code {}]: {}{}",
+                f"Order Error [orderId {reqId}]" if reqId > 0 else "API Error",
                 errorCode,
                 readableHTML(errorString),
                 f" for {contract}" if contract else "",
