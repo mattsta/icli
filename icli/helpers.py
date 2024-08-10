@@ -461,7 +461,22 @@ def contractFromSymbolDescriptor(contractType: str, symbol: str):
 
 
 def tickFieldsForContract(contract) -> str:
-    extraFields = []
+    # Available fields from:
+    # https://interactivebrokers.github.io/tws-api/tick_types.html
+    # NOTE: the number to use here is the 'Generic tick required' number and NOT the 'Tick id' number.
+    extraFields = [
+        # start with VWAP and volume data requested everywhere
+        233,
+        # also add "volume per minute"
+        295,
+        # also add "trades per minute"
+        294,
+    ]
+
+    # There is also "fundamentals" as tick 258 but it returns things like this which isn't useful for us because
+    # it's just reporting on historical financial reports:
+    #     fundamentalRatios=FundamentalRatios(TTMNPMGN=35.20226, NLOW=274.38, TTMPRCFPS=18.29654, TTMGROSMGN=81.49056, TTMCFSHR=25.00352, QCURRATIO=2.83036, TTMREV=149783, TTMINVTURN=nan, TTMOPMGN=39.25479, TTMPR2REV=8.03502, AEPSNORM=16.18888, TTMNIPEREM=783264.3, EPSCHNGYR=82.25327, TTMPRFCFPS=25.55114, TTMRECTURN=11.08847, TTMPTMGN=40.1354, QCSHPS=22.92933, TTMFCF=47102, LATESTADATE='2024-06-30', APTMGNPCT=35.15737, AEBTNORM=50880, TTMNIAC=52727, NetDebt_I=-39691, PRYTDPCTR=23.60872, TTMEBITD=73664, AFEEPSNTM=22.401, PR2TANBK=8.90664, EPSTRENDGR=14.79464, QTOTD2EQ=11.73045, TTMFCFSHR=17.9044, QBVPS=61.88827, NPRICE=475.73, YLD5YAVG=nan, PR13WKPCT=2.15813, PR52WKPCT=53.10076, REVTRENDGR=19.29375, AROAPCT=19.10341, TTMEPSXCLX=20.0446, QTANBVPS=53.34583, PRICE2BK=7.68692, MKTCAP=1203510, TTMPAYRAT=4.84951, TTMINTCOV=nan, TTMREVCHG=24.27752, TTMROAPCT=24.13544, TTMROEPCT=36.26391, TTMREVPERE=2225040, APENORM=29.38622, TTMROIPCT=27.75098, REVCHNGYR=22.10069, CURRENCY='USD', DIVGRPCT=nan, TTMEPSCHG=136.651, PEEXCLXOR=23.73357, QQUICKRATI=nan, TTMREVPS=56.93547, BETA=1.17755, TTMEBT=60116, ADIV5YAVG=nan, ANIACNORM=42560.56, PR1WKPCT=2.15155, QLTD2EQ=11.73045, NHIG=542.81, PR4WKPCT=-10.12431)
+
     if isinstance(contract, Stock):
         # 104:
         # "The 30-day historical volatility (currently for stocks)."
@@ -475,7 +490,8 @@ def tickFieldsForContract(contract) -> str:
         # "Shortable: < 1.5, not availabe
         #             > 1.5, if shares can be located
         #             > 2.5, enough shares are available (>= 1k)"
-        extraFields += [104, 106, 236]
+        # 595: Stock volume averaged over 3 minutes, 5 minutes, 10 minutes.
+        extraFields += [104, 106, 236, 595]
 
     # yeah, the API wants a CSV for the tick list. sigh.
     tickFields = ",".join([str(x) for x in extraFields])
