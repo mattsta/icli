@@ -3903,8 +3903,11 @@ class IOpQuotesRemove(IOp):
                     self.ib.cancelMktData(contract)
 
                     symkey = lookupKey(contract)
-                    del self.state.quoteState[symkey]
-                    del self.state.ema[symkey]
+                    try:
+                        del self.state.quoteState[symkey]
+                        del self.state.ema[symkey]
+                    except:
+                        pass
                     logger.info(
                         "[{}] Removed: {} ({})",
                         sym,
@@ -3914,7 +3917,7 @@ class IOpQuotesRemove(IOp):
                 except:
                     # user requested removal of non-subscribed quote
                     # (which is still okay)
-                    # logger.exception("no go?")
+                    # logger.exception("Quote Removal failed?")
                     pass
 
 
