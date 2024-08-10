@@ -3301,12 +3301,18 @@ class IOpOrders(IOp):
         # save the logs from each order externally so we can print them outside of the summary table
         logs = []
 
+        showDetails = "show" in self.symbols
+
         # Fields: https://interactivebrokers.github.io/tws-api/classIBApi_1_1Order.html
         # Note: no sort here because we sort the dataframe before showing
         for o in ords:
             # don't print canceled/rejected/inactive orders
-            if o.log[-1].status == "Inactive":
+            # (unless we have "showDetails" requested, then we print everything
+            if o.log[-1].status == "Inactive" and not showDetails:
                 continue
+
+            if showDetails:
+                logger.info("{}", pp.pformat(o))
 
             make = {}
             log = {}
@@ -3331,6 +3337,17 @@ class IOpOrders(IOp):
             make["xchange"] = o.contract.exchange
             make["action"] = o.order.action
             make["orderType"] = o.order.orderType
+
+            # if order type has a sub-strategy, format the name and its arguments
+            make["strategy"] = o.order.algoStrategy
+            make["params"] = ", ".join(
+                [f"{tag.tag}={tag.value}" for tag in o.order.algoParams]
+            )
+
+            # IBKR back-populates this on order updates sometimes
+            # (IBKR order volatility is expressed in full percent (100% = 100)
+            make["vol"] = o.order.volatility if isset(o.order.volatility) else None
+
             make["qty"] = o.order.totalQuantity
             make["cashQty"] = (
                 f"{o.order.cashQty:,.2f}" if isset(o.order.cashQty) else None
@@ -3433,8 +3450,9 @@ class IOpOrders(IOp):
             if o.order.action == "SELL":
                 # IBKR 'sell' prices are always positive and represents a credit back to the account when executed.
                 # We must have at least one populated lmt or aux price for a sell to be valid.
-                assert (
-                    lmtPrice > 0 or auxPrice > 0
+                # (though, MKT orders have a zero price, so those are still okay)
+                assert (lmtPrice > 0 or auxPrice > 0) or (
+                    lmtPrice == 0 and o.order.orderType == "MKT"
                 ), f"How is your order trigger price negative? Order: {o.order}"
 
                 make["lreturn"] = pq
@@ -3462,7 +3480,7 @@ class IOpOrders(IOp):
         df = pd.DataFrame(
                 data=populate,
                 columns=["id", "parentId", "clientId", "action", "sym", 'PC', 'date', 'strike',
-                    "xchange", "orderType",
+                    "xchange", "orderType", "strategy", "params", "vol",
                     "qty", "cashQty", "filled", "rem", "lmt", "aux", "trail", "tif",
                     "4-8", "lreturn", "lcost", "occ", "legs"],
                 )
