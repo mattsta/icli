@@ -3251,7 +3251,6 @@ class IBKRCmdlineApp:
                     # reset cached states on reconnect so we don't show stale data
                     self.summary.clear()
                     self.position.clear()
-                    self.order.clear()
                     self.pnlSingle.clear()
 
                     await self.ib.connectAsync(
