@@ -1,29 +1,28 @@
 [tool.poetry]
 name = "icli"
-version = "0.8.4"
+version = "2.0.0"
 description = "ibkr cli et al"
 authors = ["Matt Stancliff <matt@genges.com>"]
 license = "Apache-2.0"
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.12,<3.13"
 
 # IB API wrapper with better usability than the IBKR-provided libs
-ib_async = ">=1.0.2"
+ib_async = ">=2.0.1"
 # ib_async = { path = "../../ibkr/ib_insync", develop = true }
 
 # nice printing and data manipulation
 pandas = ">2.1.0"
 
 # easy time access
-pendulum = {version = "^3.0.0b1", allow-prereleases = true}
 
 # running / logging
 prompt-toolkit = "^3.0.29"
 loguru = ">0.6.0"
 
 # for multi-step cli prompts
-questionary = "^1.9.0"
+questionary = "^2.0.1"
 tableprint = "^0.9.1"
 
 # for ANSI console color gradients
@@ -38,16 +37,26 @@ diskcache = "^5.2.1"
 beautifulsoup4 = "^4.9.3"
 
 # our API helpers and wrappers
-tradeapis = { git = "https://github.com/mattsta/tradeapis.git", tag="2.4.2" }
+# tradeapis = { path = "../clients/", develop = true }
+tradeapis = { git = "https://github.com/mattsta/tradeapis.git", tag="3.4.6" }
 schedule = "^1.1.0"
-httpx = "^0.25.2"
+httpx = "^0.28.1"
+whenever = "^0.6.9"
+python-dateutil = "^2.9.0.post0"
 
 [tool.poetry.scripts]
 icli = "icli.__main__:runit"
 
 [tool.poetry.group.dev.dependencies]
-mypy = "^1.4.1"
+mypy = "^1.18.2"
 data-science-types = "^0.2.23"
+types-pytz = "^2025.2.0.20250809"
+pandas-stubs = "^2.3.2.250926"
+types-cachetools = "^6.2.0.20250827"
+
+[tool.mypy]
+check_untyped_defs = true
+show_traceback = true
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

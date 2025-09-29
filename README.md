@@ -19,10 +19,9 @@ Welcome to `icli`! You can use `icli` to manage manual and automated trading usi
 
 You can enable audio announcements of trade events if you also run [awwdio](https://github.com/mattsta/awwdio) and provide your `awwdio` address as an environment variable like `ICLI_AWWDIO_URL=http://127.0.0.1:8000 poetry run icli` (macOS only currently and you need to manually install the system speech voice packs in system settings).
 
-There's always a hundred more features we could add, but focus goes mainly towards usability and efficient order entry currently. There's an unreleased in-progress algo trading agent plugin to automatically buy and sell stocks, futures, and/or options based on external signals too. Cleaning those up for public release isn't a priority at the moment unless sponsors would like to step up and motivate us for a wider code release to combine all the feautres into a finished product we can publish.
-
 You can run multiple clients in different terminal windows using unique client ids for each session like `ICLI_CLIENT_ID=4 poetry run icli`. Note: IBKR restricts orders per-client-id, so for example if you place an order under client id 4, the order will not show up under other clients.
 
+The full features of `icli` are exposed as individual commands which aren't all documented here in the README. Use the `?` command to see all available commands to you at runtime then use `cmdname?` for documentation per-command.
 
 Some helpful advanced commands only available in `icli`:
 
@@ -50,6 +49,8 @@ Some helpful advanced commands only available in `icli`:
   - You can also do math on arbitrary symbols if you want to for some reason: `(/ AAPL TSLA)`
   - prices used for symbol math are the live bid/ask midpoint price for each symbol.
   - You can also use row-position details for a live quote value too: `(/ AAPL :18)`.
+- You can simulate "action-if-touched" using our `ifthen` predicates like: `if AAPL last > 300: buy AAPL 100 AF` which will check _every_ AAPL quote update, and if the last trade price is over $300, your command executes. The `ifthen` system supports unlimited combinations of conditions triggering on any combinations of: last, bid, ask, high, low, emas, atrs, greeks, and others per symbol. See code or test case examples for usability conditions.
+- Also, the `ifthen` system supports loading "ifthen programs" into `icli` so you can alternate commands based on some algo feed conditions (i.e. "if ema crossover to the upside, buy; if ema crossover to the downside, sell" but the conditions remain active after one exectues so your "algo conditions" remain live and continue executing until you manually stop it (or unless you run out of buying power)).
 
 See below for further account setup and environment variable conditions under the Download section.
 
@@ -321,21 +322,11 @@ Also note: some of the future symbol descriptions are manually modified after th
 `icli` is still a work in progress and future features may include:
 
 - better handling of spread orders
-- better handling of future entry and exit conditions
-- improve visual representation of spreads so you can confirm credit vs. debit transactions
-- enable quick placement of bracket orders
-- extensible auto-trading hooks
 - maybe daily performance reports or efficacy reports based on orders placed vs. modified vs. canceled vs. executed
 - add hooks to forward trade notifications as mobile push notifications
 - maybe add web interface or real time graph interface
 - we may convert the environment variable config to command line params eventually (via click or fire)
-- allow optional non-guaranteed spreads for larger accounts
-    - these let IBKR run each leg of a spread independently, but you may also not get a complete fill on the spread leading to margin compliance problems if your account isn't big enough
-- enable setting more complex optional order conditions like don't fill before or after certain timestamps
-- adjust sound infrastructure to play different sounds based on win vs loss vs major win vs major loss vs flat trade capital reclamation
 - add cli trade pub/sub infrastructure so you could broadcast your trade actions live to other platforms / webpages / visibility outlets
-- more features for "hands off" auto trading operations without needing full custom algo modes
-- enable full custom algo modes
 - tests? would be a major task to actually mock the IBKR API itself to inject and reply to commands for any CI system.
 
 ## History
@@ -349,11 +340,3 @@ so here we are.
 ## Contributions
 
 Feel free to open issues to suggest changes or submit your own PR changes or refactor any existing confusing flows into less coupled components.
-
-Immediate next-step areas of interest are:
-
-- increasing the ease of entering complex trade details without sending users into 8 levels of different nested menus to configure all settings correctly
-    - a next step could be writing a linear trade language parser to enable copy/paste between apps like: `OTOCO::BUY_100_TSLA210716C00700000_3.33:SELL_ALL_4.44:STOP_ALL_2.99` which would convert the line into a 3-leg bracket order then execute it all it one step.
-- adding extensible custom algo hooks (atr chandelier exits, short/fast moving average crossover buy/sell conditions, etc)
-- adding a listening port to accept requests from external applications (probably just a websocket server) so they can use a clean `icli` API to bridge the actual IBKR API
-- improving documentation / writing tutorials / helping people not lose money

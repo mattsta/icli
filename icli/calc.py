@@ -19,7 +19,7 @@ grammar = """
          | ":" CNAME -> portfoliovaluelookup
          | CNAME -> stringlookup
     operation: "(" FUNC expr+ ")"
-    FUNC: "+" | "-" | "*" | "/" | "gains"i | "grow"i | "o"i | "og"i | "r"i
+    FUNC: "+" | "-" | "*" | "/" | "gains"i | "grow"i | "o"i | "og"i | "r"i | "ac"i | "abs"i
 
 # Use custom 'DIGIT' so we can have underscores as place holders in our numbers
 # (this is why we are rebuilding the entire number/float/int hierarchy here too)
@@ -56,8 +56,13 @@ class CalculatorTransformer(Transformer):
         "o": "optgains",
         "og": "optgainsdiff",
         "r": "round",
+        "abs": "abs",
         "grow": "grow",
+        "ac": "averagecost",
     }
+
+    def abs(self, v):
+        return abs(v)
 
     def round(self, value):
         """Convert current value to a rounded integer"""
@@ -67,7 +72,26 @@ class CalculatorTransformer(Transformer):
         # as a Decimal() by default using the number() rule below.
         count = int(decimals[0]) if decimals else 0
 
-        return round(value[0], count)
+        return round(target, count)
+
+    def averagecost(self, value):
+        """Calculate average cost across multiple purchases.
+
+        Format is: (ac [size price]+)
+
+        e.g. (ac 10 3.33 4 2.22) -> ((10 * 3.33) + (4 * 2.22)) / (10 + 4) = 3.0129"""
+
+        # get even argument values
+        sizes = value[::2]
+
+        # get odd argument values
+        prices = value[1::2]
+
+        # generate dot product of sum(size * price) (could also use np.dot, but this is faster)
+        dot = sum([size * price for size, price in zip(sizes, prices)])
+
+        # normalize by total size of all elements for average total price
+        return dot / sum(sizes)
 
     def positionlookup(self, value):
         """Look up a quote's value using positional :N syntax."""
@@ -78,18 +102,11 @@ class CalculatorTransformer(Transformer):
         q = ticker[1]
 
         # during "regular times" there's a bid/ask spread
-        if (
-            q.bidSize == q.bidSize
-            and q.askSize == q.askSize
-            and q.bidSize > 0
-            and q.askSize > 0
-            and q.bid > 0
-            and q.ask > 0
-        ):
+        if q.bid is not None and q.ask is not None:
             mark = (q.bid + q.ask) / 2
         else:
             # else, over weekends and shutdown times, there's either the last price or the close price
-            mark = q.last if q.last == q.last and q.last > 0 else q.close
+            mark = q.last if q.last is not None else q.close
 
         logger.info(
             "[:{} -> {}] Using value: {:,.6f}", key, q.contract.localSymbol, mark
@@ -277,5 +294,6 @@ class Calculator:
             grammar, parser="lalr", transformer=CalculatorTransformer(self.state)
         )
 
-    def calc(self, expression: str) -> Decimal:
-        return self.parser.parse(expression).children[0]  # return result as string
+    def calc(self, expression: str) -> str:
+        # returns result as string
+        return self.parser.parse(expression).children[0]  # type: ignore

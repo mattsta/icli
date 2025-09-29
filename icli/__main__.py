@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 
-from prompt_toolkit.patch_stdout import patch_stdout
-from loguru import logger
-from mutil import safeLoop  # type: ignore
 import asyncio
-import icli.cli as cli
+import os
 import sys
 
-from dotenv import dotenv_values
-import os
+import icli.cli as cli
+
+from dotenv import load_dotenv
+from prompt_toolkit.patch_stdout import patch_stdout
+from loguru import logger
+
+# just load our dot files into the environment too
+load_dotenv(".env.icli")
 
 # Use more efficient coroutine logic if available
 # https://docs.python.org/3.12/library/asyncio-task.html#asyncio.eager_task_factory
@@ -19,17 +22,18 @@ CONFIG_DEFAULT = dict(
     ICLI_IBKR_HOST="127.0.0.1", ICLI_IBKR_PORT=4001, ICLI_REFRESH=3.33
 )
 
-CONFIG = {**CONFIG_DEFAULT, **dotenv_values(".env.icli"), **os.environ}
+# populate config with defaults if they aren't in the environment
+CONFIG = {**CONFIG_DEFAULT, **os.environ}
 
 try:
-    ACCOUNT_ID: str = CONFIG["ICLI_IBKR_ACCOUNT_ID"]
+    ACCOUNT_ID: str = CONFIG["ICLI_IBKR_ACCOUNT_ID"]  # type: ignore
 except:
     logger.error(
         "Sorry, please provide your IBKR Account ID [U...] in ICLI_IBKR_ACCOUNT_ID"
     )
     sys.exit(0)
 
-HOST: str = CONFIG["ICLI_IBKR_HOST"]
+HOST: str = CONFIG["ICLI_IBKR_HOST"]  # type: ignore
 PORT = int(CONFIG["ICLI_IBKR_PORT"])  # type: ignore
 REFRESH = float(CONFIG["ICLI_REFRESH"])  # type: ignore
 
@@ -38,7 +42,9 @@ async def initcli():
     app = cli.IBKRCmdlineApp(
         accountId=ACCOUNT_ID, toolbarUpdateInterval=REFRESH, host=HOST, port=PORT
     )
+
     await app.setup()
+
     if sys.stdin.isatty():
         # patch entire application with prompt-toolkit-compatible stdout
         with patch_stdout(raw=True):

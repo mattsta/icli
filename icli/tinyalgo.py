@@ -64,6 +64,11 @@ class ATRLive:
         self.buffer = deque(maxlen=self.bufferLength)
         self.atr = ATR(self.length)
 
+    @property
+    def current(self) -> float:
+        # passthrough...
+        return self.atr.current
+
     def update(self, price) -> float:
         self.buffer.append(price)
         high = max(self.buffer)
