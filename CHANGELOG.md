@@ -5,6 +5,7 @@
 - **Command-per-file Plugin System**: Refactored commands out of the single 8,000 line `lang.py` file into individual `icli/cmds/[CATEGORY]/[cmd].py` files.
 - **Style / Structure Cleanup**: `poetry run ruff check --fix` with Python 3.12 feature levels.
 - **Prettier Documetnation**: just ran `prettier -w` on all markdown files.
+- **Passes mypy Clean**: `poetry run mypy icli/{cli,cmds/*/*,helpers,orders,instrumentdb,__main__,calc}.py`
 
 ---
 

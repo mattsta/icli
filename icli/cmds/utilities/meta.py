@@ -72,8 +72,9 @@ class IOpMeta(IOp):
         rows = []
 
         for cmd_class in sorted(
-            _COMMAND_REGISTRY, key=lambda c: (c.__command_category__, c.__name__)
-        ):  # type: ignore[attr-defined]
+            _COMMAND_REGISTRY,
+            key=lambda c: (c.__command_category__, c.__name__),  # type: ignore[attr-defined]
+        ):
             category = cmd_class.__command_category__  # type: ignore[attr-defined]
             names = cmd_class.__command_names__  # type: ignore[attr-defined]
 
