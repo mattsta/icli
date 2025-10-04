@@ -1,7 +1,11 @@
 """Common order types with reusable parameter configurations."""
 
+import enum
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import Enum
+from typing import Any, Final, Literal
 
 from ib_async import (
     Order,
@@ -11,12 +15,6 @@ from ib_async import (
     #       non-dataclass subclasses of the Order dataclass and we can't dataclass.replace() on
     #       any other order classes except the primary Order() superclass!
 )
-
-from typing import *
-
-import enum
-from enum import Enum
-
 from loguru import logger
 
 # Note: all functions should have params in the same order!

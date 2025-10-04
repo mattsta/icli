@@ -1,0 +1,3 @@
+"""Connection commands."""
+
+CATEGORY = "Connection"

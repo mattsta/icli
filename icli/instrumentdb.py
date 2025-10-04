@@ -30,19 +30,15 @@ precision floats sometimes losing resolution due to float representation details
 
 import asyncio
 import bisect
-
-import diskcache  # type: ignore
-
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
-from typing import Any, Callable, Coroutine, Mapping
-
-from mutil.numeric import roundnear, ROUND
-from mutil.dualcache import DualCache
-from ib_async import Bag, Contract, IB
-
+from ib_async import IB, Bag, Contract
 from loguru import logger
+from mutil.dualcache import DualCache
+from mutil.numeric import ROUND, roundnear
 
 
 @dataclass(slots=True)

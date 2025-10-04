@@ -6,7 +6,6 @@ from decimal import Decimal
 from typing import Any
 
 from lark import Lark, Transformer
-
 from loguru import logger
 
 decimal.getcontext().prec = 10  # set precision for Decimal

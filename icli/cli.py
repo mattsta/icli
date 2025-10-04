@@ -4,36 +4,34 @@ original_print = print
 import asyncio
 import bisect
 import copy
+import dataclasses
 import datetime
 import fnmatch  # for glob string matching!
-import itertools
 import locale  # automatic money formatting
 import logging
 import math
 import os
 import pathlib
 import re
+import shutil
 import statistics
 import sys
-import shutil
-import time
-import pytz
-
-from collections import defaultdict, deque
-from dataclasses import dataclass, field, asdict
+import warnings
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, field
 from fractions import Fraction
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal
 
 import bs4
-import warnings
 
 # http://www.grantjenks.com/docs/diskcache/
 import diskcache  # type: ignore
-
 import numpy as np
 import pandas as pd
-
-from pandas.tseries.offsets import MonthEnd, YearEnd, Week
+import pytz
+import whenever
+from pandas.tseries.offsets import MonthEnd, Week, YearEnd
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import HTML
@@ -42,54 +40,47 @@ from prompt_toolkit.shortcuts import set_title
 from prompt_toolkit.styles import Style
 
 import icli.awwdio as awwdio
-
 import icli.calc
 import icli.orders as orders
 
-import whenever
-
-from . import instrumentdb
-from . import utils
+from . import instrumentdb, utils
 
 locale.setlocale(locale.LC_ALL, "")
 
 import ib_async
-
+import prettyprinter as pp  # type: ignore
 import seaborn  # type: ignore
+import tradeapis.buylang as buylang
+import tradeapis.cal as mcal
+import tradeapis.ifthen as ifthen
+import tradeapis.ifthen_templates as ifthen_templates
+import tradeapis.orderlang as orderlang
+from cachetools import TTLCache, cached
 from ib_async import (
+    IB,
     Bag,
     ComboLeg,
     Contract,
     Future,
-    IB,
     IBDefaults,
     Index,
     NewsBulletin,
     NewsTick,
     Order,
     OrderStateNumeric,
-    Position,
     PnLSingle,
-    RealTimeBarList,
+    Position,
     Ticker,
 )
-
 from loguru import logger
-
-import icli.lang as lang
-from icli.helpers import *  # FUT_EXP and isset() is appearing from here
-import prettyprinter as pp  # type: ignore
-import tradeapis.buylang as buylang
-import tradeapis.orderlang as orderlang
-import tradeapis.ifthen as ifthen
-import tradeapis.ifthen_templates as ifthen_templates
-import tradeapis.cal as mcal
-from tradeapis.ordermgr import OrderMgr, Trade as OrderMgrTrade
-
-from cachetools import cached, TTLCache
-
+from mutil.bgtask import BGSchedule, BGTask, BGTasks
 from mutil.timer import Timer
-from mutil.bgtask import BGTasks, BGSchedule, BGTask
+from tradeapis.ordermgr import OrderMgr
+from tradeapis.ordermgr import Trade as OrderMgrTrade
+
+from icli import cmds
+from icli.cmds.orders.straddle import IOpStraddleQuote
+from icli.helpers import *  # FUT_EXP and isset() is appearing from here
 
 USEastern: Final = pytz.timezone("US/Eastern")
 
@@ -566,7 +557,7 @@ class IBKRCmdlineApp:
     nowpy: datetime.datetime = field(default_factory=lambda: datetime.datetime.now())
 
     quotesPositional: list[tuple[str, ITicker]] = field(default_factory=list)
-    dispatch: lang.Dispatch = field(default_factory=lang.Dispatch)
+    dispatch: cmds.Dispatch = field(default_factory=cmds.Dispatch)
 
     # holder for background events being run for some purpose
     tasks: BGTasks = field(init=False)
@@ -751,7 +742,7 @@ class IBKRCmdlineApp:
         )
 
         # note: ordermgr is NOT scoped per-client because all clients can see all positions.
-        self.ordermgr = OrderMgr(f"Executed Positions")
+        self.ordermgr = OrderMgr("Executed Positions")
 
         self.tasks = BGTasks(f"icli client {self.clientId} internal")
         self.scheduler = BGTasks(f"icli client {self.clientId} scheduler")
@@ -1882,7 +1873,7 @@ class IBKRCmdlineApp:
         #    (market orders also imply quantity is NOT money because a market order with no quantity doesn't make sense)
         if ((not limit) and ("MKT" not in orderType)) or preview:
             # only use our automatic-midpoint if we don't already have a limit price
-            quoteKey = lang.lookupKey(contract)
+            quoteKey = lookupKey(contract)
 
             # if this is a new quote just requested, we may need to wait
             # for the system to populate it...
@@ -2761,7 +2752,7 @@ class IBKRCmdlineApp:
         distance: float,
     ):
         """Calculate a vertical spread for symbol and also subscribe to spread quote for live price updating."""
-        isq = lang.IOpStraddleQuote(
+        isq = IOpStraddleQuote(
             state=self,
             symbol=symbol,
             overrideATM=startStrike,
@@ -5657,10 +5648,10 @@ class IBKRCmdlineApp:
 
                     break
                 except (
+                    TimeoutError,
                     ConnectionRefusedError,
                     ConnectionResetError,
                     OSError,
-                    asyncio.TimeoutError,
                     asyncio.CancelledError,
                 ) as e:
                     # Don't print full network exceptions for just connection errors

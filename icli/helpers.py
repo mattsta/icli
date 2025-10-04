@@ -4,23 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import bisect
-import dataclasses
 import enum
 import functools
 import locale
 import math
-
 import platform
 import re
 import statistics
 import time
 import types
-import weakref
 
 import dateutil
-import pandas as pd
 import numpy as np
-import prettyprinter as pp  # type: ignore
+import pandas as pd
 
 ourjson: types.ModuleType
 # Only use orjson under CPython, else use default json (because `json` under pypy is faster than orjson)
@@ -34,24 +30,25 @@ else:
 
     ourjson = json
 
+import datetime
+import os
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from decimal import Decimal
 from functools import cached_property
+from typing import *
 
 import httpx
-
 import ib_async  # just for UNSET_DOUBLE
 import questionary
 import tradeapis.cal as tcal
-
 import websockets
-
 from cachetools import cached
+from dotenv import dotenv_values
 from ib_async import (
+    CFD,
     Bag,
     Bond,
-    CFD,
     Commodity,
     ContFuture,
     Contract,
@@ -69,29 +66,18 @@ from ib_async import (
     Trade,
     Warrant,
 )
+from loguru import logger
 from questionary import Choice
 from tradeapis.orderlang import (
     DecimalCash,
-    DecimalLongCash,
-    DecimalLongShares,
     DecimalPercent,
     DecimalShares,
-    DecimalShortCash,
-    DecimalShortShares,
     OrderIntent,
 )
 
 from icli.futsexchanges import FUTS_EXCHANGE
 
 from .tinyalgo import ATRLive
-
-from typing import *
-import datetime
-import os
-
-from dotenv import dotenv_values
-
-from loguru import logger
 
 # auto-detect next index futures expiration month based on roll date
 # we add some padding to the futs exp to compensate for having the client open a couple days before

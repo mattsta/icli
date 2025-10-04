@@ -4,11 +4,11 @@ import asyncio
 import os
 import sys
 
-import icli.cli as cli
-
 from dotenv import load_dotenv
-from prompt_toolkit.patch_stdout import patch_stdout
 from loguru import logger
+from prompt_toolkit.patch_stdout import patch_stdout
+
+import icli.cli as cli
 
 # just load our dot files into the environment too
 load_dotenv(".env.icli")

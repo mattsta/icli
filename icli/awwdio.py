@@ -1,9 +1,9 @@
 import os
 import time
 from dataclasses import dataclass, field
-from loguru import logger
 
 import httpx
+from loguru import logger
 
 # Use very small timeouts because we expect to be operating locally.
 # (and if the server isn't online, we want to drop requests immediately instead of lagging/retrying forever)
@@ -48,5 +48,5 @@ class AwwdioClient:
     async def sound(self, sound: str = "blip") -> None:
         try:
             await self.client.get(f"{self.url}/play", params=dict(sound=sound))
-        except Exception as e:
+        except Exception:
             logger.warning("Sound failed to send!")

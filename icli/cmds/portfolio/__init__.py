@@ -1,0 +1,3 @@
+"""Portfolio commands."""
+
+CATEGORY = "Portfolio"

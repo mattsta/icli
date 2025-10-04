@@ -3,9 +3,9 @@
 Kinda like helpers, but more generic abstractions of repetitive actions.
 """
 
-from dataclasses import dataclass, field
 import time
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 ###############################################################################
 #                                                                             #

@@ -1,7 +1,7 @@
 """tinalgo is just helpers copy/pasted from mmt because I don't want to add mmt as a dependency"""
 
-from dataclasses import dataclass, field
 from collections import deque
+from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)

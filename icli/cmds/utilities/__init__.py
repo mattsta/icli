@@ -1,0 +1,3 @@
+"""Utility commands."""
+
+CATEGORY = "Utilities"
