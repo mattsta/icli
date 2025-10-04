@@ -45,6 +45,7 @@ class IOpPositions(IOp):
 ```
 
 Each category directory defines its display name once in `__init__.py`:
+
 ```python
 # icli/cmds/portfolio/__init__.py
 """Portfolio commands."""
@@ -124,7 +125,7 @@ The command is automatically discovered on next import!
 - **base.py**: `IOp` base class and `@command` decorator
 - **dispatch.py**: `Dispatch` class for command routing
 - **utils.py**: Shared utilities (expand_symbols, automaticLimitBuffer, etc.)
-- **__init__.py**: Discovery system and OP_MAP builder
+- \***\*init**.py\*\*: Discovery system and OP_MAP builder
 
 ## Migration Notes
 
@@ -153,18 +154,18 @@ poetry run python -c "from icli import cmds; d = cmds.Dispatch(); print('Dispatc
 
 ## Command Categories
 
-| Category | Commands | Description |
-|----------|----------|-------------|
-| Live Market Quotes | 10 | Quote requests, depth, chains, prequalify |
-| Order Management | 8 | Buy, limit, scale, modify, cancel orders |
-| Predicate Management | 7 | ifthen rules and automation |
-| Portfolio | 6 | Positions, orders, balance, executions |
-| Connection | 1 | Connection management (rid) |
-| Utilities | 19 | Misc tools (cash, calendar, math, etc.) |
-| Schedule Management | 6 | Schedule events (sadd, slist, scancel) |
-| Task Management | 2 | Background tasks (tasklist, taskcancel) |
-| Quote Management | 12 | Quote save/restore/cleanup operations |
+| Category             | Commands | Description                               |
+| -------------------- | -------- | ----------------------------------------- |
+| Live Market Quotes   | 10       | Quote requests, depth, chains, prequalify |
+| Order Management     | 8        | Buy, limit, scale, modify, cancel orders  |
+| Predicate Management | 7        | ifthen rules and automation               |
+| Portfolio            | 6        | Positions, orders, balance, executions    |
+| Connection           | 1        | Connection management (rid)               |
+| Utilities            | 19       | Misc tools (cash, calendar, math, etc.)   |
+| Schedule Management  | 6        | Schedule events (sadd, slist, scancel)    |
+| Task Management      | 2        | Background tasks (tasklist, taskcancel)   |
+| Quote Management     | 12       | Quote save/restore/cleanup operations     |
 
 ---
 
-*Generated during command system refactoring - 2025*
+_Generated during command system refactoring - 2025_

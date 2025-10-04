@@ -1,5 +1,4 @@
-icli: IBKR live trade cli
-=========================
+# icli: IBKR live trade cli
 
 `icli` is a command line interface for live trading (or sandbox/paper trading) using IBKR accounts.
 
@@ -56,57 +55,56 @@ See below for further account setup and environment variable conditions under th
 
 For tracking feature updates, check the full commit history and you can always run `?` for listing commands and getting help when running commands. The README is slightly undermaintained and some features are lacking complete documentation outside of the runtime itself, so feel free to suggest updates where useful.
 
-
 ## Features
 
 - allows full trading and data access to your IBKR account using only a CLI
-    - note: IBKR doesn't allow all operations from their API, so some operations like money transfers, funding, requesting market data, requesting trading permissions, etc, still need to use the mobile/web apps.
+  - note: IBKR doesn't allow all operations from their API, so some operations like money transfers, funding, requesting market data, requesting trading permissions, etc, still need to use the mobile/web apps.
 - allows trading as fast as you can type (no need to navigate multiple screens / checks / pre-flight confirmations)
-    - in fact, no confirmation for anything. you type it, it happens.
-    - forward implication: also allows losing money as fast as you can type
+  - in fact, no confirmation for anything. you type it, it happens.
+  - forward implication: also allows losing money as fast as you can type
 - commands can be entered as any unambiguous prefix
-    - e.g. `position` command can be entered as just `p` because it doesn't conflict with any other command
-    - but for `qquote` and `quote` commands, so those must be clarified by using `qq` or `qu` at a minimum
+  - e.g. `position` command can be entered as just `p` because it doesn't conflict with any other command
+  - but for `qquote` and `quote` commands, so those must be clarified by using `qq` or `qu` at a minimum
 - interface shows balances, components of account value, P&L, and other account stats updating in real time
 - an excessive amount of attention is given to formatting data for maximum readability and quick understanding at a glance
-    - due to density of visible data, it's recommended to run a smaller terminal font size to enable 170+ character wide viewing
+  - due to density of visible data, it's recommended to run a smaller terminal font size to enable 170+ character wide viewing
 - uses console ansi color gradients to show the "goodness" or "badness" of current price quotes
-    - bad is red
-    - more bad is more red
-    - good is green
-    - more good is more green
-    - really really good is blue (>= 0.98% change)
+  - bad is red
+  - more bad is more red
+  - good is green
+  - more good is more green
+  - really really good is blue (>= 0.98% change)
 - helpful CLI prompts for multi-stage operations (thanks to [questionary](https://github.com/tmbo/questionary))
 - selects correct class of IBKR contract based on names entered (see: `helpers.py:contractForName()`)
-    - futures are prefixed with slashes, as is a norm: `/ES`, `/MES`, `/NQ`, `/MNQ`, etc
-    - options are the full OCC symbol (no spaces): `AAPL210716C00155000`
-    - future options start with a slash: `/ES210716C05000000`
-    - warrants, bonds, bills, forex, etc, aren't currently addressable in the CLI because we didn't decide on a naming convention yet
-    - spreads can be entered as a full buy/sell ratio description like:
-        - `"bto 1 AAPL210716C00155000 sto 2 AAPL210716C00160000 bto 1 AAPL210716C00165000"`
-        - works for adding live quotes (`add "bto ... sto ..."`) and for requesting spread trades using the `spread` command
-            - for ordering spreads, you specify the baseline spread per-leg ratio (e.g. butterflies are 1:2:1 as above), then the total spread order is the quantity requested multiplied by each leg ratio (e.g. butterfly 1:2:1 with quantity 100 will order 100 + 200 + 100 = 400 total contracts via a [COB](https://flextrade.com/simplifying-complexity-trading-complex-order-books-in-options-part-1/))
+  - futures are prefixed with slashes, as is a norm: `/ES`, `/MES`, `/NQ`, `/MNQ`, etc
+  - options are the full OCC symbol (no spaces): `AAPL210716C00155000`
+  - future options start with a slash: `/ES210716C05000000`
+  - warrants, bonds, bills, forex, etc, aren't currently addressable in the CLI because we didn't decide on a naming convention yet
+  - spreads can be entered as a full buy/sell ratio description like:
+    - `"bto 1 AAPL210716C00155000 sto 2 AAPL210716C00160000 bto 1 AAPL210716C00165000"`
+    - works for adding live quotes (`add "bto ... sto ..."`) and for requesting spread trades using the `spread` command
+      - for ordering spreads, you specify the baseline spread per-leg ratio (e.g. butterflies are 1:2:1 as above), then the total spread order is the quantity requested multiplied by each leg ratio (e.g. butterfly 1:2:1 with quantity 100 will order 100 + 200 + 100 = 400 total contracts via a [COB](https://flextrade.com/simplifying-complexity-trading-complex-order-books-in-options-part-1/))
 - the positions CLI view also shows matched closing orders for each currently owned symbol
 - helper shorthands, like an `EVICT [symbol] [quantity]` command to immediately yeet an entire equity position into a [MidPrice](https://www.interactivebrokers.com/en/index.php?f=36735) order with no extra steps
-    - for closing any position, you can enter `-1` as the quantity to use full quantity held
+  - for closing any position, you can enter `-1` as the quantity to use full quantity held
 - support for showing depth-of-market requests for a quick glance at underlying market supply/demand distributions (`depth` command)
 - easy order modifications for price or quantity updates
 - real time notification of order executions via spoken events
 - quick order cancellation—need to bail on one or more orders ASAP before they try to execute? we got u fam
-    - `cancel` command with no arguments will bring up a menu for you to select one or more live orders to immediately cancel.
-    - also accepts wildcards so:
-      - `cancel *` removes all orders for the current client
-      - `cancel AAPL2*` removes all orders for AAPL contracts, etc
-    - `cancel order1 order2 ... orderN` command with arguments will also cancel each requested order id immediately.
-        - order ids are viewable in the `orders` command output table
+  - `cancel` command with no arguments will bring up a menu for you to select one or more live orders to immediately cancel.
+  - also accepts wildcards so:
+    - `cancel *` removes all orders for the current client
+    - `cancel AAPL2*` removes all orders for AAPL contracts, etc
+  - `cancel order1 order2 ... orderN` command with arguments will also cancel each requested order id immediately.
+    - order ids are viewable in the `orders` command output table
 - quick helper to add all waiting orders to your live real time quote view (`oadd`: add all order symbols to quote view)
 - you can add individual symbols to the live quote view (equity, option, future, even spreads) (`add [symbols...]`: add symbols to quote view, quoted symbols can be spreads like `add AAPL QQQ "buy 1 AAPL210716C00160000 sell 1 AAPL210716C00155000"` to quote a credit spread and two equity symbols)
 - automatically remembers your added quote symbols across restarts
 - you can also check quotes without adding them to the persistent live updating quote view with `qquote [symbols...]`
-    - the individual quote request process is annoyingly slow because of how IBKR reports quotes, but it still works
+  - the individual quote request process is annoyingly slow because of how IBKR reports quotes, but it still works
 - view your trade execution history for the current day (`executions` command)
-    - includes per-execution commission cost (or credit!)
-    - also shows the sum total of your commissions for the day and executions reports in multiple formats/views
+  - includes per-execution commission cost (or credit!)
+  - also shows the sum total of your commissions for the day and executions reports in multiple formats/views
 
 ### Streaming Quote View
 
@@ -121,9 +119,9 @@ Live stock / etf / etn / futures / etc quotes show:
 - quote symbol (`ES`)
 - current estimated price (`4,360.25`)
 - low: percentage and point amount above low for the session (`( 1.55%  67.00)`)
-    - always positive unless symbol is trading at its low price of the day
+  - always positive unless symbol is trading at its low price of the day
 - close: percentage and point amount from the previous session close (`(  1.09%   47.25)`)
-    - the typical "daily price change" value
+  - the typical "daily price change" value
 - session high (`4,362.00`)
 - session low (`4,293.25`)
 - NBBO bid price x size (`4,360.00 x    158`)
@@ -141,18 +139,18 @@ TSLA  210716C00700000: [u   653.98 ( -7.04%)] [iv 0.47]  3.37 ( -32.57%   -1.65 
 
 Live option quotes display more details because prices move faster:
 
-- quote symbol (OCC symbol *with* spaces) (`TSLA  210716C00700000`)
+- quote symbol (OCC symbol _with_ spaces) (`TSLA  210716C00700000`)
 - live underlying quote price (`653.98`)
 - percentage difference between live underlying price and strike price (`-7.04%`)
-    - with current underlying price `653.98` and strike at `$700.00`, the stock is currently 7.04% under ATM for the strike:
-        - `653.98 * 1.0704 = 700.020192`
+  - with current underlying price `653.98` and strike at `$700.00`, the stock is currently 7.04% under ATM for the strike:
+    - `653.98 * 1.0704 = 700.020192`
 - iv for contract based on [last traded price as calculated by IBKR](https://interactivebrokers.github.io/tws-api/option_computations.html) (`[iv 0.47]`)
 - current estimated price (`3.37`)
 - high: percentage, point difference, and traded high for the session (`( -32.57%   -1.65  5.00)`)
-    - current option price of `3.37` is `-32.57%` (`-1.65` points down) from high of day, which was `5.00`
-    - will always be negative (or 0% if trading at high of day)
+  - current option price of `3.37` is `-32.57%` (`-1.65` points down) from high of day, which was `5.00`
+  - will always be negative (or 0% if trading at high of day)
 - low: percentage, point difference, and traded low for the session (`(  14.29%    0.40  2.95)`)
-    - will always be positive (or 0% if trading at low of day)
+  - will always be positive (or 0% if trading at low of day)
 - close: percentage, point difference, and last traded price from previous session (`( -24.24%   -1.10  4.45)`)
 - NBBO bid price x size (`3.35 x      4`)
 - NBBO ask price x size (`3.40 x      3`)
@@ -191,11 +189,11 @@ First download the IBKR Gateway, login to the gateway (which will manage the con
 
 - Download the [IBKR Gateway](https://www.interactivebrokers.com/en/index.php?f=16457) (you can also use TWS as an API gateway, but TWS wastes extra resources if you only need API access and also crashes if you have certain OS enhancements running)
 - Login to the gateway with your IBKR username and password (will require 2FA to your phone using the IBKR app)
-    - The IBKR gateway will disconnect a minimum of twice per day:
-        - IBKR gateway insists on restarting itself once per day, but you can modify the daily restart time.
-            - this restart is a hard restart where your CLI application will lose connection to the IBKR gateway itself since the gateway process exits and restarts (note: IBKR Gateway caches your login credentials for up to a week, so you usually don't have to re-login or 2fa when it auto-restarts nightly)
-        - The gateway will also have a 30 second to 5 minute upstream network disconnect once per night when the remote IBKR systems do a nightly reboot on their own. During this time your CLI application will remain connected to the gateway, but won't be receiving any updates and can't send any new orders or requests. Also this downtime happens while futures markets are open, but you won't be able to access markets during the nightly reboot downtime, so make sure your risk is managed via brackets or stops.
-    - There is no reliable way to run the IBKR Gateway completely unattended for multiple weeks due to the manual 2FA and username/password re-entry process.
+  - The IBKR gateway will disconnect a minimum of twice per day:
+    - IBKR gateway insists on restarting itself once per day, but you can modify the daily restart time.
+      - this restart is a hard restart where your CLI application will lose connection to the IBKR gateway itself since the gateway process exits and restarts (note: IBKR Gateway caches your login credentials for up to a week, so you usually don't have to re-login or 2fa when it auto-restarts nightly)
+    - The gateway will also have a 30 second to 5 minute upstream network disconnect once per night when the remote IBKR systems do a nightly reboot on their own. During this time your CLI application will remain connected to the gateway, but won't be receiving any updates and can't send any new orders or requests. Also this downtime happens while futures markets are open, but you won't be able to access markets during the nightly reboot downtime, so make sure your risk is managed via brackets or stops.
+  - There is no reliable way to run the IBKR Gateway completely unattended for multiple weeks due to the manual 2FA and username/password re-entry process.
 
 ### Download `icli`
 
@@ -214,18 +212,16 @@ poetry install
 Even though you are logged in to the gateway, the IBKR API still requires your account ID for some actions (because IBKR allows multiple account management, so even if you are logged in as you, it needs to know which account you _really_ want to modify).
 
 - Configure your IBKR account id as environment variable or in `.env.icli` as:
-    - `ICLI_IBKR_ACCOUNT_ID="U..."`
+  - `ICLI_IBKR_ACCOUNT_ID="U..."`
 
 - You can also configure the gateway host and port to connect to using:
-    - `ICLI_IBKR_HOST="127.0.0.1"`
-    - `ICLI_IBKR_PORT=4001`
-        - host and port are configured in the gateway settings and can be different for live and paper trading
-        - the gateway defaults to localhost-only binding and read-only mode
+  - `ICLI_IBKR_HOST="127.0.0.1"`
+  - `ICLI_IBKR_PORT=4001`
+    - host and port are configured in the gateway settings and can be different for live and paper trading
+    - the gateway defaults to localhost-only binding and read-only mode
 
 - You can also configure the idle refresh time for toolbar quotes (in seconds):
-    - `ICLI_REFRESH=3.3`
-
-
+  - `ICLI_REFRESH=3.3`
 
 Configure environment settings as above, confirm the IBKR Gateway is started (and confirm whether you want read-only mode or full mode in addition to noting which port the gateway is opening for local connections), login to the IBKR Gateway (requires 2fa to the IBKR app on your phone), then run:
 
@@ -246,12 +242,12 @@ If you have any doubt about how a command may change your account, check the sou
 ## Caveats
 
 - the IBKR API doesn't allow any operations on fractional shares, so those orders must be handled by IBKR web, mobile, or TWS.
-- It's best to have *no* standing orders placed from IBKR web, mobile, or TWS. All orders should be placed from the API itself due to how IBKR handles ["order ID binding" issues](https://interactivebrokers.github.io/tws-api/modifying_orders.html).
-    - for example, if you have a GTC REL order to SELL 100 AAPL at $200 minimum placed from IBKR mobile/web/tws which you expect to maybe hit in 3 months, connecting to the IBKR API will actually cancel and re-submit the live order every time you start your API client (instead of the expected behavior of only submitting once daily when the market opens).
-    - So, it's best to only place orders through the API endpoints if you are doing majority API-related trading.
-    - Also, you can always modify and cancel orders placed via API using the regular mobile/web/tws apps too.
+- It's best to have _no_ standing orders placed from IBKR web, mobile, or TWS. All orders should be placed from the API itself due to how IBKR handles ["order ID binding" issues](https://interactivebrokers.github.io/tws-api/modifying_orders.html).
+  - for example, if you have a GTC REL order to SELL 100 AAPL at $200 minimum placed from IBKR mobile/web/tws which you expect to maybe hit in 3 months, connecting to the IBKR API will actually cancel and re-submit the live order every time you start your API client (instead of the expected behavior of only submitting once daily when the market opens).
+  - So, it's best to only place orders through the API endpoints if you are doing majority API-related trading.
+  - Also, you can always modify and cancel orders placed via API using the regular mobile/web/tws apps too.
 - IBKR only allows one login per account across all platforms, so when your IBKR Gateway is running, you can't login to IBKR mobile/web without kicking the API gateway connection offline (so your API client will lose access to the IBKR network too).
-    - though, you can run an unlimited number of *local* clients connecting to the gateway. Useful for things like: if you wanted to develop your own quote viewing/graphing system while also using another api application for trading or for creating a live account balance dashboard, etc.
+  - though, you can run an unlimited number of _local_ clients connecting to the gateway. Useful for things like: if you wanted to develop your own quote viewing/graphing system while also using another api application for trading or for creating a live account balance dashboard, etc.
 - IBKR supports many currencies and many countries and many exchanges, but currently `icli` uses USD and SMART exchange transactions for all orders (except for futures which use the correct futures exchange per future symbol).
 - IBKR paper trading / sandbox interface doesn't support all features of a regular account, so you may get random errors ("invalid account code") you won't see on your live account. Also you'll probably be unable to use many built-in algo types with paper trading. The only safe paper trading order types appear to be direct limit and market orders.
 
@@ -262,33 +258,31 @@ You should also be comfortable diving into the code if anything looks wonky to y
 `icli` is still limited by all regular IBKR policies including, but not limited to:
 
 - by default the gateway is in Read Only mode
-    - Configure -> Settings -> API -> Settings -> 'Read-Only API'
-- IBKR has no concept of "buy to open" / "sell to open" / "sell to close" / "buy to close" — IBKR only sees BUY and SELL transactions. If you try to sell something you don't own, IBKR will execute the transaction as a new short position. If you try to sell *more* than something you own, IBKR will sell your position then also create a new short position. It's up to you to track whether you are buying and selling the quantities you expect.
+  - Configure -> Settings -> API -> Settings -> 'Read-Only API'
+- IBKR has no concept of "buy to open" / "sell to open" / "sell to close" / "buy to close" — IBKR only sees BUY and SELL transactions. If you try to sell something you don't own, IBKR will execute the transaction as a new short position. If you try to sell _more_ than something you own, IBKR will sell your position then also create a new short position. It's up to you to track whether you are buying and selling the quantities you expect.
 - You should likely convert your account to the [PRO Tiered Commission Plan](https://www.interactivebrokers.com/en/index.php?f=1590) so you can receive transaction rebates, lowest margin fees, access to full 4am to 8pm trading hours, and hopefully receive the highest rebates and lowest commissions on the platform.
 - you need to [pay for live market data](https://www.interactivebrokers.com/en/index.php?f=14193) to receive live streaming quotes
-    - at a minimum you will want "US Securities Snapshot and Futures Value Bundle" and "US Equity and Options Add-On Streaming Bundle" plus "OPRA Top of Book (L1)" for options pricing plus "US Futures Value PLUS Bundle" for non-delayed futures quotes (doesn't include VIX though)
-- you are still limited to "[market data lines](https://www.interactivebrokers.com/en/index.php?f=14193#market-data-display)" where you are limited to 100 concurrent streaming quotes unless you either have a *uuuuuge* account balance, or unless you pay an additional $30 per month for +100 more top of book streaming quotes (but you can buy up to 10 quote booster ultra rare hologram packs, so the max limit on quotes is 100 * 10 + 100 = 1,100 symbols which would also give you access to open 11 concurrent DOM views too)
+  - at a minimum you will want "US Securities Snapshot and Futures Value Bundle" and "US Equity and Options Add-On Streaming Bundle" plus "OPRA Top of Book (L1)" for options pricing plus "US Futures Value PLUS Bundle" for non-delayed futures quotes (doesn't include VIX though)
+- you are still limited to "[market data lines](https://www.interactivebrokers.com/en/index.php?f=14193#market-data-display)" where you are limited to 100 concurrent streaming quotes unless you either have a _uuuuuge_ account balance, or unless you pay an additional $30 per month for +100 more top of book streaming quotes (but you can buy up to 10 quote booster ultra rare hologram packs, so the max limit on quotes is 100 \* 10 + 100 = 1,100 symbols which would also give you access to open 11 concurrent DOM views too)
 - you need to manually request access to trade anything not a stock or etf by default (penny stocks, options, bonds, futures, volatility products)
 - you need to self-monitor your "[order efficiency ratio](https://ibkr.info/article/1343)" which means you need at least 1 executed trade for every 20 order create/modify/cancel requests you submit to IBKR (you always start the day with 20 free order credits)
-    - you can count your daily executed trades using the `executions` command (each row means +20 order credits for the day)
-    - there's no built-in mechanism to count how many cancel/modify operations happened in a day because IBKR makes those history rows vanish immediately when processed (we *could* create a counter to log them locally, but haven't had a reason to do so yet)
+  - you can count your daily executed trades using the `executions` command (each row means +20 order credits for the day)
+  - there's no built-in mechanism to count how many cancel/modify operations happened in a day because IBKR makes those history rows vanish immediately when processed (we _could_ create a counter to log them locally, but haven't had a reason to do so yet)
 - IBKR has a fixed limit of 10,000 simultaneous active orders per account (which is a lot tbh)
 - typical [FINRA legal restrictions](https://www.finra.org/investors/learn-to-invest/advanced-investing/day-trading-margin-requirements-know-rules) apply such as:
-    - if your account is under $25k, for equity symbols and equity options, you are limited to 3 same-day open/close trades per 5 trading days.
-        - your live day trades remaining count is visible in the cli toolbar
-            - when displayed, the day trades remaining count is updated in real time
-            - if your account is over $25k, the count will not display
-                - but, if your account has total value bouncing between say $24k and $26k, the limit will appear and vanish and appear again as your balance grows and shrinks above and below the $25k limit.
-        - you can hack around the "same-day open/close" limit somewhat with options by turning a winning single-leg option position into a butterfly then closing it all the next day.
-    - the $25k 3-per-5 restriction does not apply to futures or future options, so go wild and open then close 1 `/MES` 100 times a night on your $4k account (though, watch out for the $0.52 commission per trade).
-    - unlike other brokers, IBKR gives you full 4x day trade margin regardless of your account balance (because IBKR doesn't issue margin calls—their automated systems will try their best (assuming [oil doesn't go negative](https://www.financemagnates.com/forex/brokers/interactive-brokers-loss-from-oil-collapse-swelled-to-104-million/)) to liquidate your positions until you are margin compliant again). so, if your account has $8k equity, you can hold up to $32k of stock during the day (which must be reduced below overnight margin before close—and you are still limited to the 3-in-5 same-day open/close equity trading rules even if closing your 4x margin orders would create a 3-in-5 violation)
+  - if your account is under $25k, for equity symbols and equity options, you are limited to 3 same-day open/close trades per 5 trading days.
+    - your live day trades remaining count is visible in the cli toolbar
+      - when displayed, the day trades remaining count is updated in real time
+      - if your account is over $25k, the count will not display
+        - but, if your account has total value bouncing between say $24k and $26k, the limit will appear and vanish and appear again as your balance grows and shrinks above and below the $25k limit.
+    - you can hack around the "same-day open/close" limit somewhat with options by turning a winning single-leg option position into a butterfly then closing it all the next day.
+  - the $25k 3-per-5 restriction does not apply to futures or future options, so go wild and open then close 1 `/MES` 100 times a night on your $4k account (though, watch out for the $0.52 commission per trade).
+  - unlike other brokers, IBKR gives you full 4x day trade margin regardless of your account balance (because IBKR doesn't issue margin calls—their automated systems will try their best (assuming [oil doesn't go negative](https://www.financemagnates.com/forex/brokers/interactive-brokers-loss-from-oil-collapse-swelled-to-104-million/)) to liquidate your positions until you are margin compliant again). so, if your account has $8k equity, you can hold up to $32k of stock during the day (which must be reduced below overnight margin before close—and you are still limited to the 3-in-5 same-day open/close equity trading rules even if closing your 4x margin orders would create a 3-in-5 violation)
 - the CBOE options [390 rule](https://support.tastyworks.com/support/solutions/articles/43000435379-what-is-the-390-professional-orders-rule-390-rule-) always applies
-    - basically, if you average more than 1 CBOE option order placed every minute for a month (the "390" rule is from 390 minutes being the 6.5 hour trading day; also the order doesn't have to execute, just be placed to count), your account will be [re-classified and everything will cost more for you](https://ibkr.info/node/1242) and you'll potentially [get worse executions](https://markets.cboe.com/us/equities/trading/offerings/retail_priority/) going forward.
-- if you aren't deploying an aggressive temporal alpha thesis (i.e. st0nks go brrrr), your orders should be adjusted to not hit a bid/ask price exactly when submitted. Immediate execution is called a "[marketable order](https://ibkr.info/article/201)," and those get the worst commission (more aggressive == more expensive to execute). You can avoiding hitting waiting orders at exchanges manually by adjusting your price (bids lower or asks higher or target a wide midpoint) or you can use various IBKR algo order types which may prefer to not take liquidity immediately (and some IBKR algos you can command to *never* take liquidity for the best rebate probability).
-    - restated: you get the best commission rates (and sometimes rebates 😎) when your order is sitting on an exchange's limit order book then *somebody else's* order matches against your waiting order (meaning: the counterparty is being aggressive while you are providing passive liquidity to the market—but if you need to be aggressive, TAKE THE PRICE AND USE IT.)
+  - basically, if you average more than 1 CBOE option order placed every minute for a month (the "390" rule is from 390 minutes being the 6.5 hour trading day; also the order doesn't have to execute, just be placed to count), your account will be [re-classified and everything will cost more for you](https://ibkr.info/node/1242) and you'll potentially [get worse executions](https://markets.cboe.com/us/equities/trading/offerings/retail_priority/) going forward.
+- if you aren't deploying an aggressive temporal alpha thesis (i.e. st0nks go brrrr), your orders should be adjusted to not hit a bid/ask price exactly when submitted. Immediate execution is called a "[marketable order](https://ibkr.info/article/201)," and those get the worst commission (more aggressive == more expensive to execute). You can avoiding hitting waiting orders at exchanges manually by adjusting your price (bids lower or asks higher or target a wide midpoint) or you can use various IBKR algo order types which may prefer to not take liquidity immediately (and some IBKR algos you can command to _never_ take liquidity for the best rebate probability).
+  - restated: you get the best commission rates (and sometimes rebates 😎) when your order is sitting on an exchange's limit order book then _somebody else's_ order matches against your waiting order (meaning: the counterparty is being aggressive while you are providing passive liquidity to the market—but if you need to be aggressive, TAKE THE PRICE AND USE IT.)
 - also please remember to not run out of money
-
-
 
 ## Architecture
 
@@ -298,7 +292,7 @@ The easiest way to launch the cli is via poetry in the repository directory: `po
 
 cli commands are processed in a prompt-toolkit loop managed by the somewhat too long `dorepl()` method of class `IBKRCmdlineApp` in [`cli.py`](icli/cli.py).
 
-cli commands are implemented in [`lang.py`](icli/lang.py) with each command being a class with custom argument definitions as organized by the [`mutil/dispatch.py`](https://github.com/mattsta/mutil/blob/main/mutil/dispatch.py) system.  Check out the `OP_MAP` variable for how command names are mapped to categories and implementation classes.
+cli commands are implemented in [`lang.py`](icli/lang.py) with each command being a class with custom argument definitions as organized by the [`mutil/dispatch.py`](https://github.com/mattsta/mutil/blob/main/mutil/dispatch.py) system. Check out the `OP_MAP` variable for how command names are mapped to categories and implementation classes.
 
 Your CLI session history is persisted in `~/.tplatcli_ibkr_history.{live,sandbox}` so you have search and up/down recall across sessions.
 
@@ -306,16 +300,13 @@ All actions taken by [the underlying IBKR API wrapper](https://github.com/erdewi
 
 All times in the interface are normalized to display in US Eastern Time where pre-market hours are 0400-0928, market hours are 0930-1600, and after hours is 1600-2000 (with options trading 0930-1600, with certain etf and index options trading until 1615 every day). Futures operate under their [own weird futures hours](https://www.cmegroup.com/trading-hours.html) schedule, so enjoy trading your Wheat Options and [Mini-sized Wheat Futures](https://www.cmegroup.com/markets/agriculture/grains/mini-sized-wheat.html) between 1900-0745 and 0830-1345.
 
-
-
 ### Notable Helpers
 
 [`futsexchanges.py`](icli/futsexchanges.py) contains a mostly auto-generated mapping of future symbols to their matching exchanges and full text descriptions. The mapping can be updated by extracting updated versions of [the table of IBKR futures](https://www.interactivebrokers.com/en/index.php?f=26662) using `generateFuturesMapping()`. The reason for this mapping is when entering a futures trade order, IBKR requires the exchange name where the futures symbol lives (i.e. there's no SMART futures router and futures only trade on their owning exchange), so we had to create a full lookup table on our own.
-    
+
 Also note: some of the future symbol descriptions are manually modified after the automatic mapping download. Read end of the file for notes about which symbols need additional metadata or symbol changes due to conflicting names or multiplier inconsistencies (example: `BRR` bitcoin contract is one symbol, but microbitcoin is 0.1 multiplier, while standard is 5 multiplier, and for some reason IBKR didn't implement the micro as the standard `MBT` symbol, so you have to use it as `BRR` with explicit multiple).
 
 [`orders.py`](icli/orders.py) is a central location for defining IBKR order types and extracting order objects from specified order types using all [20+ poorly documented, conflicting, and multi-purpose optional metadata fields](https://interactivebrokers.github.io/tws-api/classIBApi_1_1Order.html) an order may need.
-
 
 ## TODO
 
